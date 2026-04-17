@@ -1,10 +1,8 @@
 name: Build & Release
-
 on:
   push:
     tags:
-      - 'v*'  # 推送 v1.0.0 这样的 tag 时触发构建
-
+      - 'v*'
 jobs:
   release:
     strategy:
@@ -14,11 +12,9 @@ jobs:
             build_cmd: npm run build
           - os: macos-latest
             build_cmd: npm run build:mac
-
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,6 +23,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # 👇 修复点：设置镜像，解决 Electron 安装失败
+      - name: Set NPM & Electron Mirror
+        run: |
+          npm config set registry https://registry.npmmirror.com
+          npm config set electron_mirror https://npmmirror.com/mirrors/electron/
 
       - name: Install dependencies
         run: |
