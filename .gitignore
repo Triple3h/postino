@@ -1,0 +1,25 @@
+# Dependencies
+desktop/node_modules/
+
+# Build output
+desktop/dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Electron
+*.blockmap
+*.exe
+*.dmg
+*.deb
+*.AppImage
+*.snap
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0e14"/>
+      <stop offset="100%" style="stop-color:#1a2230"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00e5a0"/>
+      <stop offset="100%" style="stop-color:#00b880"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded rect -->
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="url(#bg)" stroke="#1e2a3a" stroke-width="2"/>
+  <!-- Lightning bolt -->
+  <path d="M72 16 L40 68 L58 68 L52 112 L88 56 L68 56 Z" fill="url(#accent)" opacity="0.95"/>
+  <!-- Small terminal dots -->
+  <circle cx="30" cy="96" r="4" fill="#00e5a0" opacity="0.3"/>
+  <circle cx="42" cy="104" r="3" fill="#00e5a0" opacity="0.2"/>
+  <circle cx="98" cy="24" r="3" fill="#00e5a0" opacity="0.25"/>
+</svg>

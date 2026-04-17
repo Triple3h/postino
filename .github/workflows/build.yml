@@ -1,0 +1,46 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 推送 v1.0.0 这样的 tag 时触发构建
+
+jobs:
+  release:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            build_cmd: npm run build
+          - os: macos-latest
+            build_cmd: npm run build:mac
+
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          cd desktop
+          npm install
+
+      - name: Copy index.html
+        run: |
+          cd desktop
+          node copy-html.js
+
+      - name: Build & Publish
+        run: |
+          cd desktop
+          ${{ matrix.build_cmd }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
