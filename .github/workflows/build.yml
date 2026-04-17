@@ -23,12 +23,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
-      # 👇 修复点：设置镜像，解决 Electron 安装失败
+      # 👇 核心修复：解决 GitHub 安装 Electron 失败
       - name: Set NPM & Electron Mirror
         run: |
           npm config set registry https://registry.npmmirror.com
           npm config set electron_mirror https://npmmirror.com/mirrors/electron/
+          npm config set electron_builder_binaries_mirror https://npmmirror.com/mirrors/electron-builder-binaries/
+
+      # 👇 修复：先安装 electron-builder 全局依赖
+      - name: Install global tools
+        run: npm install -g electron-builder
 
       - name: Install dependencies
         run: |
