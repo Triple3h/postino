@@ -383,36 +383,40 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 .api-group-header .group-count {
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
   font-family: var(--font-mono);
+  background: var(--accent-dim);
+  color: var(--accent);
+  margin-right: 6px;
 }
 
 .api-group-header .group-actions {
   display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity var(--transition);
-}
-
-.api-group-header:hover .group-actions {
-  opacity: 1;
+  gap: 4px;
+  align-items: center;
 }
 
 .api-group-header .group-actions button {
-  background: none;
+  background: var(--accent-dim);
   border: none;
-  color: var(--text-muted);
+  color: var(--accent);
   cursor: pointer;
-  padding: 2px 4px;
-  font-size: 12px;
-  border-radius: 3px;
+  padding: 0px 5px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  line-height: 16px;
   transition: all var(--transition);
+  opacity: 0.7;
 }
 
 .api-group-header .group-actions button:hover {
-  color: var(--accent);
-  background: var(--accent-dim);
+  opacity: 1;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 6px var(--accent-glow);
 }
 
 .api-group-items {
@@ -502,8 +506,8 @@ a { color: var(--accent); text-decoration: none; }
   padding: 12px 18px;
   border-top: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .sidebar-footer .theme-toggle {
@@ -1943,6 +1947,397 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 /* ============================================
+   STREAMING INDICATOR
+   ============================================ */
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.stream-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: stream-pulse 1s ease-in-out infinite;
+}
+
+@keyframes stream-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.streaming-pre {
+  animation: stream-fade 0.3s ease;
+}
+
+@keyframes stream-fade {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+
+/* ============================================
+   STREAM TOGGLE (in toolbar)
+   ============================================ */
+.stream-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: all var(--transition);
+  user-select: none;
+}
+
+.stream-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stream-toggle-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background var(--transition);
+}
+
+.stream-toggle-indicator.active {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+.cancel-stream-btn {
+  padding: 6px 14px;
+  background: var(--method-delete);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.cancel-stream-btn:hover {
+  opacity: 0.85;
+}
+
+/* ============================================
+   ENVIRONMENT SELECTOR (in sidebar footer)
+   ============================================ */
+.env-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.env-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.env-selector {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border var(--transition);
+  min-height: 32px;
+}
+
+.env-selector:focus {
+  border-color: var(--border-focus);
+}
+
+.env-manage-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: 13px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  transition: all var(--transition);
+}
+
+.env-manage-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.sidebar-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.sidebar-footer .theme-toggle {
+  min-height: 32px;
+}
+
+/* ============================================
+   ENVIRONMENT MANAGEMENT MODAL
+   ============================================ */
+.env-list {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.env-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  transition: border var(--transition);
+}
+
+.env-item:hover {
+  border-color: var(--accent);
+}
+
+.env-item.env-item-active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.env-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.env-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.env-item-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.env-item-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.env-item-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+}
+
+.env-item-actions button:hover {
+  background: var(--bg-hover);
+}
+
+/* Environment editor back button */
+.env-back-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all var(--transition);
+  margin-right: 4px;
+}
+
+.env-back-btn:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ============================================
+   ENVIRONMENT VARIABLE TABLE (Postman-style)
+   ============================================ */
+.env-var-table-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.env-var-table-body {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.env-var-row {
+  display: flex;
+  align-items: center;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--transition);
+}
+
+.env-var-row:hover {
+  background: var(--bg-hover);
+}
+
+.env-var-row.disabled-row {
+  opacity: 0.45;
+}
+
+.env-var-col {
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+.env-var-col-enable {
+  width: 32px;
+  text-align: center;
+}
+
+.env-var-col-key {
+  flex: 1.2;
+  min-width: 80px;
+}
+
+.env-var-col-type {
+  width: 80px;
+}
+
+.env-var-col-initial {
+  flex: 1.2;
+  min-width: 80px;
+}
+
+.env-var-col-current {
+  flex: 1.2;
+  min-width: 80px;
+}
+
+.env-var-col-action {
+  width: 32px;
+  text-align: center;
+}
+
+.env-var-row input[type="text"] {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  outline: none;
+  transition: border var(--transition);
+}
+
+.env-var-row input[type="text"]:focus {
+  border-color: var(--border-focus);
+}
+
+.env-var-row input[type="text"]::placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-main);
+  font-style: italic;
+}
+
+.env-var-row input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.env-var-row select.env-var-type-select {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 5px 4px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+  transition: border var(--transition);
+}
+
+.env-var-row select.env-var-type-select:focus {
+  border-color: var(--border-focus);
+}
+
+.env-var-row .var-remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all var(--transition);
+}
+
+.env-var-row .var-remove-btn:hover {
+  color: #e55;
+  background: rgba(238, 85, 85, 0.1);
+}
+
+.env-var-add-btn {
+  width: 100%;
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-top: 8px;
+  transition: all var(--transition);
+}
+
+.env-var-add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ============================================
+   GROUP SCRIPT BADGE (in sidebar)
+   ============================================ */
+.group-script-badge {
+  font-size: 11px;
+  color: var(--accent);
+  margin-left: 2px;
+}
+
+/* ============================================
    PRE-REQUEST SCRIPT
    ============================================ */
 .script-editor-container {
@@ -2152,11 +2547,20 @@ a { color: var(--accent); text-decoration: none; }
     </div>
 
     <div class="sidebar-footer">
-      <button class="theme-toggle" data-action="toggle-theme">
-        <span id="themeIcon">🌙</span>
-        <span class="label" id="themeLabel">暗色</span>
-      </button>
-      <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">v1.0</span>
+      <div class="env-selector-row">
+        <span class="env-icon">🌐</span>
+        <select id="envSelector" class="env-selector" title="切换环境">
+          <option value="">无环境</option>
+        </select>
+        <button class="env-manage-btn" data-action="show-environment-modal" title="管理环境">⚙</button>
+      </div>
+      <div class="sidebar-footer-row">
+        <button class="theme-toggle" data-action="toggle-theme">
+          <span id="themeIcon">🌙</span>
+          <span class="label" id="themeLabel">暗色</span>
+        </button>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">v1.0</span>
+      </div>
     </div>
   </aside>
 
@@ -2197,6 +2601,11 @@ a { color: var(--accent); text-decoration: none; }
           <span class="spinner"></span>
           <span class="send-text">发 送</span>
         </button>
+        <button class="cancel-stream-btn" id="cancelStreamBtn" data-action="cancel-streaming" style="display:none;" title="取消流式请求">⏹ 停止</button>
+        <div class="stream-toggle" data-action="toggle-streaming" title="流式输出模式（适合SSE/流式API）">
+          <span class="stream-toggle-indicator" id="streamToggleIndicator"></span>
+          <span class="stream-toggle-label">Stream</span>
+        </div>
         <div class="send-dropdown-wrap">
           <button class="send-dropdown-btn" data-action="toggle-send-dropdown" title="更多发送选项">▾</button>
           <div class="send-dropdown" id="sendDropdown">
@@ -2507,8 +2916,77 @@ a { color: var(--accent); text-decoration: none; }
 
 <!-- Context Menu -->
 <div class="context-menu" id="contextMenu">
+  <div class="context-menu-item" data-action="edit-group-script">⚡ 分组脚本</div>
   <div class="context-menu-item" data-action="rename-group">✏️ 重命名分组</div>
   <div class="context-menu-item danger" data-action="delete-group">🗑️ 删除分组</div>
+</div>
+
+<!-- Environment Management Modal (unified: list + editor in one) -->
+<div class="modal-overlay" id="environmentModal">
+  <div class="modal" style="min-width:460px;">
+    <!-- List View -->
+    <div id="envListView">
+      <div class="modal-header">
+        <h3>🌐 环境管理</h3>
+        <button class="close-btn" data-action="close-environment-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <input type="text" id="newEnvNameInput" class="prompt-input" placeholder="输入新环境名称..." style="flex:1;margin:0;padding:8px 12px;">
+          <button class="btn btn-primary" data-action="add-environment" style="white-space:nowrap;padding:8px 14px;">+ 新建</button>
+        </div>
+        <div class="env-list" id="envList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-cancel" data-action="close-environment-modal">关闭</button>
+      </div>
+    </div>
+    <!-- Editor View (hidden by default) -->
+    <div id="envEditorView" style="display:none;">
+      <div class="modal-header">
+        <button class="env-back-btn" data-action="env-back-to-list" title="返回列表">←</button>
+        <h3 id="envEditorTitle">编辑环境</h3>
+        <button class="close-btn" data-action="close-environment-modal">✕</button>
+      </div>
+      <div class="modal-body" style="padding:12px 16px;">
+        <input type="hidden" id="envEditorEnvName">
+        <!-- Postman-style variable table -->
+        <div class="env-var-table-header">
+          <div class="env-var-col env-var-col-enable"></div>
+          <div class="env-var-col env-var-col-key">Variable</div>
+          <div class="env-var-col env-var-col-type">Type</div>
+          <div class="env-var-col env-var-col-initial">Initial Value</div>
+          <div class="env-var-col env-var-col-current">Current Value</div>
+          <div class="env-var-col env-var-col-action"></div>
+        </div>
+        <div class="env-var-table-body" id="envVarTableBody"></div>
+        <button class="env-var-add-btn" data-action="add-env-var-row">+ Add Variable</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-cancel" data-action="env-back-to-list">取消</button>
+        <button class="btn btn-primary" data-action="save-environment-vars">保存变量</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Group Script Modal -->
+<div class="modal-overlay" id="groupScriptModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="groupScriptModalTitle">分组 Pre-request Script</h3>
+      <button class="close-btn" data-action="close-group-script-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="groupScriptModalGroup">
+      <div style="margin-bottom:8px;font-size:12px;color:var(--text-secondary);">此脚本将在该分组下所有请求发送前执行（在请求级脚本之前）</div>
+      <textarea class="script-textarea" id="groupScriptTextarea" placeholder="// 分组级 Pre-request Script 示例&#10;// 为该分组所有请求自动添加认证头&#10;const token = pm.environment.get('auth_token');&#10;if (token) {&#10;  pm.request.headers.set('Authorization', 'Bearer ' + token);&#10;}" spellcheck="false" style="min-height:250px;"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" data-action="close-group-script-modal">取消</button>
+      <button class="btn btn-primary" data-action="save-group-script">保存脚本</button>
+    </div>
+  </div>
 </div>
 
 <!-- Sandbox iframe for executing user scripts (Pre-request Script) -->

@@ -8,7 +8,7 @@
 // ============================================
 const STATE = {
   apis: {},           // id -> api object
-  groups: {},         // groupName -> [apiIds]
+  groups: {},         // groupName -> { apiIds: [], preRequestScript: '' }
   groupOrder: [],     // ordered group names
   currentApiId: null,
   currentMethod: 'GET',
@@ -19,10 +19,20 @@ const STATE = {
   response: null,
   theme: 'dark',
   sidebarTab: 'apis',
+  streamingEnabled: false,  // 流式请求开关
+  activeStreamId: null,     // 当前流式请求ID
 };
 
 let contextMenuGroup = null;
 let _history = []; // separate from STATE to avoid bloat
+
+// ============================================
+// ENVIRONMENT MANAGEMENT (多环境支持)
+// ============================================
+let _environments = {};       // { envName: { key: value, ... } }
+let _environmentOrder = [];   // ordered environment names
+let _activeEnvironment = '';  // 当前激活的环境名
+let _environmentVars = {};    // 当前环境的变量（运行时）
 
 // ============================================
 // INITIALIZATION
@@ -41,9 +51,9 @@ function init() {
   }
 
   try {
-    loadEnvironmentVars();
+    loadEnvironments();
   } catch (e) {
-    console.warn('Failed to load environment vars:', e);
+    console.warn('Failed to load environments:', e);
   }
 
   try {
@@ -68,6 +78,12 @@ function init() {
     updateGroupSelects();
   } catch (e) {
     console.warn('Failed to update group selects:', e);
+  }
+
+  try {
+    updateEnvironmentSelector();
+  } catch (e) {
+    console.warn('Failed to update environment selector:', e);
   }
 
   // Bind all event listeners (replaces inline event handlers)
@@ -148,9 +164,67 @@ function bindEvents() {
         case 'close-prompt-cancel': closeCustomPrompt(false); break;
         case 'close-confirm-ok': closeCustomConfirm(true); break;
         case 'close-confirm-cancel': closeCustomConfirm(false); break;
+        case 'toggle-streaming': toggleStreaming(); break;
+        case 'cancel-streaming': cancelStreaming(); break;
+        case 'show-environment-modal': showEnvironmentModal(); break;
+        case 'close-group-script-modal': closeGroupScriptModal(); break;
+        case 'save-group-script': saveGroupScript(); break;
+        case 'edit-group-script': editGroupScript(contextMenuGroup); break;
       }
     });
   });
+
+  // Environment modal event delegation (handles dynamically generated buttons)
+  const envModal = document.getElementById('environmentModal');
+  if (envModal) {
+    envModal.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      switch (action) {
+        case 'close-environment-modal': closeEnvironmentModal(); break;
+        case 'add-environment': addEnvironment(); break;
+        case 'delete-environment': deleteEnvironment(btn.dataset.envName); break;
+        case 'edit-environment': editEnvironment(btn.dataset.envName); break;
+        case 'save-environment-vars': saveEnvironmentVarsEdit(); break;
+        case 'env-back-to-list': envBackToList(); break;
+        case 'add-env-var-row': addEnvVarRow(); break;
+        case 'remove-env-var': {
+          const row = btn.closest('.env-var-row');
+          if (row) row.remove();
+          break;
+        }
+      }
+    });
+    // Handle type change: toggle password/text for current value
+    envModal.addEventListener('change', (e) => {
+      if (e.target.matches('[data-field="type"]')) {
+        const row = e.target.closest('.env-var-row');
+        if (!row) return;
+        const currentInput = row.querySelector('[data-field="current"]');
+        if (currentInput) {
+          currentInput.type = e.target.value === 'secret' ? 'password' : 'text';
+        }
+      }
+      // Toggle enabled/disabled row style
+      if (e.target.matches('[data-field="enabled"]')) {
+        const row = e.target.closest('.env-var-row');
+        if (row) {
+          row.classList.toggle('disabled-row', !e.target.checked);
+        }
+      }
+    });
+    // Enter key on new env name input
+    const newEnvInput = document.getElementById('newEnvNameInput');
+    if (newEnvInput) {
+      newEnvInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addEnvironment();
+        }
+      });
+    }
+  }
 
   // Method dropdown options
   $$('.method-option').forEach(el => {
@@ -200,6 +274,20 @@ function bindEvents() {
     importFileInput.addEventListener('change', function() {
       handleImportFile(this);
     });
+  }
+
+  // Environment selector
+  const envSelector = document.getElementById('envSelector');
+  if (envSelector) {
+    envSelector.addEventListener('change', function() {
+      switchEnvironment(this.value);
+    });
+  }
+
+  // Stream toggle indicator initial state
+  const streamInd = document.getElementById('streamToggleIndicator');
+  if (streamInd && STATE.streamingEnabled) {
+    streamInd.classList.add('active');
   }
 
   // Sidebar tabs
@@ -411,6 +499,7 @@ function saveToStorage() {
       groupOrder: STATE.groupOrder,
       collapsedGroups: STATE.collapsedGroups,
       theme: STATE.theme,
+      streamingEnabled: STATE.streamingEnabled,
     };
     localStorage.setItem('apifix_bin_data', JSON.stringify(data));
   } catch (e) {
@@ -429,6 +518,7 @@ function loadFromStorage() {
     STATE.groupOrder = Array.isArray(data.groupOrder) ? data.groupOrder : Object.keys(STATE.groups);
     STATE.collapsedGroups = (data.collapsedGroups && typeof data.collapsedGroups === 'object') ? data.collapsedGroups : {};
     STATE.theme = data.theme === 'light' ? 'light' : 'dark';
+    STATE.streamingEnabled = !!data.streamingEnabled;
     // Validate apis - remove corrupted entries
     for (const id of Object.keys(STATE.apis)) {
       const api = STATE.apis[id];
@@ -436,12 +526,20 @@ function loadFromStorage() {
         delete STATE.apis[id];
       }
     }
-    // Validate groups - remove orphaned references
+    // Migrate groups: support both old format (array) and new format (object with apiIds + preRequestScript)
     for (const name of Object.keys(STATE.groups)) {
-      if (!Array.isArray(STATE.groups[name])) {
-        STATE.groups[name] = [];
+      const g = STATE.groups[name];
+      if (Array.isArray(g)) {
+        // Old format: array of apiIds
+        STATE.groups[name] = { apiIds: g.filter(id => STATE.apis[id]), preRequestScript: '' };
+      } else if (g && typeof g === 'object') {
+        // New format: ensure apiIds array exists
+        if (!Array.isArray(g.apiIds)) g.apiIds = [];
+        if (typeof g.preRequestScript !== 'string') g.preRequestScript = '';
+        g.apiIds = g.apiIds.filter(id => STATE.apis[id]);
+      } else {
+        STATE.groups[name] = { apiIds: [], preRequestScript: '' };
       }
-      STATE.groups[name] = STATE.groups[name].filter(id => STATE.apis[id]);
     }
   } catch (e) {
     console.warn('Storage load failed, resetting:', e);
@@ -474,15 +572,15 @@ function renderSidebar() {
   // Ensure default group
   if (STATE.groupOrder.length === 0) {
     STATE.groupOrder = ['默认分组'];
-    STATE.groups['默认分组'] = [];
+    ensureGroupFormat('默认分组');
   }
   if (!STATE.groups['默认分组']) {
-    STATE.groups['默认分组'] = [];
+    ensureGroupFormat('默认分组');
   }
 
   let html = '';
   for (const groupName of STATE.groupOrder) {
-    const apiIds = STATE.groups[groupName] || [];
+    const apiIds = getGroupApiIds(groupName);
     const isCollapsed = STATE.collapsedGroups[groupName];
 
     // Filter by search
@@ -502,6 +600,7 @@ function renderSidebar() {
         <div class="api-group-header" data-group="${escapeHtml(groupName)}" data-drop-group="${escapeHtml(groupName)}">
           <span class="chevron ${isCollapsed ? 'collapsed' : ''}">▶</span>
           <span class="group-name">${escapeHtml(groupName)}</span>
+          ${getGroupScript(groupName) ? '<span class="group-script-badge" title="分组有 Pre-request Script">⚡</span>' : ''}
           <span class="group-count">${filteredIds.length}</span>
           <div class="group-actions">
             <button title="添加请求">+</button>
@@ -623,7 +722,7 @@ function handleDrop(e, targetGroup) {
 
   let sourceGroup = null;
   for (const gName of STATE.groupOrder) {
-    if ((STATE.groups[gName] || []).includes(apiId)) {
+    if (getGroupApiIds(gName).includes(apiId)) {
       sourceGroup = gName;
       break;
     }
@@ -632,12 +731,14 @@ function handleDrop(e, targetGroup) {
   if (!sourceGroup) return;
   if (sourceGroup === targetGroup) return;
 
-  const srcArr = STATE.groups[sourceGroup];
+  const srcArr = getGroupApiIds(sourceGroup);
   const idx = srcArr.indexOf(apiId);
-  if (idx !== -1) srcArr.splice(idx, 1);
+  if (idx !== -1) {
+    srcArr.splice(idx, 1);
+    setGroupApiIds(sourceGroup, srcArr);
+  }
 
-  if (!STATE.groups[targetGroup]) STATE.groups[targetGroup] = [];
-  STATE.groups[targetGroup].push(apiId);
+  addToGroup(targetGroup, apiId);
 
   saveToStorage();
   renderSidebar();
@@ -654,6 +755,55 @@ function filterApis() {
 // ============================================
 function generateId() {
   return 'api_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+}
+
+// ============================================
+// GROUP HELPERS (new format: { apiIds: [], preRequestScript: '' })
+// ============================================
+function getGroupApiIds(groupName) {
+  const g = STATE.groups[groupName];
+  if (!g) return [];
+  if (Array.isArray(g)) return g;
+  return g.apiIds || [];
+}
+
+function getGroupScript(groupName) {
+  const g = STATE.groups[groupName];
+  if (!g || Array.isArray(g)) return '';
+  return g.preRequestScript || '';
+}
+
+function setGroupApiIds(groupName, ids) {
+  if (!STATE.groups[groupName]) {
+    STATE.groups[groupName] = { apiIds: ids, preRequestScript: '' };
+  } else if (Array.isArray(STATE.groups[groupName])) {
+    STATE.groups[groupName] = { apiIds: ids, preRequestScript: '' };
+  } else {
+    STATE.groups[groupName].apiIds = ids;
+  }
+}
+
+function addToGroup(groupName, apiId) {
+  if (!STATE.groups[groupName]) {
+    STATE.groups[groupName] = { apiIds: [apiId], preRequestScript: '' };
+  } else if (Array.isArray(STATE.groups[groupName])) {
+    STATE.groups[groupName] = { apiIds: [...STATE.groups[groupName], apiId], preRequestScript: '' };
+  } else {
+    STATE.groups[groupName].apiIds.push(apiId);
+  }
+}
+
+function removeFromGroup(groupName, apiId) {
+  const ids = getGroupApiIds(groupName);
+  setGroupApiIds(groupName, ids.filter(x => x !== apiId));
+}
+
+function ensureGroupFormat(groupName) {
+  if (!STATE.groups[groupName]) {
+    STATE.groups[groupName] = { apiIds: [], preRequestScript: '' };
+  } else if (Array.isArray(STATE.groups[groupName])) {
+    STATE.groups[groupName] = { apiIds: STATE.groups[groupName], preRequestScript: '' };
+  }
 }
 
 function createNewApi() {
@@ -686,12 +836,12 @@ function createNewApiInGroup(groupName) {
   };
 
   if (!STATE.groups[group]) {
-    STATE.groups[group] = [];
+    ensureGroupFormat(group);
     if (!STATE.groupOrder.includes(group)) {
       STATE.groupOrder.push(group);
     }
   }
-  STATE.groups[group].push(id);
+  addToGroup(group, id);
 
   saveToStorage();
   renderSidebar();
@@ -706,9 +856,7 @@ async function deleteApi(id) {
 
   // Remove from group
   const group = api.group || '默认分组';
-  if (STATE.groups[group]) {
-    STATE.groups[group] = STATE.groups[group].filter(x => x !== id);
-  }
+  removeFromGroup(group, id);
 
   delete STATE.apis[id];
 
@@ -1393,7 +1541,40 @@ async function sendRequest() {
       }
     }
 
-    // ---- Execute Pre-request Script ----
+    // ---- Execute Pre-request Script (Group level first, then request level) ----
+    const currentApi = STATE.apis[STATE.currentApiId];
+    const groupName = currentApi ? (currentApi.group || '默认分组') : '';
+    const groupScript = groupName ? getGroupScript(groupName) : '';
+
+    // Execute group-level script first
+    if (groupScript.trim()) {
+      try {
+        appendScriptLog('log', `[分组: ${groupName}] 执行分组级 Pre-request Script...`);
+        const groupResult = await executePreRequestScriptAsync(
+          groupScript,
+          allHeaders,
+          finalUrl,
+          body,
+          currentUrlencoded,
+          currentFormdata
+        );
+        if (groupResult.headers) {
+          Object.keys(groupResult.headers).forEach(k => { allHeaders[k] = groupResult.headers[k]; });
+        }
+        if (groupResult.url && groupResult.url !== finalUrl) finalUrl = groupResult.url;
+        if (groupResult.body !== undefined && groupResult.body !== null) body = groupResult.body;
+        if (groupResult.urlencoded && groupResult.urlencoded.length > 0 && STATE.bodyType === 'urlencoded') {
+          const urlParams = new URLSearchParams();
+          groupResult.urlencoded.forEach(d => { if (d.enabled && d.key.trim()) urlParams.append(d.key, d.value); });
+          body = urlParams.toString();
+        }
+        if (groupResult.formdata && groupResult.formdata.length > 0 && STATE.bodyType === 'formdata') formdataFields = groupResult.formdata;
+      } catch (scriptErr) {
+        appendScriptLog('error', '分组级 Pre-request Script 执行异常: ' + scriptErr.message);
+      }
+    }
+
+    // Execute request-level script
     const scriptText = document.getElementById('preRequestScript')?.value || '';
     if (scriptText.trim()) {
       try {
@@ -1439,7 +1620,14 @@ async function sendRequest() {
       body = resolveTemplateVars(body);
     }
 
-    // ---- Send via Chrome Extension API (no CORS restriction) ----
+    // ---- Send request (streaming or normal) ----
+    if (STATE.streamingEnabled) {
+      // Streaming request
+      await sendStreamingRequest(method, finalUrl, allHeaders, body, formdataFields);
+      return;
+    }
+
+    // ---- Send via Chrome Extension API (normal, no CORS restriction) ----
     const startTime = performance.now();
     const result = await chrome.runtime.sendMessage({
       type: 'API_REQUEST',
@@ -1650,16 +1838,16 @@ function doSave() {
   // Move between groups if changed
   const oldGroup = api.group || '默认分组';
   if (oldGroup !== group) {
-    if (STATE.groups[oldGroup]) {
-      STATE.groups[oldGroup] = STATE.groups[oldGroup].filter(x => x !== api.id);
+    if (getGroupApiIds(oldGroup).length > 0) {
+      removeFromGroup(oldGroup, api.id);
     }
     if (!STATE.groups[group]) {
-      STATE.groups[group] = [];
+      ensureGroupFormat(group);
       if (!STATE.groupOrder.includes(group)) {
         STATE.groupOrder.push(group);
       }
     }
-    STATE.groups[group].push(api.id);
+    addToGroup(group, api.id);
   }
 
   api.name = name;
@@ -1945,10 +2133,10 @@ function importCurl(curlStr) {
   const group = document.getElementById('importGroup').value || '默认分组';
   api.group = group;
   if (!STATE.groups[group]) {
-    STATE.groups[group] = [];
+    ensureGroupFormat(group);
     STATE.groupOrder.push(group);
   }
-  STATE.groups[group].push(api.id);
+  addToGroup(group, api.id);
   STATE.apis[api.id] = api;
 
   saveToStorage();
@@ -2101,7 +2289,7 @@ function importPostman(jsonStr) {
   // Postman Collection v2.1
   if (data.info && data.item) {
     if (!STATE.groups[group]) {
-      STATE.groups[group] = [];
+      ensureGroupFormat(group);
       STATE.groupOrder.push(group);
     }
 
@@ -2111,7 +2299,7 @@ function importPostman(jsonStr) {
           // This is a folder
           const subGroup = parentGroup + ' / ' + item.name;
           if (!STATE.groups[subGroup]) {
-            STATE.groups[subGroup] = [];
+            ensureGroupFormat(subGroup);
             STATE.groupOrder.push(subGroup);
           }
           processItems(item.item, subGroup);
@@ -2236,10 +2424,10 @@ function importPostman(jsonStr) {
 
           STATE.apis[api.id] = api;
           if (!STATE.groups[parentGroup]) {
-            STATE.groups[parentGroup] = [];
+            ensureGroupFormat(parentGroup);
             STATE.groupOrder.push(parentGroup);
           }
-          STATE.groups[parentGroup].push(api.id);
+          addToGroup(parentGroup, api.id);
           importedCount++;
         }
       });
@@ -2271,7 +2459,7 @@ function showExportModal() {
   const list = document.getElementById('exportGroupList');
   let html = '';
   for (const groupName of STATE.groupOrder) {
-    const apiIds = STATE.groups[groupName] || [];
+    const apiIds = getGroupApiIds(groupName);
     if (apiIds.length === 0) continue;
     html += `
       <label class="export-group-item">
@@ -2311,7 +2499,7 @@ function doExport() {
   const items = [];
   let totalCount = 0;
   for (const groupName of selectedGroups) {
-    const apiIds = STATE.groups[groupName] || [];
+    const apiIds = getGroupApiIds(groupName);
     if (apiIds.length === 0) continue;
 
     if (groupName === '默认分组') {
@@ -2514,14 +2702,14 @@ async function renameGroup() {
   if (!newName || newName === contextMenuGroup) return;
 
   // Rename in all data structures
-  STATE.groups[newName] = STATE.groups[contextMenuGroup] || [];
+  STATE.groups[newName] = STATE.groups[contextMenuGroup] || { apiIds: [], preRequestScript: '' };
   delete STATE.groups[contextMenuGroup];
 
   const idx = STATE.groupOrder.indexOf(contextMenuGroup);
   if (idx !== -1) STATE.groupOrder[idx] = newName;
 
   // Update apis
-  STATE.groups[newName].forEach(id => {
+  getGroupApiIds(newName).forEach(id => {
     if (STATE.apis[id]) STATE.apis[id].group = newName;
   });
 
@@ -2547,7 +2735,7 @@ async function deleteGroup() {
 
   if (!await customConfirm('删除分组', `确定删除分组"${contextMenuGroup}"及其所有接口？此操作不可撤销。`, { icon: '🗑️', okText: '删除', danger: true })) return;
 
-  const ids = STATE.groups[contextMenuGroup] || [];
+  const ids = getGroupApiIds(contextMenuGroup);
   ids.forEach(id => delete STATE.apis[id]);
   delete STATE.groups[contextMenuGroup];
   STATE.groupOrder = STATE.groupOrder.filter(g => g !== contextMenuGroup);
@@ -2643,7 +2831,7 @@ async function createNewGroup() {
     toast('分组已存在', 'error');
     return;
   }
-  STATE.groups[trimmed] = [];
+  ensureGroupFormat(trimmed);
   STATE.groupOrder.push(trimmed);
   saveToStorage();
   renderSidebar();
@@ -2749,10 +2937,10 @@ function loadHistoryEntry(id) {
       updatedAt: Date.now(),
     };
     if (!STATE.groups[group]) {
-      STATE.groups[group] = [];
+      ensureGroupFormat(group);
       if (!STATE.groupOrder.includes(group)) STATE.groupOrder.push(group);
     }
-    STATE.groups[group].push(apiId);
+    addToGroup(group, apiId);
     saveToStorage();
     renderSidebar();
     updateGroupSelects();
@@ -3074,9 +3262,30 @@ function executeScriptDirectly(script, currentHeaders, currentUrl, currentBody, 
       },
     },
     environment: {
-      set(key, value) { envStore[key] = value; _environmentVars[key] = value; saveEnvironmentVars(); },
+      set(key, value) {
+        envStore[key] = value;
+        _environmentVars[key] = value;
+        // Also update the environment data model
+        if (_activeEnvironment && _environments[_activeEnvironment]) {
+          const existing = _environments[_activeEnvironment][key];
+          _environments[_activeEnvironment][key] = {
+            type: (existing && typeof existing === 'object') ? existing.type : 'default',
+            initial: (existing && typeof existing === 'object') ? existing.initial : String(value),
+            current: String(value),
+            enabled: (existing && typeof existing === 'object') ? existing.enabled : true,
+          };
+        }
+        saveEnvironments();
+      },
       get(key) { return envStore[key]; },
-      unset(key) { delete envStore[key]; delete _environmentVars[key]; saveEnvironmentVars(); },
+      unset(key) {
+        delete envStore[key];
+        delete _environmentVars[key];
+        if (_activeEnvironment && _environments[_activeEnvironment]) {
+          delete _environments[_activeEnvironment][key];
+        }
+        saveEnvironments();
+      },
       has(key) { return key in envStore; },
     },
   };
@@ -3194,22 +3403,573 @@ async function executeScriptViaSandbox(script, currentHeaders, currentUrl, curre
   }
 }
 
-// Environment variables storage
-let _environmentVars = {};
+// Environment variables storage (now multi-environment)
+// _environmentVars, _environments, _environmentOrder, _activeEnvironment declared at top of file
+// New data model: each variable is { type: 'default'|'secret', initial: 'val', current: 'val', enabled: true }
+// _environmentVars (runtime) = { varKey: 'currentValue' } for template resolution
 
-function loadEnvironmentVars() {
+function loadEnvironments() {
   try {
-    const raw = localStorage.getItem('apifix_env_vars');
-    if (raw) _environmentVars = JSON.parse(raw);
+    const raw = localStorage.getItem('apifix_environments');
+    if (raw) {
+      const data = JSON.parse(raw);
+      _environments = (data.environments && typeof data.environments === 'object') ? data.environments : {};
+      _environmentOrder = Array.isArray(data.environmentOrder) ? data.environmentOrder : Object.keys(_environments);
+      _activeEnvironment = data.activeEnvironment || '';
+    }
   } catch (e) {
-    _environmentVars = {};
+    _environments = {};
+    _environmentOrder = [];
+    _activeEnvironment = '';
+  }
+
+  // Migrate old format: { key: "stringValue" } → { key: { type:'default', initial:'val', current:'val', enabled:true } }
+  for (const envName of Object.keys(_environments)) {
+    const env = _environments[envName];
+    if (!env || typeof env !== 'object') continue;
+    for (const varKey of Object.keys(env)) {
+      const v = env[varKey];
+      if (typeof v === 'string') {
+        // Old format: key -> string value
+        env[varKey] = { type: 'default', initial: v, current: v, enabled: true };
+      }
+      // New format is already an object, ensure all fields exist
+      else if (typeof v === 'object' && v !== null) {
+        if (v.type === undefined) v.type = 'default';
+        if (v.initial === undefined) v.initial = v.current || v.value || '';
+        if (v.current === undefined) v.current = v.initial;
+        if (v.enabled === undefined) v.enabled = true;
+      }
+    }
+  }
+
+  // Build runtime vars from current environment
+  rebuildRuntimeVars();
+}
+
+function rebuildRuntimeVars() {
+  _environmentVars = {};
+  if (_activeEnvironment && _environments[_activeEnvironment]) {
+    const env = _environments[_activeEnvironment];
+    for (const [key, v] of Object.entries(env)) {
+      if (typeof v === 'object' && v !== null && v.enabled !== false) {
+        _environmentVars[key] = v.current || v.initial || '';
+      }
+    }
   }
 }
 
-function saveEnvironmentVars() {
+function saveEnvironments() {
   try {
-    localStorage.setItem('apifix_env_vars', JSON.stringify(_environmentVars));
+    localStorage.setItem('apifix_environments', JSON.stringify({
+      environments: _environments,
+      environmentOrder: _environmentOrder,
+      activeEnvironment: _activeEnvironment,
+    }));
   } catch (e) {}
+}
+
+// Legacy compat
+function saveEnvironmentVars() { saveEnvironments(); }
+function loadEnvironmentVars() { loadEnvironments(); }
+
+function updateEnvironmentSelector() {
+  const selector = document.getElementById('envSelector');
+  if (!selector) return;
+  let html = '<option value="">无环境</option>';
+  for (const envName of _environmentOrder) {
+    html += `<option value="${escapeHtml(envName)}" ${envName === _activeEnvironment ? 'selected' : ''}>${escapeHtml(envName)}</option>`;
+  }
+  selector.innerHTML = html;
+}
+
+function switchEnvironment(envName) {
+  _activeEnvironment = envName || '';
+  rebuildRuntimeVars();
+  saveEnvironments();
+  updateEnvironmentSelector();
+  toast(envName ? `已切换到环境「${envName}」` : '已取消环境选择', 'success');
+}
+
+function renderEnvListHTML() {
+  if (_environmentOrder.length === 0) {
+    return '<div style="text-align:center;padding:20px;color:var(--text-muted);">暂无环境，在上方输入名称创建</div>';
+  }
+  let html = '';
+  for (const envName of _environmentOrder) {
+    const vars = _environments[envName] || {};
+    const varCount = Object.keys(vars).length;
+    const isActive = _activeEnvironment === envName;
+    html += `
+      <div class="env-item${isActive ? ' env-item-active' : ''}">
+        <div class="env-item-info">
+          <span class="env-item-name">${escapeHtml(envName)}${isActive ? ' <span style="font-size:10px;color:var(--accent);">● 当前</span>' : ''}</span>
+          <span class="env-item-count">${varCount} 个变量</span>
+        </div>
+        <div class="env-item-actions">
+          <button data-action="edit-environment" data-env-name="${escapeHtml(envName)}" title="编辑">✏️</button>
+          <button data-action="delete-environment" data-env-name="${escapeHtml(envName)}" title="删除">🗑️</button>
+        </div>
+      </div>
+    `;
+  }
+  return html;
+}
+
+function showEnvironmentModal() {
+  const listView = document.getElementById('envListView');
+  const editorView = document.getElementById('envEditorView');
+  if (listView) listView.style.display = '';
+  if (editorView) editorView.style.display = 'none';
+
+  const newInput = document.getElementById('newEnvNameInput');
+  if (newInput) newInput.value = '';
+
+  const list = document.getElementById('envList');
+  if (list) list.innerHTML = renderEnvListHTML();
+  document.getElementById('environmentModal').classList.add('show');
+}
+
+function closeEnvironmentModal() {
+  document.getElementById('environmentModal').classList.remove('show');
+}
+
+function envBackToList() {
+  const listView = document.getElementById('envListView');
+  const editorView = document.getElementById('envEditorView');
+  if (listView) listView.style.display = '';
+  if (editorView) editorView.style.display = 'none';
+  const list = document.getElementById('envList');
+  if (list) list.innerHTML = renderEnvListHTML();
+}
+
+function addEnvironment() {
+  const input = document.getElementById('newEnvNameInput');
+  if (!input) return;
+  const name = input.value.trim();
+  if (!name) {
+    toast('请输入环境名称', 'error');
+    input.focus();
+    return;
+  }
+  if (_environments[name]) {
+    toast('环境已存在', 'error');
+    return;
+  }
+  _environments[name] = {};
+  _environmentOrder.push(name);
+  saveEnvironments();
+  input.value = '';
+  updateEnvironmentSelector();
+  envBackToList();
+  toast('环境已创建，点击✏️编辑变量', 'success');
+}
+
+async function deleteEnvironment(envName) {
+  if (!envName) return;
+  if (!await customConfirm('删除环境', `确定删除环境「${envName}」？变量将全部丢失。`, { icon: '🗑️', okText: '删除', danger: true })) return;
+  delete _environments[envName];
+  _environmentOrder = _environmentOrder.filter(n => n !== envName);
+  if (_activeEnvironment === envName) {
+    _activeEnvironment = '';
+    _environmentVars = {};
+  }
+  saveEnvironments();
+  updateEnvironmentSelector();
+  envBackToList();
+  toast('环境已删除', 'success');
+}
+
+// ============================================
+// POSTMAN-STYLE VARIABLE TABLE EDITOR
+// ============================================
+
+function editEnvironment(envName) {
+  if (!envName || !_environments[envName]) return;
+
+  // Switch to editor view
+  const listView = document.getElementById('envListView');
+  const editorView = document.getElementById('envEditorView');
+  if (listView) listView.style.display = 'none';
+  if (editorView) editorView.style.display = '';
+
+  document.getElementById('envEditorTitle').textContent = `编辑环境: ${envName}`;
+  document.getElementById('envEditorEnvName').value = envName;
+
+  renderEnvVarTable(envName);
+}
+
+function renderEnvVarTable(envName) {
+  const tbody = document.getElementById('envVarTableBody');
+  if (!tbody) return;
+
+  const vars = _environments[envName] || {};
+  const entries = Object.entries(vars);
+
+  let html = '';
+  for (const [key, v] of entries) {
+    const obj = (typeof v === 'object' && v !== null) ? v : { type: 'default', initial: String(v), current: String(v), enabled: true };
+    const enabled = obj.enabled !== false;
+    const vtype = obj.type || 'default';
+    const isSecret = vtype === 'secret';
+    html += `
+      <div class="env-var-row${enabled ? '' : ' disabled-row'}" data-var-key="${escapeHtml(key)}">
+        <div class="env-var-col env-var-col-enable">
+          <input type="checkbox" ${enabled ? 'checked' : ''} data-field="enabled" title="启用/禁用">
+        </div>
+        <div class="env-var-col env-var-col-key">
+          <input type="text" value="${escapeHtml(key)}" data-field="key" placeholder="Variable name" spellcheck="false">
+        </div>
+        <div class="env-var-col env-var-col-type">
+          <select class="env-var-type-select" data-field="type" title="变量类型">
+            <option value="default"${!isSecret ? ' selected' : ''}>default</option>
+            <option value="secret"${isSecret ? ' selected' : ''}>secret</option>
+          </select>
+        </div>
+        <div class="env-var-col env-var-col-initial">
+          <input type="text" value="${escapeHtml(obj.initial || '')}" data-field="initial" placeholder="Initial value" spellcheck="false">
+        </div>
+        <div class="env-var-col env-var-col-current">
+          <input type="${isSecret ? 'password' : 'text'}" value="${escapeHtml(obj.current || '')}" data-field="current" placeholder="Current value" spellcheck="false">
+        </div>
+        <div class="env-var-col env-var-col-action">
+          <button class="var-remove-btn" data-action="remove-env-var" title="删除变量">✕</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // Empty row for adding new variable
+  html += `
+    <div class="env-var-row" data-var-key="">
+      <div class="env-var-col env-var-col-enable">
+        <input type="checkbox" checked data-field="enabled" title="启用/禁用">
+      </div>
+      <div class="env-var-col env-var-col-key">
+        <input type="text" value="" data-field="key" placeholder="新变量名..." spellcheck="false">
+      </div>
+      <div class="env-var-col env-var-col-type">
+        <select class="env-var-type-select" data-field="type" title="变量类型">
+          <option value="default" selected>default</option>
+          <option value="secret">secret</option>
+        </select>
+      </div>
+      <div class="env-var-col env-var-col-initial">
+        <input type="text" value="" data-field="initial" placeholder="Initial value" spellcheck="false">
+      </div>
+      <div class="env-var-col env-var-col-current">
+        <input type="text" value="" data-field="current" placeholder="Current value" spellcheck="false">
+      </div>
+      <div class="env-var-col env-var-col-action">
+        <button class="var-remove-btn" data-action="remove-env-var" title="删除变量">✕</button>
+      </div>
+    </div>
+  `;
+
+  tbody.innerHTML = html;
+}
+
+function addEnvVarRow() {
+  const tbody = document.getElementById('envVarTableBody');
+  if (!tbody) return;
+
+  const row = document.createElement('div');
+  row.className = 'env-var-row';
+  row.setAttribute('data-var-key', '');
+  row.innerHTML = `
+    <div class="env-var-col env-var-col-enable">
+      <input type="checkbox" checked data-field="enabled" title="启用/禁用">
+    </div>
+    <div class="env-var-col env-var-col-key">
+      <input type="text" value="" data-field="key" placeholder="新变量名..." spellcheck="false">
+    </div>
+    <div class="env-var-col env-var-col-type">
+      <select class="env-var-type-select" data-field="type" title="变量类型">
+        <option value="default" selected>default</option>
+        <option value="secret">secret</option>
+      </select>
+    </div>
+    <div class="env-var-col env-var-col-initial">
+      <input type="text" value="" data-field="initial" placeholder="Initial value" spellcheck="false">
+    </div>
+    <div class="env-var-col env-var-col-current">
+      <input type="text" value="" data-field="current" placeholder="Current value" spellcheck="false">
+    </div>
+    <div class="env-var-col env-var-col-action">
+      <button class="var-remove-btn" data-action="remove-env-var" title="删除变量">✕</button>
+    </div>
+  `;
+  tbody.appendChild(row);
+  row.querySelector('[data-field="key"]').focus();
+}
+
+function saveEnvironmentVarsEdit() {
+  const envName = document.getElementById('envEditorEnvName').value;
+  if (!envName) return;
+
+  const tbody = document.getElementById('envVarTableBody');
+  if (!tbody) return;
+
+  const rows = tbody.querySelectorAll('.env-var-row');
+  const newVars = {};
+
+  for (const row of rows) {
+    const keyInput = row.querySelector('[data-field="key"]');
+    const typeSelect = row.querySelector('[data-field="type"]');
+    const initialInput = row.querySelector('[data-field="initial"]');
+    const currentInput = row.querySelector('[data-field="current"]');
+    const enabledCheckbox = row.querySelector('[data-field="enabled"]');
+
+    if (!keyInput) continue;
+    const key = keyInput.value.trim();
+    if (!key) continue; // Skip empty keys
+
+    const vtype = typeSelect ? typeSelect.value : 'default';
+    const initial = initialInput ? initialInput.value : '';
+    const current = currentInput ? currentInput.value : '';
+    const enabled = enabledCheckbox ? enabledCheckbox.checked : true;
+
+    newVars[key] = {
+      type: vtype,
+      initial: initial,
+      current: current,
+      enabled: enabled,
+    };
+  }
+
+  _environments[envName] = newVars;
+
+  // If editing current active environment, update runtime vars
+  if (_activeEnvironment === envName) {
+    rebuildRuntimeVars();
+  }
+
+  saveEnvironments();
+  updateEnvironmentSelector();
+  toast('环境变量已保存', 'success');
+  envBackToList();
+}
+
+// ============================================
+// STREAMING REQUEST
+// ============================================
+let _streamChunkListener = null;
+
+async function sendStreamingRequest(method, url, headers, body, formdataFields) {
+  const btn = document.getElementById('sendBtn');
+  const streamId = 'stream_' + Date.now();
+  STATE.activeStreamId = streamId;
+
+  // Show cancel button
+  const cancelBtn = document.getElementById('cancelStreamBtn');
+  if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+
+  // Clear response area and show streaming indicator
+  const bodyEl = document.getElementById('responseBody');
+  bodyEl.innerHTML = '<div class="streaming-indicator"><span class="stream-dot"></span> 正在接收数据流...</div>';
+
+  // Listen for stream chunks
+  if (_streamChunkListener) {
+    chrome.runtime.onMessage.removeListener(_streamChunkListener);
+  }
+
+  let accumulatedBody = '';
+  let streamStartTime = performance.now();
+  let headersReceived = false;
+
+  _streamChunkListener = (message, sender, sendResponse) => {
+    if (message.type !== 'STREAM_CHUNK' || message.streamId !== streamId) return;
+
+    const { phase, data } = message;
+
+    if (phase === 'headers') {
+      headersReceived = true;
+      const statusClass = data.status < 300 ? 'success' :
+                          data.status < 400 ? 'redirect' :
+                          data.status < 500 ? 'client-err' : 'server-err';
+      const statusEl = document.getElementById('responseStatus');
+      statusEl.style.display = 'flex';
+      const codeEl = document.getElementById('statusCode');
+      codeEl.textContent = data.status + ' ' + data.statusText;
+      codeEl.className = 'status-code ' + statusClass;
+      document.getElementById('responseTime').textContent = data.duration;
+      document.getElementById('responseSize').textContent = '...';
+
+      // Render response headers
+      const headersEl = document.getElementById('responseHeaders');
+      if (data.headers && data.headers.length > 0) {
+        let hhtml = '<table class="headers-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>';
+        data.headers.forEach(h => {
+          hhtml += `<tr><td>${escapeHtml(h.key)}</td><td>${escapeHtml(h.value)}</td></tr>`;
+        });
+        hhtml += '</tbody></table>';
+        headersEl.innerHTML = hhtml;
+      }
+    }
+
+    if (phase === 'body') {
+      accumulatedBody += data.chunk;
+      const elapsed = Math.round(performance.now() - streamStartTime);
+      document.getElementById('responseTime').textContent = elapsed;
+      const sizeStr = data.totalSize > 1024 ? (data.totalSize / 1024).toFixed(1) + ' KB' : data.totalSize + ' B';
+      document.getElementById('responseSize').textContent = sizeStr;
+
+      // Try to format as JSON in real-time (best effort)
+      let displayBody = accumulatedBody;
+      try {
+        const json = JSON.parse(accumulatedBody);
+        displayBody = JSON.stringify(json, null, 2);
+      } catch (e) {
+        // Not complete JSON yet, show raw
+      }
+      bodyEl.innerHTML = `<button class="copy-btn">📋 复制</button><pre class="streaming-pre">${highlightJSON(displayBody)}</pre>`;
+    }
+
+    if (phase === 'done') {
+      // Stream complete
+      const elapsed = Math.round(performance.now() - streamStartTime);
+      document.getElementById('responseTime').textContent = elapsed;
+      const finalBody = data.isFormatted ? data.body : accumulatedBody;
+      const sizeStr = data.size > 1024 ? (data.size / 1024).toFixed(1) + ' KB' : data.size + ' B';
+      document.getElementById('responseSize').textContent = sizeStr;
+      bodyEl.innerHTML = `<button class="copy-btn">📋 复制</button><pre>${highlightJSON(finalBody)}</pre>`;
+      btn.classList.remove('loading');
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      STATE.activeStreamId = null;
+
+      // Record history
+      addHistoryEntry({
+        id: 'hist_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+        apiId: STATE.currentApiId,
+        method,
+        url,
+        status: parseInt(document.getElementById('statusCode').textContent) || 0,
+        statusText: '',
+        duration: elapsed,
+        size: sizeStr,
+        timestamp: Date.now(),
+        bodyType: STATE.bodyType,
+        headers: getEffectiveKvData('headersEditor', 'headers'),
+        params: getEffectiveKvData('paramsEditor', 'params'),
+        body: '',
+        formdata: [],
+        urlencoded: [],
+        authType: STATE.authType,
+      });
+
+      // Cleanup listener
+      if (_streamChunkListener) {
+        chrome.runtime.onMessage.removeListener(_streamChunkListener);
+        _streamChunkListener = null;
+      }
+    }
+
+    if (phase === 'aborted') {
+      bodyEl.innerHTML = `<div class="empty-state"><div class="empty-icon">⏹</div><div class="empty-title">请求已取消</div></div>`;
+      btn.classList.remove('loading');
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      STATE.activeStreamId = null;
+      if (_streamChunkListener) {
+        chrome.runtime.onMessage.removeListener(_streamChunkListener);
+        _streamChunkListener = null;
+      }
+    }
+
+    if (phase === 'error') {
+      bodyEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">请求失败</div><div class="empty-desc">${escapeHtml(data.error)}</div></div>`;
+      const statusEl = document.getElementById('responseStatus');
+      statusEl.style.display = 'flex';
+      const codeEl = document.getElementById('statusCode');
+      codeEl.textContent = 'Error';
+      codeEl.className = 'status-code client-err';
+      btn.classList.remove('loading');
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      STATE.activeStreamId = null;
+      if (_streamChunkListener) {
+        chrome.runtime.onMessage.removeListener(_streamChunkListener);
+        _streamChunkListener = null;
+      }
+    }
+  };
+
+  chrome.runtime.onMessage.addListener(_streamChunkListener);
+
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'STREAMING_REQUEST',
+      data: {
+        method,
+        url,
+        headers,
+        body,
+        bodyType: STATE.bodyType,
+        formdataFields,
+        streamId,
+      }
+    });
+  } catch (err) {
+    btn.classList.remove('loading');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    STATE.activeStreamId = null;
+    bodyEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">流式请求失败</div><div class="empty-desc">${escapeHtml(err.message)}</div></div>`;
+    if (_streamChunkListener) {
+      chrome.runtime.onMessage.removeListener(_streamChunkListener);
+      _streamChunkListener = null;
+    }
+  }
+}
+
+function cancelStreaming() {
+  if (STATE.activeStreamId) {
+    chrome.runtime.sendMessage({
+      type: 'CANCEL_STREAMING',
+      streamId: STATE.activeStreamId,
+    });
+  }
+}
+
+function toggleStreaming() {
+  STATE.streamingEnabled = !STATE.streamingEnabled;
+  saveToStorage();
+  const indicator = document.getElementById('streamToggleIndicator');
+  if (indicator) {
+    indicator.classList.toggle('active', STATE.streamingEnabled);
+  }
+  toast(STATE.streamingEnabled ? '已开启流式请求模式' : '已关闭流式请求模式', 'info');
+}
+
+// ============================================
+// GROUP-LEVEL PRE-REQUEST SCRIPT
+// ============================================
+function editGroupScript(groupName) {
+  if (!groupName) return;
+  const modal = document.getElementById('groupScriptModal');
+  if (!modal) return;
+  document.getElementById('groupScriptModalTitle').textContent = `分组脚本: ${groupName}`;
+  document.getElementById('groupScriptModalGroup').value = groupName;
+  document.getElementById('groupScriptTextarea').value = getGroupScript(groupName);
+  modal.classList.add('show');
+}
+
+function closeGroupScriptModal() {
+  document.getElementById('groupScriptModal').classList.remove('show');
+}
+
+function saveGroupScript() {
+  const groupName = document.getElementById('groupScriptModalGroup').value;
+  if (!groupName || !STATE.groups[groupName]) return;
+  const script = document.getElementById('groupScriptTextarea').value;
+
+  if (Array.isArray(STATE.groups[groupName])) {
+    STATE.groups[groupName] = { apiIds: STATE.groups[groupName], preRequestScript: script };
+  } else {
+    STATE.groups[groupName].preRequestScript = script;
+  }
+
+  saveToStorage();
+  renderSidebar();
+  closeGroupScriptModal();
+  toast('分组脚本已保存', 'success');
 }
 
 /**
