@@ -22,16 +22,14 @@ jobs:
         with:
           node-version: 20
 
-      - name: 设置镜像
-        run: |
-          npm config set registry https://registry.npmmirror.com
-          npm config set electron_mirror https://npmmirror.com/mirrors/electron/
-          npm config set electron_builder_binaries_mirror https://npmmirror.com/mirrors/electron-builder-binaries/
-
       - name: 安装依赖
         run: |
           cd desktop
           npm install --force
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
 
       - name: 构建
         run: |
