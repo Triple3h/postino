@@ -1,4 +1,5 @@
 name: Build & Release
+
 on:
   push:
     tags:
@@ -7,15 +8,19 @@ on:
 jobs:
   release:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             build_cmd: npm run build
           - os: macos-latest
             build_cmd: npm run build:mac
+    
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     permissions:
       contents: write
+    
     steps:
       - uses: actions/checkout@v4
 
@@ -24,25 +29,16 @@ jobs:
           node-version: 20
 
       - name: 安装依赖
-        run: |
-          cd desktop
-          npm install --force
+        working-directory: desktop
+        run: npm install --force
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
-      - name: 构建
-        run: |
-          cd desktop
-          ${{ matrix.build_cmd }}
-
-      - name: 上传安装包到 Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            desktop/dist/*.exe
-            desktop/dist/*.dmg
-            desktop/dist/*.blockmap
-            desktop/dist/latest*.yml
+      - name: 构建并发布
+        working-directory: desktop
+        run: ${{ matrix.build_cmd }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
