@@ -13,8 +13,12 @@ jobs:
         include:
           - os: windows-latest
             build_cmd: npm run build
+            artifact_name: win-build
+            artifact_path: desktop/dist/*.exe
           - os: macos-latest
             build_cmd: npm run build:mac
+            artifact_name: mac-build
+            artifact_path: desktop/dist/*.dmg
     
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -35,10 +39,41 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
-      - name: 构建并发布
+      - name: 构建
         working-directory: desktop
         run: ${{ matrix.build_cmd }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
           ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载 Windows 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: win-build
+          path: ./assets
+
+      - name: 下载 macOS 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+          path: ./assets
+
+      - name: 发布到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./assets/*
+          generate_release_notes: true
