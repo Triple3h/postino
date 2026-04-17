@@ -4,8 +4,11 @@
   "description": "轻量级接口调试工具 — 无需登录，支持cURL/Postman导入，本地存储",
   "main": "main.js",
   "scripts": {
+    "start": "node copy-html.js && electron .",
     "build": "node copy-html.js && electron-builder --win --publish onTag",
-    "build:mac": "node copy-html.js && electron-builder --mac --publish onTag"
+    "build:mac": "node copy-html.js && electron-builder --mac --publish onTag",
+    "build:all": "node copy-html.js && electron-builder --win --mac --publish onTag",
+    "build:portable": "node copy-html.js && electron-builder --win portable --publish onTag"
   },
   "author": "ApiFix Bin",
   "license": "MIT",
@@ -32,7 +35,8 @@
     "publish": {
       "provider": "github",
       "owner": "Bin-Hu-Ling",
-      "repo": "apifix-bin-pro"
+      "repo": "apifix-bin-pro",
+      "releaseType": "draft"
     },
     "win": {
       "target": [
@@ -40,7 +44,8 @@
           "target": "nsis",
           "arch": ["x64"]
         }
-      ]
+      ],
+      "sign": null
     },
     "nsis": {
       "oneClick": false,
