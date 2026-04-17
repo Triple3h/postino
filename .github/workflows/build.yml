@@ -5,10 +5,20 @@ on:
       - 'v*'
 
 jobs:
-  build:
-    runs-on: windows-latest
+  release:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            build_cmd: npm run build
+          - os: macos-latest
+            build_cmd: npm run build:mac
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -16,44 +26,23 @@ jobs:
       - name: 安装依赖
         run: |
           cd desktop
-          npm install
+          npm install --force
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
-      - name: 构建 Windows
+      - name: 构建
         run: |
           cd desktop
-          npm run build
+          ${{ matrix.build_cmd }}
 
-      - name: 上传 Windows 安装包
-        uses: actions/upload-artifact@v4
+      - name: 上传安装包到 Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: windows-build
-          path: desktop/dist/*.exe
-
-  build-mac:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: 安装依赖
-        run: |
-          cd desktop
-          npm install
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.blockmap
+            desktop/dist/latest*.yml
         env:
-          NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
-          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
-
-      - name: 构建 Mac
-        run: |
-          cd desktop
-          npm run build:mac
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mac-build
-          path: desktop/dist/*.dmg
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
