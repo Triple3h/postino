@@ -350,7 +350,7 @@ a { color: var(--accent); text-decoration: none; }
 .api-group-header {
   display: flex;
   align-items: center;
-  padding: 8px 18px;
+  padding: 6px 14px;
   cursor: pointer;
   transition: background var(--transition);
   user-select: none;
@@ -361,11 +361,11 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 .api-group-header .chevron {
-  font-size: 10px;
+  font-size: 8px;
   color: var(--text-muted);
-  margin-right: 8px;
+  margin-right: 6px;
   transition: transform var(--transition);
-  width: 14px;
+  width: 12px;
   text-align: center;
 }
 
@@ -374,10 +374,10 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 .api-group-header .group-name {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
   color: var(--text-secondary);
   flex: 1;
 }
@@ -431,10 +431,10 @@ a { color: var(--accent); text-decoration: none; }
 .api-item {
   display: flex;
   align-items: center;
-  padding: 6px 18px 6px 40px;
+  padding: 4px 14px 4px 34px;
   cursor: pointer;
   transition: background var(--transition);
-  gap: 8px;
+  gap: 6px;
 }
 
 .api-item:hover {
@@ -448,11 +448,11 @@ a { color: var(--accent); text-decoration: none; }
 
 .api-item .method-badge {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
-  min-width: 42px;
+  min-width: 36px;
   text-align: center;
-  padding: 2px 5px;
+  padding: 1px 4px;
   border-radius: 3px;
   letter-spacing: 0.3px;
 }
@@ -466,7 +466,7 @@ a { color: var(--accent); text-decoration: none; }
 .api-item .method-badge.options { color: var(--method-options); background: rgba(107,127,153,0.1); }
 
 .api-item .api-name {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -707,27 +707,6 @@ a { color: var(--accent); text-decoration: none; }
 .send-btn.loading .send-text { display: none; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* Save Button */
-.save-btn {
-  padding: 10px 16px;
-  background: var(--accent-dim);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition);
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.save-btn:hover {
-  background: var(--accent-glow);
-}
 
 /* ============================================
    REQUEST/RESPONSE PANELS
@@ -2602,10 +2581,6 @@ a { color: var(--accent); text-decoration: none; }
           <span class="send-text">发 送</span>
         </button>
         <button class="cancel-stream-btn" id="cancelStreamBtn" data-action="cancel-streaming" style="display:none;" title="取消流式请求">⏹ 停止</button>
-        <div class="stream-toggle" data-action="toggle-streaming" title="流式输出模式（适合SSE/流式API）">
-          <span class="stream-toggle-indicator" id="streamToggleIndicator"></span>
-          <span class="stream-toggle-label">Stream</span>
-        </div>
         <div class="send-dropdown-wrap">
           <button class="send-dropdown-btn" data-action="toggle-send-dropdown" title="更多发送选项">▾</button>
           <div class="send-dropdown" id="sendDropdown">
@@ -2614,7 +2589,10 @@ a { color: var(--accent); text-decoration: none; }
             <div class="send-dropdown-item" data-action="generate-curl">Generate cURL</div>
           </div>
         </div>
-        <button class="save-btn" data-action="show-save-modal">💾 保存</button>
+        <div class="stream-toggle" data-action="toggle-streaming" title="流式输出模式（适合SSE/流式API）">
+          <span class="stream-toggle-indicator" id="streamToggleIndicator"></span>
+          <span class="stream-toggle-label">Stream</span>
+        </div>
       </div>
 
       <!-- Request + Response Panels -->
@@ -2879,7 +2857,7 @@ a { color: var(--accent); text-decoration: none; }
 </div>
 
 <!-- Custom Prompt Modal -->
-<div class="modal-overlay" id="promptModal">
+<div class="modal-overlay" id="promptModal" style="z-index:1100;">
   <div class="modal" style="max-width:420px;">
     <div class="modal-header">
       <h3 id="promptTitle">提示</h3>
@@ -2896,7 +2874,7 @@ a { color: var(--accent); text-decoration: none; }
 </div>
 
 <!-- Custom Confirm Modal -->
-<div class="modal-overlay" id="confirmModal">
+<div class="modal-overlay" id="confirmModal" style="z-index:1100;">
   <div class="modal" style="max-width:400px;">
     <div class="modal-header">
       <h3 id="confirmTitle">确认</h3>
