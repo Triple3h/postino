@@ -86,6 +86,12 @@ function init() {
     console.warn('Failed to update environment selector:', e);
   }
 
+  try {
+    renderReqConsole();
+  } catch (e) {
+    console.warn('Failed to render req console:', e);
+  }
+
   // Bind all event listeners (replaces inline event handlers)
   bindEvents();
 
@@ -108,8 +114,65 @@ function bindEvents() {
       if (dd && !e.target.closest('.method-select')) dd.classList.remove('show');
       const cm = document.getElementById('contextMenu');
       if (cm && !e.target.closest('.context-menu')) cm.classList.remove('show');
+      const sm = document.getElementById('sidebarMoreMenu');
+      if (sm && !e.target.closest('.sidebar-more-menu') && !e.target.closest('[data-action="toggle-sidebar-more"]')) sm.classList.remove('open');
     } catch (err) {}
   });
+
+  // Main console delete log delegation + group toggle
+  const mainConsoleBody = document.getElementById('mainConsoleBody');
+  if (mainConsoleBody) {
+    mainConsoleBody.addEventListener('click', (e) => {
+      const delBtn = e.target.closest('[data-action="delete-req-log"]');
+      if (delBtn) {
+        deleteReqLog(delBtn.dataset.logId);
+        return;
+      }
+      const delGroupBtn = e.target.closest('[data-action="delete-req-log-group"]');
+      if (delGroupBtn) {
+        deleteReqLogGroup(delGroupBtn.dataset.groupId);
+        return;
+      }
+      const toggleBtn = e.target.closest('[data-action="toggle-console-group"]');
+      if (toggleBtn) {
+        toggleConsoleGroup(toggleBtn.dataset.groupId);
+        return;
+      }
+      // Also allow clicking the title row to toggle
+      const titleRow = e.target.closest('.req-console-title');
+      if (titleRow && titleRow.dataset.groupId) {
+        toggleConsoleGroup(titleRow.dataset.groupId);
+        return;
+      }
+    });
+  }
+
+  // History date group toggle delegation
+  const sidebarHistory = document.getElementById('sidebarHistory');
+  if (sidebarHistory) {
+    sidebarHistory.addEventListener('click', (e) => {
+      const label = e.target.closest('[data-action="toggle-history-group"]');
+      if (label) {
+        toggleHistoryGroup(label);
+      }
+    });
+  }
+
+  // Sidebar console delegation (expand/collapse/delete)
+  const sidebarConsoleBody = document.getElementById('sidebarConsoleBody');
+  if (sidebarConsoleBody) {
+    sidebarConsoleBody.addEventListener('click', (e) => {
+      const delBtn = e.target.closest('[data-action="delete-req-log"]');
+      if (delBtn) { deleteReqLog(delBtn.dataset.logId); return; }
+      const delGroupBtn = e.target.closest('[data-action="delete-req-log-group"]');
+      if (delGroupBtn) { deleteReqLogGroup(delGroupBtn.dataset.groupId); return; }
+      const toggleBtn = e.target.closest('[data-action="toggle-console-group"]');
+      if (toggleBtn) { toggleConsoleGroup(toggleBtn.dataset.groupId); return; }
+      // Also allow clicking the title row to toggle
+      const titleRow = e.target.closest('.req-console-title');
+      if (titleRow && titleRow.dataset.groupId) { toggleConsoleGroup(titleRow.dataset.groupId); return; }
+    });
+  }
 
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
@@ -138,9 +201,9 @@ function bindEvents() {
     const action = el.getAttribute('data-action');
     el.addEventListener('click', () => {
       switch (action) {
-        case 'create-new-api': createNewApi(); break;
-        case 'show-import-modal': showImportModal(); break;
-        case 'show-export-modal': showExportModal(); break;
+        case 'create-new-api': createNewApi(); closeSidebarMore(); break;
+        case 'show-import-modal': showImportModal(); closeSidebarMore(); break;
+        case 'show-export-modal': showExportModal(); closeSidebarMore(); break;
         case 'close-export-modal': closeExportModal(); break;
         case 'do-export': doExport(); break;
         case 'toggle-theme': toggleTheme(); break;
@@ -149,6 +212,8 @@ function bindEvents() {
         case 'send-and-download': sendAndDownload(); closeSendDropdown(); break;
         case 'generate-curl': generateCurl(); closeSendDropdown(); break;
         case 'toggle-send-dropdown': toggleSendDropdown(); break;
+        case 'toggle-sidebar-more': toggleSidebarMore(); break;
+        case 'toggle-environment-panel': toggleEnvironmentPanel(); break;
         case 'toggle-bulk-edit': toggleBulkEdit(el.dataset.bulkType); break;
         case 'show-save-modal': showSaveModal(); break;
         case 'close-import-modal': closeImportModal(); break;
@@ -156,10 +221,12 @@ function bindEvents() {
         case 'do-import': doImport(); break;
         case 'do-save': doSave(); break;
         case 'clear-script-console': clearScriptConsole(); break;
+        case 'clear-req-console': clearReqConsole(); break;
+        case 'close-main-console': closeMainConsole(); break;
         case 'rename-group': renameGroup(); break;
         case 'delete-group': deleteGroup(); break;
-        case 'create-new-group': createNewGroup(); break;
-        case 'clear-history': clearHistory(); break;
+        case 'create-new-group': createNewGroup(); closeSidebarMore(); break;
+        case 'clear-history': clearHistory(); closeSidebarMore(); break;
         case 'close-prompt-ok': closeCustomPrompt(true); break;
         case 'close-prompt-cancel': closeCustomPrompt(false); break;
         case 'close-confirm-ok': closeCustomConfirm(true); break;
@@ -290,9 +357,21 @@ function bindEvents() {
     streamInd.classList.add('active');
   }
 
-  // Sidebar tabs
-  $$('.sidebar-tab[data-sidebar-tab]').forEach(el => {
-    el.addEventListener('click', () => switchSidebarTab(el.dataset.sidebarTab));
+  // Sidebar rail tab icons (primary tab switching)
+  $$('.rail-item[data-sidebar-tab]').forEach(el => {
+    el.addEventListener('click', () => {
+      const tab = el.dataset.sidebarTab;
+      if (tab === 'console') {
+        // Console icon toggles the main console panel
+        toggleMainConsole();
+        return;
+      }
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar && sidebar.classList.contains('collapsed')) {
+        expandSidebar();
+      }
+      switchSidebarTab(tab);
+    });
   });
 
   // KV add-row buttons (use data-editor and data-kv-type)
@@ -558,8 +637,17 @@ function toggleTheme() {
 
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', STATE.theme);
-  document.getElementById('themeIcon').textContent = STATE.theme === 'dark' ? '🌙' : '☀️';
-  document.getElementById('themeLabel').textContent = STATE.theme === 'dark' ? '暗色' : '亮色';
+  const themeIcon = document.getElementById('themeIcon');
+  const themeLabel = document.getElementById('themeLabel');
+  if (themeIcon) themeIcon.textContent = STATE.theme === 'dark' ? '🌙' : '☀️';
+  if (themeLabel) themeLabel.textContent = STATE.theme === 'dark' ? '暗色' : '亮色';
+  // Update rail theme icon
+  const railThemeIcon = document.getElementById('railThemeIcon');
+  if (railThemeIcon) {
+    railThemeIcon.innerHTML = STATE.theme === 'dark'
+      ? '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
+      : '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+  }
 }
 
 // ============================================
@@ -1173,6 +1261,40 @@ function closeSendDropdown() {
 }
 
 // ============================================
+// SIDEBAR MORE MENU
+// ============================================
+function toggleSidebarMore() {
+  const menu = document.getElementById('sidebarMoreMenu');
+  if (!menu) return;
+  if (menu.classList.contains('open')) {
+    menu.classList.remove('open');
+    return;
+  }
+  // Position menu near the more button (now in sidebar-tabs)
+  const btn = document.querySelector('[data-action="toggle-sidebar-more"]');
+  if (btn) {
+    const rect = btn.getBoundingClientRect();
+    menu.style.left = (rect.left) + 'px';
+    menu.style.top = (rect.bottom + 4) + 'px';
+  }
+  menu.classList.add('open');
+}
+
+function closeSidebarMore() {
+  const menu = document.getElementById('sidebarMoreMenu');
+  if (menu) menu.classList.remove('open');
+}
+
+function toggleEnvironmentPanel() {
+  const footer = document.getElementById('sidebarFooter');
+  const btn = document.getElementById('railEnvBtn');
+  if (!footer) return;
+  const isVisible = footer.style.display !== 'none';
+  footer.style.display = isVisible ? 'none' : '';
+  if (btn) btn.classList.toggle('active', !isVisible);
+}
+
+// ============================================
 // GENERATE cURL
 // ============================================
 function generateCurl() {
@@ -1628,6 +1750,20 @@ async function sendRequest() {
     }
 
     // ---- Send via Chrome Extension API (normal, no CORS restriction) ----
+    appendReqLog('req', `${method} ${finalUrl}`);
+    const headerKeys = Object.keys(allHeaders);
+    if (headerKeys.length > 0) {
+      const headerItems = headerKeys.map(k => ({
+        key: k,
+        value: (k.toLowerCase().includes('auth') || k.toLowerCase().includes('token') || k.toLowerCase().includes('key')) ? '•••' : allHeaders[k]
+      }));
+      appendReqLog('info', `Headers (${headerKeys.length})`, { type: 'kv', items: headerItems });
+    }
+    if (body) {
+      const bodyPreview = body.length > 200 ? body.substring(0, 200) + '...' : body;
+      appendReqLog('info', `Body`, { type: 'text', content: bodyPreview });
+    }
+
     const startTime = performance.now();
     const result = await chrome.runtime.sendMessage({
       type: 'API_REQUEST',
@@ -1644,10 +1780,12 @@ async function sendRequest() {
     const duration = Math.round(endTime - startTime);
 
     if (!result.success) {
+      appendReqLog('err', result.error || '请求失败');
       throw new Error(result.error || '请求失败');
     }
 
     const data = result.data;
+    appendReqLog('res', `${data.status} ${data.statusText} — ${duration}ms — ${data.size > 1024 ? (data.size / 1024).toFixed(1) + ' KB' : data.size + ' B'}`);
     const statusClass = data.status < 300 ? 'success' :
                         data.status < 400 ? 'redirect' :
                         data.status < 500 ? 'client-err' : 'server-err';
@@ -1710,6 +1848,7 @@ async function sendRequest() {
 
   } catch (err) {
     // Error case - also record to history
+    appendReqLog('err', err.message);
     addHistoryEntry({
       id: 'hist_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
       apiId: STATE.currentApiId,
@@ -2849,17 +2988,22 @@ function switchSidebarTab(tab) {
 }
 
 function applySidebarTab() {
-  document.querySelectorAll('.sidebar-tab').forEach(t => {
+  // Update rail items
+  document.querySelectorAll('.rail-item[data-sidebar-tab]').forEach(t => {
     t.classList.toggle('active', t.dataset.sidebarTab === STATE.sidebarTab);
   });
   const body = document.getElementById('sidebarBody');
   const hist = document.getElementById('sidebarHistory');
+  const con = document.getElementById('sidebarConsole');
   const actionsApis = document.getElementById('sidebarActionsApis');
   const actionsHist = document.getElementById('sidebarActionsHistory');
   if (body) body.style.display = STATE.sidebarTab === 'apis' ? '' : 'none';
   if (hist) hist.style.display = STATE.sidebarTab === 'history' ? '' : 'none';
+  if (con) con.style.display = STATE.sidebarTab === 'console' ? '' : 'none';
   if (actionsApis) actionsApis.style.display = STATE.sidebarTab === 'apis' ? '' : 'none';
   if (actionsHist) actionsHist.style.display = STATE.sidebarTab === 'history' ? '' : 'none';
+  // When switching to console tab, render console logs into sidebar panel
+  if (STATE.sidebarTab === 'console') renderSidebarConsole();
 }
 
 // ============================================
@@ -2896,6 +3040,21 @@ function deleteHistoryEntry(id) {
   _history = _history.filter(h => h.id !== id);
   saveHistory();
   renderHistory();
+}
+
+function toggleHistoryGroup(labelEl) {
+  const group = labelEl.closest('.history-date-group');
+  if (!group) return;
+  const items = group.querySelector('.history-date-items');
+  if (!items) return;
+  const isCollapsed = group.classList.contains('collapsed');
+  if (isCollapsed) {
+    group.classList.remove('collapsed');
+    items.style.display = '';
+  } else {
+    group.classList.add('collapsed');
+    items.style.display = 'none';
+  }
 }
 
 async function clearHistory() {
@@ -2968,16 +3127,56 @@ function renderHistory() {
     return;
   }
 
-  let html = '';
-  for (const entry of filteredHistory) {
-    const methodClass = entry.method?.toLowerCase() || 'get';
-    const statusClass = !entry.status ? '' :
-      entry.status < 300 ? 'success' :
-      entry.status < 400 ? 'redirect' :
-      entry.status < 500 ? 'client-err' : 'server-err';
-    const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  // Group by date
+  const today = new Date();
+  const todayStr = today.toDateString();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toDateString();
 
-    html += `
+  const groups = []; // { label, entries: [] }
+  const groupMap = {}; // dateStr -> index in groups
+
+  for (const entry of filteredHistory) {
+    const d = entry.timestamp ? new Date(entry.timestamp) : new Date();
+    const dateStr = d.toDateString();
+
+    let label;
+    if (dateStr === todayStr) {
+      label = 'Today';
+    } else if (dateStr === yesterdayStr) {
+      label = 'Yesterday';
+    } else {
+      label = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    }
+
+    if (!(dateStr in groupMap)) {
+      groupMap[dateStr] = groups.length;
+      groups.push({ label, entries: [] });
+    }
+    groups[groupMap[dateStr]].entries.push(entry);
+  }
+
+  let html = '';
+  for (const group of groups) {
+    const isToday = group.label === 'Today';
+    const collapsedClass = isToday ? '' : ' collapsed';
+    html += `<div class="history-date-group${collapsedClass}">
+      <div class="history-date-label" data-action="toggle-history-group">
+        <svg class="history-group-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 4 10 8 6 12"/></svg>
+        ${group.label}
+        <span class="history-group-count">${group.entries.length}</span>
+      </div>
+      <div class="history-date-items" style="${isToday ? '' : 'display:none'}">`;
+    for (const entry of group.entries) {
+      const methodClass = entry.method?.toLowerCase() || 'get';
+      const statusClass = !entry.status ? '' :
+        entry.status < 300 ? 'success' :
+        entry.status < 400 ? 'redirect' :
+        entry.status < 500 ? 'client-err' : 'server-err';
+      const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '';
+
+      html += `
       <div class="history-item" data-history-id="${entry.id}">
         <span class="method-badge ${methodClass}">${entry.method || 'GET'}</span>
         <div class="history-info">
@@ -2990,8 +3189,9 @@ function renderHistory() {
           </div>
         </div>
         <button class="history-delete" title="删除">✕</button>
-      </div>
-    `;
+      </div>`;
+    }
+    html += `</div></div>`;
   }
   container.innerHTML = html;
 }
@@ -3034,6 +3234,56 @@ function initResize() {
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   });
+
+  // ---- Sidebar Resize ----
+  initSidebarResize();
+}
+
+function initSidebarResize() {
+  const sidebarResize = document.getElementById('sidebarResize');
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebarResize || !sidebar) return;
+
+  let isSidebarResizing = false;
+  let startX, startWidth;
+
+  sidebarResize.addEventListener('mousedown', (e) => {
+    isSidebarResizing = true;
+    startX = e.clientX;
+    startWidth = sidebar.offsetWidth;
+    sidebarResize.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isSidebarResizing) return;
+    const delta = e.clientX - startX;
+    const newWidth = Math.max(44, Math.min(500, startWidth + delta));
+    sidebar.style.width = newWidth + 'px';
+    // Collapse when width is very small (just rail)
+    if (newWidth <= 60) {
+      sidebar.classList.add('collapsed');
+    } else {
+      sidebar.classList.remove('collapsed');
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isSidebarResizing) return;
+    isSidebarResizing = false;
+    sidebarResize.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+}
+
+function expandSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  sidebar.classList.remove('collapsed');
+  sidebar.style.width = '300px';
 }
 
 // ============================================
@@ -3073,6 +3323,256 @@ function clearScriptConsole() {
   if (consoleBody) consoleBody.innerHTML = '';
   const consoleEl = document.getElementById('scriptConsole');
   if (consoleEl) consoleEl.classList.remove('show');
+}
+
+// ============================================
+// REQUEST CONSOLE (Response Panel - Persistent)
+// ============================================
+const CONSOLE_STORAGE_KEY = 'apifix_console_logs';
+const CONSOLE_MAX_AGE = 180 * 24 * 60 * 60 * 1000; // 6 months in ms
+
+function loadConsoleLogs() {
+  try {
+    const raw = localStorage.getItem(CONSOLE_STORAGE_KEY);
+    if (!raw) return [];
+    const logs = JSON.parse(raw);
+    // Filter out expired entries
+    const now = Date.now();
+    const valid = logs.filter(l => (now - l.ts) < CONSOLE_MAX_AGE);
+    if (valid.length !== logs.length) {
+      localStorage.setItem(CONSOLE_STORAGE_KEY, JSON.stringify(valid));
+    }
+    return valid;
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveConsoleLogs(logs) {
+  try {
+    localStorage.setItem(CONSOLE_STORAGE_KEY, JSON.stringify(logs));
+  } catch (e) {
+    // Storage full, trim oldest
+    if (logs.length > 500) {
+      logs = logs.slice(logs.length - 500);
+      try { localStorage.setItem(CONSOLE_STORAGE_KEY, JSON.stringify(logs)); } catch (e2) {}
+    }
+  }
+}
+
+function clearReqConsole() {
+  localStorage.removeItem(CONSOLE_STORAGE_KEY);
+  renderReqConsole();
+}
+
+function toggleMainConsole() {
+  const panel = document.getElementById('mainConsolePanel');
+  const btn = document.querySelector('.rail-item[data-sidebar-tab="console"]');
+  if (!panel) return;
+  if (panel.style.display === 'none') {
+    panel.style.display = '';
+    if (btn) btn.classList.add('active');
+    renderMainConsole();
+  } else {
+    panel.style.display = 'none';
+    if (btn) btn.classList.remove('active');
+  }
+}
+
+function closeMainConsole() {
+  const panel = document.getElementById('mainConsolePanel');
+  const btn = document.querySelector('.rail-item[data-sidebar-tab="console"]');
+  if (panel) panel.style.display = 'none';
+  if (btn) btn.classList.remove('active');
+}
+
+function renderMainConsole() {
+  const body = document.getElementById('mainConsoleBody');
+  if (!body) return;
+  const logs = loadConsoleLogs();
+  body.innerHTML = buildConsoleHtml(logs);
+  body.scrollTop = body.scrollHeight;
+}
+
+function deleteReqLog(id) {
+  let logs = loadConsoleLogs();
+  logs = logs.filter(l => l.id !== id);
+  saveConsoleLogs(logs);
+  renderReqConsole();
+}
+
+function deleteReqLogGroup(groupId) {
+  let logs = loadConsoleLogs();
+  logs = logs.filter(l => l.groupId !== groupId);
+  saveConsoleLogs(logs);
+  renderReqConsole();
+}
+
+function toggleConsoleGroup(groupId) {
+  // Toggle all matching groups (both main console and sidebar console)
+  const groupEls = document.querySelectorAll(`.req-console-group[data-group-id="${groupId}"]`);
+  if (groupEls.length === 0) return;
+  // Determine desired state from the first element
+  const isExpanded = groupEls[0].classList.contains('expanded');
+  groupEls.forEach(groupEl => {
+    const children = groupEl.querySelector('.req-console-children');
+    const btn = groupEl.querySelector('.log-expand-btn');
+    if (isExpanded) {
+      groupEl.classList.remove('expanded');
+      if (children) children.style.display = 'none';
+      if (btn) btn.style.transform = '';
+    } else {
+      groupEl.classList.add('expanded');
+      if (children) children.style.display = 'block';
+      if (btn) btn.style.transform = 'rotate(90deg)';
+    }
+  });
+}
+
+let _currentReqGroupId = null; // tracks current request group
+
+function appendReqLog(tag, msg, detail) {
+  const logs = loadConsoleLogs();
+  // If tag is 'req', start a new group
+  if (tag === 'req') {
+    _currentReqGroupId = 'grp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  }
+  const entry = {
+    id: 'cl_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    ts: Date.now(),
+    tag: tag,
+    msg: String(msg),
+    groupId: _currentReqGroupId || null,
+    detail: detail || null, // { type: 'kv', items: [{key, value}] } or { type: 'text', content: '...' }
+  };
+  logs.push(entry);
+  saveConsoleLogs(logs);
+  renderReqConsole(true); // scroll to bottom
+}
+
+function renderConsoleChildLine(c) {
+  const ctimeStr = c.ts ? new Date(c.ts).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+  let detailHtml = '';
+  let displayMsg = c.msg;
+
+  if (c.detail) {
+    if (c.detail.type === 'kv' && c.detail.items && c.detail.items.length > 0) {
+      detailHtml = '<div class="log-detail-kv">';
+      c.detail.items.forEach(item => {
+        detailHtml += `<div class="log-kv-row"><span class="log-kv-key">${escapeHtml(item.key)}</span><span class="log-kv-val">${escapeHtml(String(item.value))}</span></div>`;
+      });
+      detailHtml += '</div>';
+    } else if (c.detail.type === 'text' && c.detail.content) {
+      detailHtml = `<div class="log-detail-text">${escapeHtml(c.detail.content)}</div>`;
+    }
+  } else if (c.tag === 'info' && c.msg && c.msg.includes(' | ')) {
+    // Auto-parse pipe-separated headers into kv table
+    const parts = c.msg.split(' | ');
+    const kvItems = [];
+    const unparsed = [];
+    parts.forEach(p => {
+      const colonIdx = p.indexOf(': ');
+      if (colonIdx > 0) {
+        kvItems.push({ key: p.substring(0, colonIdx).trim(), value: p.substring(colonIdx + 2).trim() });
+      } else {
+        unparsed.push(p.trim());
+      }
+    });
+    if (kvItems.length > 0) {
+      detailHtml = '<div class="log-detail-kv">';
+      kvItems.forEach(item => {
+        detailHtml += `<div class="log-kv-row"><span class="log-kv-key">${escapeHtml(item.key)}</span><span class="log-kv-val">${escapeHtml(item.value)}</span></div>`;
+      });
+      detailHtml += '</div>';
+      // Show only the count in the msg line
+      displayMsg = `Headers (${kvItems.length})`;
+    }
+  }
+
+  return `<div class="req-console-line req-console-child">
+    <span class="log-tag ${c.tag}">${c.tag.toUpperCase()}</span>
+    <span class="log-msg">
+      <span style="color:var(--text-muted);margin-right:6px;">${ctimeStr}</span>${escapeHtml(displayMsg)}
+    </span>
+    ${detailHtml}
+    <button class="log-del" data-action="delete-req-log" data-log-id="${c.id}" title="删除此条">✕</button>
+  </div>`;
+}
+
+function buildConsoleHtml(logs) {
+  if (logs.length === 0) {
+    return '<div class="empty-state"><div class="empty-icon">🖥️</div><div class="empty-title">暂无日志</div><div class="empty-desc">发送请求后将在此记录日志</div></div>';
+  }
+
+  // Group logs by groupId
+  const groups = [];
+  let currentGroup = null;
+  logs.forEach(l => {
+    if (l.tag === 'req' && l.groupId) {
+      currentGroup = { groupId: l.groupId, title: l, children: [] };
+      groups.push(currentGroup);
+    } else if (currentGroup && l.groupId === currentGroup.groupId) {
+      currentGroup.children.push(l);
+    } else {
+      groups.push({ groupId: null, title: l, children: [] });
+    }
+  });
+
+  let html = '';
+  groups.forEach(g => {
+    const t = g.title;
+    const d = new Date(t.ts);
+    const dateStr = d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+    const timeStr = d.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    if (g.groupId) {
+      html += `<div class="req-console-group" data-group-id="${g.groupId}">
+        <div class="req-console-line req-console-title" data-group-id="${g.groupId}">
+          <button class="log-expand-btn" data-action="toggle-console-group" data-group-id="${g.groupId}" title="展开详情">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 4 10 8 6 12"/></svg>
+          </button>
+          <span class="log-tag ${t.tag}">${t.tag.toUpperCase()}</span>
+          <span class="log-msg"><span style="color:var(--text-muted);margin-right:6px;">${dateStr} ${timeStr}</span>${escapeHtml(t.msg)}</span>
+          <button class="log-del" data-action="delete-req-log-group" data-group-id="${g.groupId}" title="删除整组">✕</button>
+        </div>
+        <div class="req-console-children">`;
+      g.children.forEach(c => {
+        html += renderConsoleChildLine(c);
+      });
+      html += `</div></div>`;
+    } else {
+      html += `<div class="req-console-line" data-log-id="${t.id}">
+        <span class="log-tag ${t.tag}">${t.tag.toUpperCase()}</span>
+        <span class="log-msg"><span style="color:var(--text-muted);margin-right:6px;">${dateStr} ${timeStr}</span>${escapeHtml(t.msg)}</span>
+        <button class="log-del" data-action="delete-req-log" data-log-id="${t.id}" title="删除此条">✕</button>
+      </div>`;
+    }
+  });
+  return html;
+}
+
+function renderReqConsole(scrollToBottom) {
+  const mainBody = document.getElementById('mainConsoleBody');
+  const sidebarBody = document.getElementById('sidebarConsoleBody');
+  const logs = loadConsoleLogs();
+  const html = buildConsoleHtml(logs);
+
+  if (mainBody) {
+    mainBody.innerHTML = html;
+    if (scrollToBottom) mainBody.scrollTop = mainBody.scrollHeight;
+  }
+  if (sidebarBody) {
+    sidebarBody.innerHTML = html;
+    if (scrollToBottom) sidebarBody.scrollTop = sidebarBody.scrollHeight;
+  }
+}
+
+function renderSidebarConsole() {
+  const sidebarBody = document.getElementById('sidebarConsoleBody');
+  if (!sidebarBody) return;
+  const logs = loadConsoleLogs();
+  sidebarBody.innerHTML = buildConsoleHtml(logs);
+  sidebarBody.scrollTop = sidebarBody.scrollHeight;
 }
 
 function appendScriptLog(type, ...args) {
@@ -3760,6 +4260,20 @@ async function sendStreamingRequest(method, url, headers, body, formdataFields) 
   const streamId = 'stream_' + Date.now();
   STATE.activeStreamId = streamId;
 
+  appendReqLog('req', `${method} ${url} [Stream]`);
+  const headerKeys = Object.keys(headers);
+  if (headerKeys.length > 0) {
+    const headerItems = headerKeys.map(k => ({
+      key: k,
+      value: (k.toLowerCase().includes('auth') || k.toLowerCase().includes('token') || k.toLowerCase().includes('key')) ? '•••' : headers[k]
+    }));
+    appendReqLog('info', `Headers (${headerKeys.length})`, { type: 'kv', items: headerItems });
+  }
+  if (body) {
+    const bodyPreview = body.length > 200 ? body.substring(0, 200) + '...' : body;
+    appendReqLog('info', `Body`, { type: 'text', content: bodyPreview });
+  }
+
   // Show cancel button
   const cancelBtn = document.getElementById('cancelStreamBtn');
   if (cancelBtn) cancelBtn.style.display = 'inline-flex';
@@ -3784,6 +4298,7 @@ async function sendStreamingRequest(method, url, headers, body, formdataFields) 
 
     if (phase === 'headers') {
       headersReceived = true;
+      appendReqLog('res', `${data.status} ${data.statusText} [Stream]`);
       const statusClass = data.status < 300 ? 'success' :
                           data.status < 400 ? 'redirect' :
                           data.status < 500 ? 'client-err' : 'server-err';
@@ -3911,6 +4426,7 @@ async function sendStreamingRequest(method, url, headers, body, formdataFields) 
     btn.classList.remove('loading');
     if (cancelBtn) cancelBtn.style.display = 'none';
     STATE.activeStreamId = null;
+    appendReqLog('err', '流式请求失败: ' + err.message);
     bodyEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">流式请求失败</div><div class="empty-desc">${escapeHtml(err.message)}</div></div>`;
     if (_streamChunkListener) {
       chrome.runtime.onMessage.removeListener(_streamChunkListener);

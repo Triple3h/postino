@@ -14,9 +14,9 @@
   --font-mono: 'JetBrains Mono', monospace;
   --font-sans: 'Noto Sans SC', system-ui, sans-serif;
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   --sidebar-width: 300px;
 }
@@ -29,12 +29,15 @@
   --bg-input: #0d1219;
   --border: #1e2a3a;
   --border-focus: #00e5a0;
+  --border-active: #2a3a50;
   --text-primary: #e8edf4;
   --text-secondary: #6b7f99;
   --text-muted: #3d5068;
   --accent: #00e5a0;
   --accent-dim: rgba(0, 229, 160, 0.12);
   --accent-glow: rgba(0, 229, 160, 0.25);
+  --cyan: #5b9ef5;
+  --cyan-dim: rgba(91, 158, 245, 0.10);
   --method-get: #00e5a0;
   --method-post: #f5a623;
   --method-put: #5b9ef5;
@@ -50,6 +53,7 @@
   --scrollbar-thumb: #2a3a4e;
   --shadow: 0 4px 24px rgba(0,0,0,0.4);
   --shadow-accent: 0 0 20px rgba(0,229,160,0.15);
+  --shadow-inset: inset 0 1px 2px rgba(0,0,0,0.3);
 }
 
 [data-theme="light"] {
@@ -60,12 +64,15 @@
   --bg-input: #f0f3f7;
   --border: #dde3eb;
   --border-focus: #00b880;
+  --border-active: #c8d0da;
   --text-primary: #1a2230;
   --text-secondary: #6b7f99;
   --text-muted: #a0aec0;
   --accent: #00b880;
   --accent-dim: rgba(0, 184, 128, 0.08);
   --accent-glow: rgba(0, 184, 128, 0.15);
+  --cyan: #3b82f6;
+  --cyan-dim: rgba(59, 130, 246, 0.08);
   --method-get: #00b880;
   --method-post: #d4910a;
   --method-put: #3b82f6;
@@ -81,6 +88,7 @@
   --scrollbar-thumb: #c4cdd8;
   --shadow: 0 4px 24px rgba(0,0,0,0.08);
   --shadow-accent: 0 0 20px rgba(0,184,128,0.1);
+  --shadow-inset: inset 0 1px 2px rgba(0,0,0,0.06);
 }
 
 /* ============================================
@@ -122,17 +130,121 @@ a { color: var(--accent); text-decoration: none; }
    ============================================ */
 .sidebar {
   width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
+  min-width: 44px;
+  max-width: 500px;
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   transition: background var(--transition), border var(--transition);
   z-index: 10;
+  position: relative;
+}
+
+/* Sidebar Icon Rail */
+.sidebar-rail {
+  width: 44px;
+  min-width: 44px;
+  background: var(--bg-base);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rail-logo {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  margin-bottom: 12px;
+  cursor: default;
+}
+
+.rail-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.rail-item {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+}
+
+.rail-item svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rail-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.rail-item.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.rail-item.active::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.rail-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
+}
+
+/* Sidebar Content Panel */
+.sidebar-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: opacity 0.15s ease, min-width 0.15s ease;
+}
+
+.sidebar.collapsed .sidebar-content {
+  min-width: 0;
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.sidebar.collapsed .sidebar-rail {
+  border-right: none;
 }
 
 .sidebar-header {
-  padding: 20px 18px 12px;
+  padding: 16px 18px 12px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -141,21 +253,6 @@ a { color: var(--accent); text-decoration: none; }
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
-}
-
-.sidebar-header .logo-icon {
-  width: 34px;
-  height: 34px;
-  background: var(--accent);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--bg-base);
-  font-family: var(--font-mono);
-  box-shadow: var(--shadow-accent);
 }
 
 .sidebar-header .logo-text {
@@ -224,40 +321,140 @@ a { color: var(--accent); text-decoration: none; }
 
 .sidebar-actions button:hover {
   background: var(--accent-glow);
-  border-color: var(--accent);
+  border-color: rgba(0,229,160,0.3);
+}
+
+.sidebar-actions button:active {
+  transform: scale(0.97);
 }
 
 .sidebar-actions button .icon {
   font-size: 14px;
 }
 
-/* Sidebar Tabs */
+/* Sidebar More Menu (floating from rail) */
+.sidebar-more-menu {
+  position: fixed;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  z-index: 200;
+  min-width: 180px;
+  display: none;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.sidebar-more-menu.open {
+  display: block;
+  animation: dropIn 0.15s ease;
+}
+
+.sidebar-more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.sidebar-more-item:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.sidebar-more-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Sidebar Tabs (now contains more-menu button only) */
 .sidebar-tabs {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
   border-bottom: 1px solid var(--border);
-  padding: 0 18px;
+  padding: 4px 12px;
 }
 
-.sidebar-tab {
-  flex: 1;
-  padding: 8px 0;
+.sidebar-more-btn {
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
   transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.sidebar-tab:hover {
+.sidebar-more-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-more-btn:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* History Date Groups */
+.history-date-group {
+  border-bottom: 1px solid var(--border);
+}
+
+.history-date-group:last-child {
+  border-bottom: none;
+}
+
+.history-date-label {
+  padding: 8px 18px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.history-date-label:hover {
   color: var(--text-secondary);
 }
 
-.sidebar-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+.history-group-arrow {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.history-date-group.collapsed .history-group-arrow {
+  transform: rotate(0deg);
+}
+
+.history-date-group:not(.collapsed) .history-group-arrow {
+  transform: rotate(90deg);
+}
+
+.history-group-count {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0.6;
+  margin-left: auto;
 }
 
 /* History Items */
@@ -341,6 +538,23 @@ a { color: var(--accent); text-decoration: none; }
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
+}
+
+/* Sidebar Console body needs to contain the req-console properly */
+#sidebarConsole {
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebarConsole .req-console {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#sidebarConsole .req-console-body {
+  flex: 1;
 }
 
 .api-group {
@@ -503,35 +717,11 @@ a { color: var(--accent); text-decoration: none; }
 
 /* Sidebar Footer */
 .sidebar-footer {
-  padding: 12px 18px;
+  padding: 10px 18px;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.sidebar-footer .theme-toggle {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 6px 10px;
-  font-size: 14px;
-  transition: all var(--transition);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sidebar-footer .theme-toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.sidebar-footer .theme-toggle .label {
-  font-size: 11px;
-  font-weight: 500;
+  gap: 8px;
 }
 
 /* ============================================
@@ -543,6 +733,25 @@ a { color: var(--accent); text-decoration: none; }
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  position: relative;
+}
+
+/* Subtle dot pattern on main area */
+.main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--border) 0.5px, transparent 0.5px);
+  background-size: 20px 20px;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Ensure main content layers are above the pattern */
+.main > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Toolbar */
@@ -550,7 +759,7 @@ a { color: var(--accent); text-decoration: none; }
   display: flex;
   align-items: center;
   padding: 12px 20px;
-  gap: 10px;
+  gap: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
   transition: background var(--transition), border var(--transition);
@@ -568,7 +777,8 @@ a { color: var(--accent); text-decoration: none; }
   padding: 10px 14px;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right: none;
   color: var(--method-get);
   font-family: var(--font-mono);
   font-size: 13px;
@@ -576,10 +786,14 @@ a { color: var(--accent); text-decoration: none; }
   cursor: pointer;
   transition: all var(--transition);
   min-width: 100px;
+  box-shadow: var(--shadow-inset);
+  height: 41px;
+  box-sizing: border-box;
 }
 
 .method-select .method-btn:hover {
   border-color: var(--border-focus);
+  background: var(--bg-elevated);
 }
 
 .method-select .method-btn .arrow {
@@ -643,17 +857,23 @@ a { color: var(--accent); text-decoration: none; }
   padding: 10px 14px;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 0;
+  border-right: none;
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 13px;
   outline: none;
-  transition: border var(--transition);
+  transition: all var(--transition);
+  box-shadow: var(--shadow-inset);
+  margin-left: -1px;
+  height: 41px;
+  box-sizing: border-box;
 }
 
 .url-input:focus {
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px var(--accent-dim);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-dim);
+  z-index: 2;
 }
 
 .url-input::placeholder {
@@ -665,7 +885,7 @@ a { color: var(--accent); text-decoration: none; }
   padding: 10px 24px;
   background: var(--accent);
   border: none;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-radius: 0;
   color: var(--bg-base);
   font-weight: 700;
   font-size: 13px;
@@ -676,16 +896,18 @@ a { color: var(--accent); text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 6px;
+  position: relative;
+  height: 41px;
+  box-sizing: border-box;
 }
 
 .send-btn:hover {
   filter: brightness(1.15);
-  box-shadow: var(--shadow-accent);
-  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
 }
 
 .send-btn:active {
-  transform: translateY(0);
+  filter: brightness(0.95);
 }
 
 .send-btn.loading {
@@ -716,6 +938,7 @@ a { color: var(--accent); text-decoration: none; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--bg-surface);
 }
 
 .request-panel {
@@ -736,30 +959,32 @@ a { color: var(--accent); text-decoration: none; }
 /* Tabs */
 .tabs {
   display: flex;
-  padding: 0 20px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
   gap: 0;
 }
 
 .tab {
-  padding: 10px 16px;
+  padding: 10px 14px;
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all var(--transition);
   user-select: none;
+  position: relative;
 }
 
 .tab:hover {
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }
 
 .tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
 .tab .badge {
@@ -819,11 +1044,13 @@ a { color: var(--accent); text-decoration: none; }
   font-family: var(--font-mono);
   font-size: 12px;
   outline: none;
-  transition: border var(--transition);
+  transition: all var(--transition);
+  box-shadow: var(--shadow-inset);
 }
 
 .kv-row input:focus {
   border-color: var(--border-focus);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-dim);
 }
 
 .kv-row input::placeholder {
@@ -1057,7 +1284,7 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 .send-dropdown-btn {
-  padding: 10px 6px;
+  padding: 10px 10px;
   background: var(--accent);
   border: none;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
@@ -1067,11 +1294,18 @@ a { color: var(--accent); text-decoration: none; }
   display: flex;
   align-items: center;
   transition: all var(--transition);
-  margin-left: -1px;
+  position: relative;
+  height: 41px;
+  box-sizing: border-box;
 }
 
 .send-dropdown-btn:hover {
   filter: brightness(1.15);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
+}
+
+.send-dropdown-btn:active {
+  filter: brightness(0.95);
 }
 
 .send-dropdown {
@@ -1081,12 +1315,13 @@ a { color: var(--accent); text-decoration: none; }
   margin-top: 4px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow);
   z-index: 100;
   min-width: 160px;
   display: none;
   overflow: hidden;
+  padding: 4px;
 }
 
 .send-dropdown.open {
@@ -1094,12 +1329,13 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 .send-dropdown-item {
-  padding: 8px 14px;
+  padding: 8px 12px;
   font-size: 12px;
   color: var(--text-primary);
   cursor: pointer;
   transition: all var(--transition);
   white-space: nowrap;
+  border-radius: 4px;
 }
 
 .send-dropdown-item:hover {
@@ -1299,22 +1535,24 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 .empty-state .empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-  opacity: 0.4;
+  font-size: 36px;
+  margin-bottom: 14px;
+  opacity: 0.3;
+  color: var(--text-muted);
 }
 
 .empty-state .empty-title {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .empty-state .empty-desc {
-  font-size: 13px;
+  font-size: 12px;
   max-width: 300px;
   line-height: 1.5;
+  opacity: 0.7;
 }
 
 /* ============================================
@@ -1408,6 +1646,11 @@ a { color: var(--accent); text-decoration: none; }
   cursor: pointer;
   transition: all var(--transition);
   border: 1px solid var(--border);
+  position: relative;
+}
+
+.modal-footer .btn:active {
+  transform: scale(0.97);
 }
 
 .modal-footer .btn-cancel {
@@ -1418,6 +1661,7 @@ a { color: var(--accent); text-decoration: none; }
 .modal-footer .btn-cancel:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+  border-color: var(--border-active);
 }
 
 .modal-footer .btn-primary {
@@ -1428,6 +1672,7 @@ a { color: var(--accent); text-decoration: none; }
 
 .modal-footer .btn-primary:hover {
   filter: brightness(1.1);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .modal-footer .btn-danger {
@@ -1439,6 +1684,7 @@ a { color: var(--accent); text-decoration: none; }
 
 .modal-footer .btn-danger:hover {
   filter: brightness(1.15);
+  box-shadow: 0 0 12px rgba(245,101,101,0.25);
 }
 
 .prompt-input {
@@ -1451,12 +1697,13 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 14px;
   font-family: var(--font-sans);
   outline: none;
-  transition: border-color var(--transition);
+  transition: all var(--transition);
+  box-shadow: var(--shadow-inset);
 }
 
 .prompt-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-dim);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-dim);
 }
 
 /* Import Modal Textarea */
@@ -1688,6 +1935,24 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--text-muted);
 }
 
+/* Sidebar Resize Handle */
+.sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  transition: background var(--transition);
+}
+
+.sidebar-resize:hover,
+.sidebar-resize.active {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
 /* ============================================
    TOAST
    ============================================ */
@@ -1818,32 +2083,32 @@ a { color: var(--accent); text-decoration: none; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--bg-base);
+  background: transparent;
   text-align: center;
   padding: 40px;
 }
 
 .welcome-screen .welcome-logo {
-  width: 80px;
-  height: 80px;
+  width: 64px;
+  height: 64px;
   background: var(--accent-dim);
-  border: 2px solid var(--accent);
-  border-radius: var(--radius-xl);
+  border: 1.5px solid rgba(0,229,160,0.3);
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--accent);
-  margin-bottom: 24px;
-  box-shadow: var(--shadow-accent);
+  margin-bottom: 20px;
+  box-shadow: 0 0 30px var(--accent-dim);
 }
 
 .welcome-screen h2 {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 10px;
   letter-spacing: -0.3px;
 }
 
@@ -1853,25 +2118,25 @@ a { color: var(--accent); text-decoration: none; }
 
 .welcome-screen p {
   color: var(--text-secondary);
-  font-size: 14px;
-  max-width: 400px;
+  font-size: 13px;
+  max-width: 380px;
   line-height: 1.6;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .welcome-screen .quick-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .welcome-screen .quick-btn {
-  padding: 12px 24px;
+  padding: 10px 20px;
   background: var(--accent-dim);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-md);
+  border: 1px solid rgba(0,229,160,0.3);
+  border-radius: var(--radius-sm);
   color: var(--accent);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: all var(--transition);
   display: flex;
@@ -1881,8 +2146,13 @@ a { color: var(--accent); text-decoration: none; }
 
 .welcome-screen .quick-btn:hover {
   background: var(--accent-glow);
-  transform: translateY(-2px);
+  border-color: var(--accent);
+  transform: translateY(-1px);
   box-shadow: var(--shadow-accent);
+}
+
+.welcome-screen .quick-btn:active {
+  transform: translateY(0) scale(0.97);
 }
 
 /* Query Params in URL bar hint */
@@ -1967,19 +2237,28 @@ a { color: var(--accent); text-decoration: none; }
   align-items: center;
   gap: 5px;
   cursor: pointer;
-  padding: 5px 10px;
+  padding: 7px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-input);
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 12px;
   transition: all var(--transition);
   user-select: none;
+  box-shadow: var(--shadow-inset);
+  margin-left: 10px;
 }
 
 .stream-toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.stream-toggle.active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: var(--cyan-dim);
+  box-shadow: none;
 }
 
 .stream-toggle-indicator {
@@ -2005,6 +2284,7 @@ a { color: var(--accent); text-decoration: none; }
   cursor: pointer;
   transition: all var(--transition);
   white-space: nowrap;
+  margin-left: 10px;
 }
 
 .cancel-stream-btn:hover {
@@ -2061,17 +2341,6 @@ a { color: var(--accent); text-decoration: none; }
 .env-manage-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
-}
-
-.sidebar-footer-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
-
-.sidebar-footer .theme-toggle {
-  min-height: 32px;
 }
 
 /* ============================================
@@ -2463,6 +2732,324 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 /* ============================================
+   MAIN CONSOLE PANEL (below request body)
+   ============================================ */
+.main-console-panel {
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  height: 220px;
+  min-height: 120px;
+  max-height: 400px;
+  flex-shrink: 0;
+}
+
+.main-console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.main-console-header .clear-console {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.main-console-header .clear-console:hover {
+  color: var(--accent);
+}
+
+.main-console-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+}
+
+.main-console-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.main-console-close:hover {
+  color: var(--method-delete);
+}
+
+.main-console-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ============================================
+   REQUEST CONSOLE (in Response Panel)
+   ============================================ */
+.req-console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.req-console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.req-console-header .clear-console {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.req-console-header .clear-console:hover {
+  color: var(--accent);
+}
+
+.req-console-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: var(--bg-input);
+}
+
+.req-console-line {
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.req-console-line:last-child {
+  border-bottom: none;
+}
+
+.req-console-line .log-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+
+.req-console-line .log-tag.info {
+  color: var(--cyan);
+  background: var(--cyan-dim);
+}
+
+.req-console-line .log-tag.req {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.req-console-line .log-tag.res {
+  color: var(--method-post);
+  background: rgba(245,166,35,0.1);
+}
+
+.req-console-line .log-tag.err {
+  color: var(--method-delete);
+  background: rgba(245,101,101,0.1);
+}
+
+.req-console-line .log-tag.warn {
+  color: var(--status-redirect);
+  background: rgba(245,166,35,0.1);
+}
+
+.req-console-line .log-msg {
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: 1.5;
+  flex: 1;
+}
+
+.req-console-line .log-del {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 3px;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.req-console-line:hover .log-del {
+  opacity: 1;
+}
+
+.req-console-line .log-del:hover {
+  color: var(--method-delete);
+  background: rgba(245,101,101,0.1);
+}
+
+/* Console Group (collapsible) */
+.req-console-group {
+  border-left: 2px solid var(--border);
+  margin-left: 0;
+}
+
+.req-console-group.expanded {
+  border-left-color: var(--accent);
+}
+
+.req-console-line.req-console-title {
+  cursor: pointer;
+}
+
+.req-console-line.req-console-title .log-expand-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.req-console-line.req-console-title .log-expand-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.req-console-line.req-console-title .log-expand-btn:hover {
+  color: var(--accent);
+}
+
+.req-console-children {
+  display: none;
+  padding-left: 18px;
+  border-left: none;
+}
+
+.req-console-group.expanded .req-console-children {
+  display: block;
+}
+
+.req-console-group.expanded .log-expand-btn {
+  transform: rotate(90deg);
+}
+
+.req-console-line.req-console-child {
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  padding: 2px 0;
+  font-size: 10.5px;
+  flex-wrap: wrap;
+}
+
+.req-console-line.req-console-child .log-tag {
+  font-size: 8px;
+  padding: 1px 4px;
+}
+
+.req-console-line.req-console-child .log-detail-kv {
+  margin-left: 24px;
+  flex-basis: 100%;
+}
+
+/* Console detail: key-value pairs */
+.log-detail-kv {
+  margin: 4px 0 2px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 11px;
+  width: 100%;
+}
+
+.log-kv-row {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  align-items: baseline;
+}
+
+.log-kv-row:last-child {
+  border-bottom: none;
+}
+
+.log-kv-key {
+  min-width: 120px;
+  max-width: 200px;
+  padding: 3px 8px;
+  background: var(--bg-elevated);
+  color: var(--cyan);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  word-break: break-all;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.log-kv-val {
+  flex: 1;
+  padding: 3px 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* Console detail: text block */
+.log-detail-text {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* ============================================
    ANIMATION HELPERS
    ============================================ */
 .pulse {
@@ -2480,67 +3067,114 @@ a { color: var(--accent); text-decoration: none; }
 <div id="app">
   <!-- SIDEBAR -->
   <aside class="sidebar">
-    <div class="sidebar-header">
-      <div class="logo">
-        <div class="logo-icon">⚡</div>
-        <div class="logo-text">Api<span>Fix</span> Bin</div>
-      </div>
-      <div class="sidebar-search">
-        <span class="search-icon">🔍</span>
-        <input type="text" placeholder="搜索接口 / 历史记录..." id="searchInput">
-      </div>
-    </div>
-
-    <div class="sidebar-tabs">
-      <button class="sidebar-tab active" data-sidebar-tab="apis">接口</button>
-      <button class="sidebar-tab" data-sidebar-tab="history">历史</button>
-    </div>
-
-    <div class="sidebar-actions" id="sidebarActionsApis">
-      <button data-action="create-new-api" title="新建请求">
-        <span class="icon">+</span> 新建
-      </button>
-      <button data-action="create-new-group" title="新建分组">
-        <span class="icon">📁</span> 分组
-      </button>
-      <button data-action="show-import-modal" title="导入">
-        <span class="icon">↓</span> 导入
-      </button>
-      <button data-action="show-export-modal" title="导出">
-        <span class="icon">↑</span> 导出
-      </button>
-    </div>
-
-    <div class="sidebar-actions" id="sidebarActionsHistory" style="display:none;">
-      <button data-action="clear-history" title="清空历史">
-        <span class="icon">🗑️</span> 清空
-      </button>
-    </div>
-
-    <div class="sidebar-body" id="sidebarBody">
-      <!-- API groups rendered here -->
-    </div>
-
-    <div class="sidebar-body" id="sidebarHistory" style="display:none;">
-      <!-- History rendered here -->
-    </div>
-
-    <div class="sidebar-footer">
-      <div class="env-selector-row">
-        <span class="env-icon">🌐</span>
-        <select id="envSelector" class="env-selector" title="切换环境">
-          <option value="">无环境</option>
-        </select>
-        <button class="env-manage-btn" data-action="show-environment-modal" title="管理环境">⚙</button>
-      </div>
-      <div class="sidebar-footer-row">
-        <button class="theme-toggle" data-action="toggle-theme">
-          <span id="themeIcon">🌙</span>
-          <span class="label" id="themeLabel">暗色</span>
+    <!-- Icon Rail (always visible) -->
+    <div class="sidebar-rail">
+      <div class="rail-logo" title="ApiFix Bin">⚡</div>
+      <div class="rail-items">
+        <button class="rail-item active" data-sidebar-tab="apis" title="接口">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
-        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">v1.0</span>
+        <button class="rail-item" data-sidebar-tab="history" title="历史">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
+      </div>
+      <div class="rail-bottom">
+        <button class="rail-item" data-action="toggle-environment-panel" title="环境设置" id="railEnvBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </button>
+        <button class="rail-item" data-sidebar-tab="console" title="Console">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </button>
+        <button class="rail-item" data-action="toggle-theme" title="切换主题" id="railThemeBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="railThemeIcon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
       </div>
     </div>
+
+    <!-- Content Panel (collapsible when sidebar is narrow) -->
+    <div class="sidebar-content" id="sidebarContent">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-text">Api<span>Fix</span> Bin</div>
+        </div>
+        <div class="sidebar-search">
+          <span class="search-icon">🔍</span>
+          <input type="text" placeholder="搜索接口 / 历史记录..." id="searchInput">
+        </div>
+      </div>
+
+      <div class="sidebar-tabs">
+        <button class="sidebar-more-btn" data-action="toggle-sidebar-more" title="更多操作">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+        </button>
+      </div>
+
+      <div class="sidebar-actions" id="sidebarActionsApis" style="display:none;">
+        <!-- Hidden: actions now in sidebar more menu -->
+      </div>
+
+      <div class="sidebar-actions" id="sidebarActionsHistory" style="display:none;">
+        <button data-action="clear-history" title="清空历史">
+          <span class="icon">🗑️</span> 清空
+        </button>
+      </div>
+
+      <div class="sidebar-body" id="sidebarBody">
+        <!-- API groups rendered here -->
+      </div>
+
+      <div class="sidebar-body" id="sidebarHistory" style="display:none;">
+        <!-- History rendered here -->
+      </div>
+
+      <div class="sidebar-body" id="sidebarConsole" style="display:none;">
+        <div class="req-console" id="sidebarReqConsole">
+          <div class="req-console-header">
+            <span>Console</span>
+            <button class="clear-console" data-action="clear-req-console" title="清空所有日志">清空</button>
+          </div>
+          <div class="req-console-body" id="sidebarConsoleBody">
+            <div class="empty-state"><div class="empty-icon">🖥️</div><div class="empty-title">暂无日志</div><div class="empty-desc">发送请求后将在此记录日志</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer" id="sidebarFooter" style="display:none;">
+        <div class="env-selector-row">
+          <span class="env-icon">🌐</span>
+          <select id="envSelector" class="env-selector" title="切换环境">
+            <option value="">无环境</option>
+          </select>
+          <button class="env-manage-btn" data-action="show-environment-modal" title="管理环境">⚙</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- More Menu (floating) -->
+    <div class="sidebar-more-menu" id="sidebarMoreMenu">
+      <div class="sidebar-more-item" data-action="create-new-api">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <span>新建请求</span>
+      </div>
+      <div class="sidebar-more-item" data-action="create-new-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span>新建分组</span>
+      </div>
+      <div class="sidebar-more-item" data-action="show-import-modal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>导入</span>
+      </div>
+      <div class="sidebar-more-item" data-action="show-export-modal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span>导出</span>
+      </div>
+      <div class="sidebar-more-item" data-action="clear-history" style="color:var(--method-delete);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <span>清空历史</span>
+      </div>
+    </div>
+
+    <div class="sidebar-resize" id="sidebarResize"></div>
   </aside>
 
   <!-- MAIN -->
@@ -2756,6 +3390,22 @@ a { color: var(--accent); text-decoration: none; }
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Main Console Panel (below editor/welcome, toggled by sidebar console icon) -->
+    <div class="main-console-panel" id="mainConsolePanel" style="display:none;">
+      <div class="main-console-header">
+        <span>Console</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="clear-console" data-action="clear-req-console" title="清空所有日志">清空</button>
+          <button class="main-console-close" data-action="close-main-console" title="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="main-console-body" id="mainConsoleBody">
+        <div class="empty-state"><div class="empty-icon">🖥️</div><div class="empty-title">暂无日志</div><div class="empty-desc">发送请求后将在此记录日志</div></div>
       </div>
     </div>
   </main>
@@ -3444,7 +4094,7 @@ function switchRequestTab(tab) {
 function switchResponseTab(tab) {
   document.querySelectorAll('.response-panel .tab').forEach(t => t.classList.remove('active'));
   document.querySelector(`.response-panel .tab[data-rtab="${tab}"]`).classList.add('active');
-  document.querySelectorAll('#rtab-body, #rtab-headers').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#rtab-body, #rtab-headers, #rtab-console').forEach(p => p.classList.remove('active'));
   document.getElementById(`rtab-${tab}`).classList.add('active');
 }
 
@@ -3568,6 +4218,7 @@ async function sendRequest() {
 
   const btn = document.getElementById('sendBtn');
   btn.classList.add('loading');
+  clearReqConsole();
 
   try {
     const method = STATE.currentMethod;
@@ -3677,6 +4328,16 @@ async function sendRequest() {
     }
 
     // ---- Send via Chrome Extension API (no CORS restriction) ----
+    appendReqLog('req', `${method} ${finalUrl}`);
+    const headerKeys = Object.keys(allHeaders);
+    if (headerKeys.length > 0) {
+      appendReqLog('info', `Headers: ${headerKeys.map(k => k + ': ' + (k.toLowerCase().includes('auth') || k.toLowerCase().includes('token') || k.toLowerCase().includes('key') ? '•••' : allHeaders[k])).join(' | ')}`);
+    }
+    if (body) {
+      const bodyPreview = body.length > 200 ? body.substring(0, 200) + '...' : body;
+      appendReqLog('info', `Body: ${bodyPreview}`);
+    }
+
     const startTime = performance.now();
     const result = await chrome.runtime.sendMessage({
       type: 'API_REQUEST',
@@ -3693,10 +4354,12 @@ async function sendRequest() {
     const duration = Math.round(endTime - startTime);
 
     if (!result.success) {
+      appendReqLog('err', result.error || '请求失败');
       throw new Error(result.error || '请求失败');
     }
 
     const data = result.data;
+    appendReqLog('res', `${data.status} ${data.statusText} — ${duration}ms — ${data.size > 1024 ? (data.size / 1024).toFixed(1) + ' KB' : data.size + ' B'}`);
     const statusClass = data.status < 300 ? 'success' :
                         data.status < 400 ? 'redirect' :
                         data.status < 500 ? 'client-err' : 'server-err';
@@ -3735,6 +4398,9 @@ async function sendRequest() {
     }
 
   } catch (err) {
+    if (!document.getElementById('reqConsoleBody').querySelector('.req-console-line')) {
+      appendReqLog('err', err.message);
+    }
     const statusEl = document.getElementById('responseStatus');
     statusEl.style.display = 'flex';
     const codeEl = document.getElementById('statusCode');
@@ -4680,6 +5346,30 @@ function clearScriptConsole() {
   if (consoleBody) consoleBody.innerHTML = '';
   const consoleEl = document.getElementById('scriptConsole');
   if (consoleEl) consoleEl.classList.remove('show');
+}
+
+// ============================================
+// REQUEST CONSOLE (Response Panel)
+// ============================================
+function clearReqConsole() {
+  const body = document.getElementById('reqConsoleBody');
+  if (body) body.innerHTML = '';
+}
+
+function appendReqLog(tag, msg) {
+  const body = document.getElementById('reqConsoleBody');
+  if (!body) return;
+
+  // Remove empty state on first log
+  const emptyState = body.querySelector('.empty-state');
+  if (emptyState) emptyState.remove();
+
+  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const line = document.createElement('div');
+  line.className = 'req-console-line';
+  line.innerHTML = `<span class="log-tag ${tag}">${tag.toUpperCase()}</span><span class="log-msg"><span style="color:var(--text-muted);margin-right:6px;">${ts}</span>${escapeHtml(String(msg))}</span>`;
+  body.appendChild(line);
+  body.scrollTop = body.scrollHeight;
 }
 
 function appendScriptLog(type, ...args) {
