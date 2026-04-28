@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ApiFix Bin - Extension Main Script
  * CSP-compliant: no inline scripts, no inline event handlers
  */
@@ -25,6 +25,8 @@ const STATE = {
 
 let contextMenuGroup = null;
 let _history = []; // separate from STATE to avoid bloat
+let _autosaveTimer = null;
+let _lastSavedAt = null;
 
 // ============================================
 // ENVIRONMENT MANAGEMENT (多环境支持)
@@ -112,6 +114,8 @@ function bindEvents() {
     try {
       const dd = document.getElementById('methodDropdown');
       if (dd && !e.target.closest('.method-select')) dd.classList.remove('show');
+      const sendDd = document.getElementById('sendDropdown');
+      if (sendDd && !e.target.closest('.send-dropdown-wrap')) sendDd.classList.remove('open');
       const cm = document.getElementById('contextMenu');
       if (cm && !e.target.closest('.context-menu')) cm.classList.remove('show');
       const sm = document.getElementById('sidebarMoreMenu');
@@ -185,6 +189,20 @@ function bindEvents() {
         e.preventDefault();
         if (STATE.currentApiId) showSaveModal();
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        document.getElementById('searchInput')?.focus();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        document.getElementById('urlInput')?.focus();
+        document.getElementById('urlInput')?.select();
+      }
+      if (e.key === 'Escape') {
+        document.getElementById('methodDropdown')?.classList.remove('show');
+        document.getElementById('sendDropdown')?.classList.remove('open');
+        document.getElementById('contextMenu')?.classList.remove('show');
+      }
     } catch (err) {}
   });
 
@@ -195,6 +213,15 @@ function bindEvents() {
   // Search input
   const searchInput = $('#searchInput');
   if (searchInput) searchInput.addEventListener('input', filterApis);
+
+  ['urlInput', 'bodyTextarea', 'bearerToken', 'basicUser', 'basicPass', 'preRequestScript'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      syncCurrentApi();
+      if (id === 'preRequestScript') updateScriptBadge(el.value);
+    });
+  });
 
   // Sidebar action buttons (use data-action)
   $$('[data-action]').forEach(el => {
@@ -208,6 +235,7 @@ function bindEvents() {
         case 'do-export': doExport(); break;
         case 'toggle-theme': toggleTheme(); break;
         case 'toggle-method-dropdown': toggleMethodDropdown(); break;
+        case 'copy-resolved-url': copyResolvedUrl(); break;
         case 'send-request': sendRequest(); closeSendDropdown(); break;
         case 'send-and-download': sendAndDownload(); closeSendDropdown(); break;
         case 'generate-curl': generateCurl(); closeSendDropdown(); break;
@@ -550,6 +578,10 @@ function bindEvents() {
     if (e.target.closest('.copy-btn')) {
       copyResponse();
     }
+    const jsonAction = e.target.closest('[data-json-action]');
+    if (jsonAction) {
+      toggleJsonTree(jsonAction.dataset.jsonAction === 'expand');
+    }
   });
 
   // cURL modal actions (delegation)
@@ -583,6 +615,97 @@ function saveToStorage() {
     localStorage.setItem('apifix_bin_data', JSON.stringify(data));
   } catch (e) {
     console.warn('Storage save failed:', e);
+  }
+}
+
+function scheduleAutosave() {
+  if (!STATE.currentApiId) return;
+  const stateEl = document.getElementById('requestSaveState');
+  if (stateEl) {
+    stateEl.textContent = 'Saving';
+    stateEl.className = 'save-state saving';
+  }
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer = setTimeout(() => {
+    saveToStorage();
+    _lastSavedAt = Date.now();
+    updateRequestInspector();
+  }, 350);
+}
+
+function formatByteSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  return (bytes / 1024).toFixed(1) + ' KB';
+}
+
+function getResolvedRequestUrl() {
+  let rawUrl = (document.getElementById('urlInput')?.value || '').trim();
+  if (!rawUrl) return '';
+  const params = getEffectiveKvData('paramsEditor', 'params').filter(p => p.enabled && p.key.trim());
+  let finalUrl = rawUrl;
+  if (params.length > 0) {
+    try {
+      const urlObj = new URL(rawUrl.startsWith('http') ? rawUrl : 'https://' + rawUrl);
+      params.forEach(p => urlObj.searchParams.append(p.key, p.value));
+      finalUrl = urlObj.toString();
+    } catch (e) {
+      const sep = finalUrl.includes('?') ? '&' : '?';
+      finalUrl += sep + params.map(p => encodeURIComponent(p.key) + '=' + encodeURIComponent(p.value)).join('&');
+    }
+  }
+  if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+    finalUrl = 'https://' + finalUrl;
+  }
+  return resolveTemplateVars(finalUrl);
+}
+
+function updateRequestInspector() {
+  if (!STATE.currentApiId) return;
+  const api = STATE.apis[STATE.currentApiId];
+  if (!api) return;
+
+  const params = getEffectiveKvData('paramsEditor', 'params').filter(p => p.enabled && p.key.trim()).length;
+  const headers = getEffectiveKvData('headersEditor', 'headers').filter(h => h.enabled && h.key.trim()).length;
+  const bodyText = document.getElementById('bodyTextarea')?.value || '';
+  let bodyBytes = 0;
+  if (['json', 'text'].includes(STATE.bodyType)) {
+    bodyBytes = new Blob([bodyText]).size;
+  } else if (STATE.bodyType === 'formdata' || STATE.bodyType === 'urlencoded') {
+    bodyBytes = getEffectiveKvData(STATE.bodyType === 'formdata' ? 'formdataEditor' : 'urlencodedEditor', STATE.bodyType)
+      .filter(d => d.enabled && d.key.trim()).length;
+  }
+  const scriptOn = !!(document.getElementById('preRequestScript')?.value || '').trim();
+
+  document.getElementById('requestInspectorName').textContent = api.name || 'Untitled Request';
+  document.getElementById('requestMetricParams').textContent = `Params ${params}`;
+  document.getElementById('requestMetricHeaders').textContent = `Headers ${headers}`;
+  document.getElementById('requestMetricBody').textContent = ['json', 'text'].includes(STATE.bodyType) ? `Body ${formatByteSize(bodyBytes)}` : `Body ${bodyBytes} fields`;
+  document.getElementById('requestMetricAuth').textContent = `Auth ${STATE.authType || 'none'}`;
+  document.getElementById('requestMetricScript').textContent = scriptOn ? 'Script on' : 'Script off';
+  document.getElementById('requestMetricAuth').classList.toggle('is-on', STATE.authType !== 'none');
+  document.getElementById('requestMetricScript').classList.toggle('is-on', scriptOn);
+
+  const stateEl = document.getElementById('requestSaveState');
+  if (stateEl) {
+    const suffix = _lastSavedAt ? ' ' + new Date(_lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    stateEl.textContent = 'Saved' + suffix;
+    stateEl.className = 'save-state saved';
+  }
+}
+
+async function copyResolvedUrl() {
+  syncCurrentApi();
+  const url = getResolvedRequestUrl();
+  if (!url) {
+    toast('No URL to copy', 'error');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Resolved URL copied', 'success');
+  } catch (e) {
+    window.prompt('Copy resolved URL', url);
   }
 }
 
@@ -935,6 +1058,8 @@ function createNewApiInGroup(groupName) {
   renderSidebar();
   updateGroupSelects();
   loadApi(id);
+  _lastSavedAt = Date.now();
+  updateRequestInspector();
 }
 
 async function deleteApi(id) {
@@ -1005,6 +1130,7 @@ function loadApi(id) {
 
   // Update sidebar active state
   renderSidebar();
+  updateRequestInspector();
 }
 
 function showWelcome() {
@@ -1031,6 +1157,8 @@ function syncCurrentApi() {
   api.basicPass = document.getElementById('basicPass').value;
   api.preRequestScript = document.getElementById('preRequestScript').value;
   api.updatedAt = Date.now();
+  updateRequestInspector();
+  scheduleAutosave();
 }
 
 // ============================================
@@ -1804,8 +1932,7 @@ async function sendRequest() {
     // Render body
     const bodyEl = document.getElementById('responseBody');
     if (data.body) {
-      const highlighted = highlightJSON(data.body);
-      bodyEl.innerHTML = `<button class="copy-btn">📋 复制</button><pre>${highlighted}</pre>`;
+      bodyEl.innerHTML = renderResponseBody(data.body);
     } else {
       bodyEl.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-title">空响应</div></div>';
     }
@@ -1894,13 +2021,58 @@ async function sendRequest() {
   }
 }
 
+function getResponseStandbyHtml() {
+  return `
+    <div class="response-standby">
+      <div class="response-standby-card">
+        <div class="response-standby-top">
+          <span class="response-standby-dot"></span>
+          <div>
+            <div class="response-standby-title">Response standby</div>
+            <div class="response-standby-subtitle">Run a request to capture the response stream.</div>
+          </div>
+        </div>
+        <div class="response-standby-grid">
+          <div class="response-standby-cell">
+            <div class="response-standby-label">Status</div>
+            <div class="response-standby-value">Pending</div>
+          </div>
+          <div class="response-standby-cell">
+            <div class="response-standby-label">Headers</div>
+            <div class="response-standby-value">Waiting</div>
+          </div>
+          <div class="response-standby-cell">
+            <div class="response-standby-label">Body</div>
+            <div class="response-standby-value">No payload yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+
 function clearResponse() {
   document.getElementById('responseStatus').style.display = 'none';
-  document.getElementById('responseBody').innerHTML = '<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-title">等待请求</div><div class="empty-desc">点击"发送"按钮执行请求</div></div>';
-  document.getElementById('responseHeaders').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无响应头</div></div>';
+  document.getElementById('responseBody').innerHTML = getResponseStandbyHtml();
+  document.getElementById('responseHeaders').innerHTML = '<div class="empty-state"><div class="empty-title">No response headers</div></div>';
 }
 
 function copyResponse() {
+  const raw = document.getElementById('responseBody')?.dataset.rawResponse;
+  if (raw) {
+    navigator.clipboard.writeText(raw).then(() => {
+      toast('å·²å¤åˆ¶åˆ°å‰ªè´´æ¿', 'success');
+    });
+    return;
+  }
+  const treeRaw = document.querySelector('#responseBody .json-tree')?.dataset.raw;
+  if (treeRaw) {
+    navigator.clipboard.writeText(treeRaw).then(() => {
+      toast('å·²å¤åˆ¶åˆ°å‰ªè´¯æ¿', 'success');
+    });
+    return;
+  }
   const pre = document.querySelector('#responseBody pre');
   if (pre) {
     navigator.clipboard.writeText(pre.textContent).then(() => {
@@ -1935,6 +2107,76 @@ function highlightJSON(str) {
       return `<span class="${cls}">${match}</span>`;
     }
   );
+}
+
+function renderResponseBody(rawText) {
+  const raw = String(rawText);
+  try {
+    const parsed = JSON.parse(raw);
+    const formatted = JSON.stringify(parsed, null, 2);
+    return `
+      <div class="response-tools">
+        <button class="copy-btn">Copy</button>
+        <button class="json-tree-action" data-json-action="expand">Expand</button>
+        <button class="json-tree-action" data-json-action="collapse">Collapse</button>
+      </div>
+      <div class="json-tree" data-raw="${escapeHtml(formatted)}">${renderJsonNode(parsed, '', 0)}</div>
+    `;
+  } catch (e) {
+    return `<button class="copy-btn">Copy</button><pre>${highlightJSON(raw)}</pre>`;
+  }
+}
+
+function renderJsonNode(value, key, depth) {
+  if (value && typeof value === 'object') {
+    const isArray = Array.isArray(value);
+    const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
+    const open = depth < 2 ? ' open' : '';
+    const label = key !== '' ? `<span class="json-key">"${escapeHtml(key)}"</span><span class="json-punctuation">: </span>` : '';
+    const openChar = isArray ? '[' : '{';
+    const closeChar = isArray ? ']' : '}';
+    const summary = `${entries.length} ${isArray ? 'items' : 'keys'}`;
+    const children = entries.map(([childKey, childValue]) => renderJsonNode(childValue, String(childKey), depth + 1)).join('');
+    return `<details class="json-node"${open}><summary>${label}<span class="json-punctuation">${openChar}</span><span class="json-summary">${summary}</span></summary><div class="json-children">${children}</div><div class="json-closing"><span class="json-punctuation">${closeChar}</span></div></details>`;
+  }
+  const label = key !== '' ? `<span class="json-key">"${escapeHtml(key)}"</span><span class="json-punctuation">: </span>` : '';
+  return `<div class="json-row">${label}${formatJsonValue(value)}</div>`;
+}
+
+function formatJsonValue(value) {
+  if (typeof value === 'string') return `<span class="json-string">"${escapeHtml(value)}"</span>`;
+  if (typeof value === 'number') return `<span class="json-number">${value}</span>`;
+  if (typeof value === 'boolean') return `<span class="json-boolean">${value}</span>`;
+  if (value === null) return '<span class="json-null">null</span>';
+  return `<span>${escapeHtml(String(value))}</span>`;
+}
+
+function toggleJsonTree(expand) {
+  document.querySelectorAll('#responseBody .json-node').forEach(node => {
+    node.open = expand;
+  });
+}
+
+function upgradeResponseJsonTree() {
+  const body = document.getElementById('responseBody');
+  if (!body || body.querySelector('.json-tree')) return;
+  const pre = body.querySelector('pre');
+  if (!pre) return;
+  const raw = pre.textContent;
+  try {
+    JSON.parse(raw);
+  } catch (e) {
+    return;
+  }
+  body.innerHTML = renderResponseBody(raw);
+  body.dataset.rawResponse = JSON.stringify(JSON.parse(raw), null, 2);
+}
+
+function setupResponseJsonTreeObserver() {
+  const body = document.getElementById('responseBody');
+  if (!body) return;
+  const observer = new MutationObserver(() => upgradeResponseJsonTree());
+  observer.observe(body, { childList: true });
 }
 
 // ============================================
@@ -1993,6 +2235,8 @@ function doSave() {
   api.group = group;
 
   saveToStorage();
+  _lastSavedAt = Date.now();
+  updateRequestInspector();
   renderSidebar();
   updateGroupSelects();
   closeSaveModal();
@@ -4517,3 +4761,4 @@ function escapeHtml(str) {
 // INIT
 // ============================================
 init();
+setupResponseJsonTreeObserver();

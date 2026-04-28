@@ -552,6 +552,107 @@ a { color: var(--accent); text-decoration: none; }
   transition: background var(--transition), border var(--transition);
 }
 
+.request-inspector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-surface) 82%, var(--bg-base));
+  min-height: 42px;
+}
+
+.request-inspector .request-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.request-inspector .request-title strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.request-inspector .save-state {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.request-inspector .save-state.saving {
+  color: var(--status-redirect);
+  border-color: rgba(245,166,35,0.35);
+}
+
+.request-inspector .save-state.saved {
+  color: var(--status-success);
+  border-color: rgba(0,229,160,0.35);
+}
+
+.request-inspector .request-metrics {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.request-inspector .metric-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 4px 8px;
+  white-space: nowrap;
+  background: var(--bg-input);
+}
+
+.request-inspector .metric-chip.is-on {
+  color: var(--accent);
+  border-color: rgba(125,211,252,0.35);
+  background: var(--accent-dim);
+}
+
+.request-inspector .inspector-action {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+
+.request-inspector .inspector-action:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+@media (max-width: 980px) {
+  .request-inspector {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .request-inspector .request-metrics {
+    flex-wrap: wrap;
+  }
+}
+
 /* Method Selector */
 .method-select {
   position: relative;
@@ -1304,6 +1405,103 @@ a { color: var(--accent); text-decoration: none; }
 [data-theme="light"] .json-boolean { color: #9333ea; }
 [data-theme="light"] .json-null { color: #dc2626; }
 
+.response-tools {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px;
+  background: linear-gradient(180deg, var(--bg-surface), color-mix(in srgb, var(--bg-surface) 72%, transparent));
+  border-bottom: 1px solid var(--border);
+}
+
+.response-body .response-tools .copy-btn,
+.response-body .response-tools .json-tree-action {
+  position: relative;
+  top: auto;
+  right: auto;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.response-body .response-tools .copy-btn:hover,
+.response-body .response-tools .json-tree-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.json-tree {
+  padding: 12px 16px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.json-node {
+  margin-left: 14px;
+}
+
+.json-node summary {
+  cursor: pointer;
+  list-style: none;
+  outline: none;
+  width: fit-content;
+}
+
+.json-node summary::-webkit-details-marker {
+  display: none;
+}
+
+.json-node summary::before {
+  content: ">";
+  display: inline-block;
+  width: 12px;
+  margin-right: 4px;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+
+.json-node[open] > summary::before {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+
+.json-children {
+  margin-left: 16px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(0,229,160,0.14);
+}
+
+.json-row,
+.json-closing {
+  margin-left: 30px;
+}
+
+.json-summary {
+  color: var(--text-muted);
+  margin-left: 8px;
+  font-size: 11px;
+}
+
+.json-punctuation {
+  color: var(--text-muted);
+}
+
 /* Empty State */
 .empty-state {
   display: flex;
@@ -1332,6 +1530,89 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 13px;
   max-width: 300px;
   line-height: 1.5;
+}
+
+.response-standby {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  color: var(--text-secondary);
+}
+
+.response-standby-card {
+  width: min(520px, 100%);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--accent));
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), transparent),
+    color-mix(in srgb, var(--bg-input) 84%, transparent);
+  box-shadow: 0 18px 56px rgba(0,0,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.025);
+  overflow: hidden;
+}
+
+.response-standby-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.response-standby-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 18px var(--accent);
+  animation: statusPulse 1.4s ease-in-out infinite;
+}
+
+.response-standby-title {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.response-standby-subtitle {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.response-standby-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+}
+
+.response-standby-cell {
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+}
+
+.response-standby-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.response-standby-value {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .response-standby-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ============================================
@@ -2089,6 +2370,208 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 /* ============================================
+   NEON CONSOLE POLISH
+   ============================================ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 18% 10%, rgba(0,229,160,0.10), transparent 26%),
+    radial-gradient(circle at 86% 18%, rgba(91,158,245,0.10), transparent 24%),
+    linear-gradient(135deg, transparent 0 48%, rgba(255,255,255,0.018) 48% 52%, transparent 52% 100%);
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+}
+
+[data-theme="dark"] .sidebar,
+[data-theme="dark"] .toolbar,
+[data-theme="dark"] .tabs,
+[data-theme="dark"] .response-status,
+[data-theme="dark"] .request-inspector {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), transparent),
+    color-mix(in srgb, var(--bg-surface) 88%, #061019);
+  backdrop-filter: blur(14px);
+}
+
+[data-theme="dark"] .sidebar {
+  box-shadow: inset -1px 0 0 rgba(0,229,160,0.08), 18px 0 60px rgba(0,0,0,0.18);
+}
+
+[data-theme="dark"] .toolbar {
+  box-shadow: inset 0 -1px 0 rgba(0,229,160,0.08);
+}
+
+[data-theme="dark"] .request-inspector {
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 -1px 0 rgba(91,158,245,0.08);
+}
+
+.request-inspector::after {
+  content: "";
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), rgba(91,158,245,0.75), transparent);
+  opacity: 0.45;
+}
+
+.request-inspector .save-state.saving {
+  animation: statusPulse 1.1s ease-in-out infinite;
+}
+
+.request-inspector .metric-chip,
+.response-status .status-detail,
+.tab .badge,
+.history-item .history-status {
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
+}
+
+.request-inspector .metric-chip.is-on,
+.response-status .status-code.success {
+  box-shadow: 0 0 18px var(--accent-glow), inset 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+.request-inspector .inspector-action,
+.save-btn,
+.send-dropdown-btn,
+.response-body .copy-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.request-inspector .inspector-action::before,
+.save-btn::before,
+.send-dropdown-btn::before,
+.response-body .copy-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.12), transparent);
+  transform: translateX(-110%);
+  transition: transform 0.45s ease;
+}
+
+.request-inspector .inspector-action:hover::before,
+.save-btn:hover::before,
+.send-dropdown-btn:hover::before,
+.response-body .copy-btn:hover::before {
+  transform: translateX(110%);
+}
+
+.send-btn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.10) inset, 0 10px 28px var(--accent-glow);
+}
+
+.send-btn::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  background: linear-gradient(90deg, var(--accent), #5b9ef5, var(--accent));
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.send-btn:hover::before,
+.send-btn.loading::before {
+  opacity: 1;
+}
+
+.send-btn.loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(110deg, transparent 0 10px, rgba(255,255,255,0.18) 10px 18px);
+  animation: scanStripe 0.8s linear infinite;
+  mix-blend-mode: soft-light;
+}
+
+.url-input:focus,
+.method-select .method-btn:hover {
+  box-shadow: 0 0 0 2px var(--accent-dim), 0 0 24px rgba(0,229,160,0.10);
+}
+
+.api-item {
+  position: relative;
+}
+
+.api-item::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  box-shadow: 0 0 12px var(--accent);
+  transition: opacity var(--transition), transform var(--transition);
+  transform: scaleY(0.4);
+}
+
+.api-item.active::before,
+.api-item:hover::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.api-item:hover {
+  box-shadow: inset 0 0 0 1px rgba(0,229,160,0.06);
+}
+
+.tab.active {
+  text-shadow: 0 0 18px var(--accent-glow);
+}
+
+.response-body {
+  background:
+    linear-gradient(90deg, rgba(0,229,160,0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(91,158,245,0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.response-status .status-code {
+  border: 1px solid currentColor;
+}
+
+.toast {
+  backdrop-filter: blur(12px);
+}
+
+@keyframes statusPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(245,166,35,0); }
+  50% { box-shadow: 0 0 18px rgba(245,166,35,0.24); }
+}
+
+@keyframes scanStripe {
+  from { background-position: 0 0; }
+  to { background-position: 44px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
    ANIMATION HELPERS
    ============================================ */
 .pulse {
@@ -2211,6 +2694,21 @@ a { color: var(--accent); text-decoration: none; }
           </div>
         </div>
         <button class="save-btn" onclick="showSaveModal()">💾 保存</button>
+      </div>
+
+      <div class="request-inspector" id="requestInspector">
+        <div class="request-title">
+          <strong id="requestInspectorName">Untitled Request</strong>
+          <span class="save-state saved" id="requestSaveState">Saved</span>
+        </div>
+        <div class="request-metrics">
+          <span class="metric-chip" id="requestMetricParams">Params 0</span>
+          <span class="metric-chip" id="requestMetricHeaders">Headers 0</span>
+          <span class="metric-chip" id="requestMetricBody">Body 0 B</span>
+          <span class="metric-chip" id="requestMetricAuth">Auth none</span>
+          <span class="metric-chip" id="requestMetricScript">Script off</span>
+          <button class="inspector-action" onclick="copyResolvedUrl()" title="Copy URL with params and variables resolved">Copy URL</button>
+        </div>
       </div>
 
       <!-- Request + Response Panels -->
@@ -2537,6 +3035,8 @@ const STATE = {
 
 let contextMenuGroup = null;
 let _history = []; // separate from STATE to avoid bloat
+let _autosaveTimer = null;
+let _lastSavedAt = null;
 
 // ============================================
 // INITIALIZATION
@@ -2589,9 +3089,20 @@ function init() {
     try {
       const dd = document.getElementById('methodDropdown');
       if (dd && !e.target.closest('.method-select')) dd.classList.remove('show');
+      const sendDd = document.getElementById('sendDropdown');
+      if (sendDd && !e.target.closest('.send-dropdown-wrap')) sendDd.classList.remove('open');
       const cm = document.getElementById('contextMenu');
       if (cm && !e.target.closest('.context-menu')) cm.classList.remove('show');
     } catch (err) {}
+  });
+
+  ['urlInput', 'bodyTextarea', 'bearerToken', 'basicUser', 'basicPass', 'preRequestScript'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      syncCurrentApi();
+      if (id === 'preRequestScript') updateScriptBadge(el.value);
+    });
   });
 
   // Resize handle
@@ -2612,6 +3123,20 @@ function init() {
         e.preventDefault();
         if (STATE.currentApiId) showSaveModal();
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        document.getElementById('searchInput')?.focus();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        document.getElementById('urlInput')?.focus();
+        document.getElementById('urlInput')?.select();
+      }
+      if (e.key === 'Escape') {
+        document.getElementById('methodDropdown')?.classList.remove('show');
+        document.getElementById('sendDropdown')?.classList.remove('open');
+        document.getElementById('contextMenu')?.classList.remove('show');
+      }
     } catch (err) {}
   });
 }
@@ -2631,6 +3156,97 @@ function saveToStorage() {
     localStorage.setItem('apifix_bin_data', JSON.stringify(data));
   } catch (e) {
     console.warn('Storage save failed:', e);
+  }
+}
+
+function scheduleAutosave() {
+  if (!STATE.currentApiId) return;
+  const stateEl = document.getElementById('requestSaveState');
+  if (stateEl) {
+    stateEl.textContent = 'Saving';
+    stateEl.className = 'save-state saving';
+  }
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer = setTimeout(() => {
+    saveToStorage();
+    _lastSavedAt = Date.now();
+    updateRequestInspector();
+  }, 350);
+}
+
+function formatByteSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  return (bytes / 1024).toFixed(1) + ' KB';
+}
+
+function getResolvedRequestUrl() {
+  let rawUrl = (document.getElementById('urlInput')?.value || '').trim();
+  if (!rawUrl) return '';
+  const params = getEffectiveKvData('paramsEditor', 'params').filter(p => p.enabled && p.key.trim());
+  let finalUrl = rawUrl;
+  if (params.length > 0) {
+    try {
+      const urlObj = new URL(rawUrl.startsWith('http') ? rawUrl : 'https://' + rawUrl);
+      params.forEach(p => urlObj.searchParams.append(p.key, p.value));
+      finalUrl = urlObj.toString();
+    } catch (e) {
+      const sep = finalUrl.includes('?') ? '&' : '?';
+      finalUrl += sep + params.map(p => encodeURIComponent(p.key) + '=' + encodeURIComponent(p.value)).join('&');
+    }
+  }
+  if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+    finalUrl = 'https://' + finalUrl;
+  }
+  return resolveTemplateVars(finalUrl);
+}
+
+function updateRequestInspector() {
+  if (!STATE.currentApiId) return;
+  const api = STATE.apis[STATE.currentApiId];
+  if (!api) return;
+
+  const params = getEffectiveKvData('paramsEditor', 'params').filter(p => p.enabled && p.key.trim()).length;
+  const headers = getEffectiveKvData('headersEditor', 'headers').filter(h => h.enabled && h.key.trim()).length;
+  const bodyText = document.getElementById('bodyTextarea')?.value || '';
+  let bodyBytes = 0;
+  if (['json', 'text'].includes(STATE.bodyType)) {
+    bodyBytes = new Blob([bodyText]).size;
+  } else if (STATE.bodyType === 'formdata' || STATE.bodyType === 'urlencoded') {
+    bodyBytes = getEffectiveKvData(STATE.bodyType === 'formdata' ? 'formdataEditor' : 'urlencodedEditor', STATE.bodyType)
+      .filter(d => d.enabled && d.key.trim()).length;
+  }
+  const scriptOn = !!(document.getElementById('preRequestScript')?.value || '').trim();
+
+  document.getElementById('requestInspectorName').textContent = api.name || 'Untitled Request';
+  document.getElementById('requestMetricParams').textContent = `Params ${params}`;
+  document.getElementById('requestMetricHeaders').textContent = `Headers ${headers}`;
+  document.getElementById('requestMetricBody').textContent = ['json', 'text'].includes(STATE.bodyType) ? `Body ${formatByteSize(bodyBytes)}` : `Body ${bodyBytes} fields`;
+  document.getElementById('requestMetricAuth').textContent = `Auth ${STATE.authType || 'none'}`;
+  document.getElementById('requestMetricScript').textContent = scriptOn ? 'Script on' : 'Script off';
+  document.getElementById('requestMetricAuth').classList.toggle('is-on', STATE.authType !== 'none');
+  document.getElementById('requestMetricScript').classList.toggle('is-on', scriptOn);
+
+  const stateEl = document.getElementById('requestSaveState');
+  if (stateEl) {
+    const suffix = _lastSavedAt ? ' ' + new Date(_lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    stateEl.textContent = 'Saved' + suffix;
+    stateEl.className = 'save-state saved';
+  }
+}
+
+async function copyResolvedUrl() {
+  syncCurrentApi();
+  const url = getResolvedRequestUrl();
+  if (!url) {
+    toast('No URL to copy', 'error');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Resolved URL copied', 'success');
+  } catch (e) {
+    window.prompt('Copy resolved URL', url);
   }
 }
 
@@ -2917,6 +3533,8 @@ function createNewApiInGroup(groupName) {
   renderSidebar();
   updateGroupSelects();
   loadApi(id);
+  _lastSavedAt = Date.now();
+  updateRequestInspector();
 }
 
 async function deleteApi(id) {
@@ -2989,6 +3607,7 @@ function loadApi(id) {
 
   // Update sidebar active state
   renderSidebar();
+  updateRequestInspector();
 }
 
 function showWelcome() {
@@ -3015,6 +3634,8 @@ function syncCurrentApi() {
   api.basicPass = document.getElementById('basicPass').value;
   api.preRequestScript = document.getElementById('preRequestScript').value;
   api.updatedAt = Date.now();
+  updateRequestInspector();
+  scheduleAutosave();
 }
 
 // ============================================
@@ -3818,6 +4439,7 @@ async function sendRequest() {
     const bodyEl = document.getElementById('responseBody');
     if (responseText) {
       const highlighted = highlightJSON(responseText);
+      void highlighted;
       bodyEl.innerHTML = `<button class="copy-btn" onclick="copyResponse()">📋 复制</button><pre>${highlighted}</pre>`;
     } else {
       bodyEl.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-title">空响应</div></div>';
@@ -3924,13 +4546,63 @@ async function sendRequest() {
   }
 }
 
+function getResponseStandbyHtml() {
+  return `
+    <div class="response-standby">
+      <div class="response-standby-card">
+        <div class="response-standby-top">
+          <span class="response-standby-dot"></span>
+          <div>
+            <div class="response-standby-title">Response standby</div>
+            <div class="response-standby-subtitle">Run a request to capture the response stream.</div>
+          </div>
+        </div>
+        <div class="response-standby-grid">
+          <div class="response-standby-cell">
+            <div class="response-standby-label">Status</div>
+            <div class="response-standby-value">Pending</div>
+          </div>
+          <div class="response-standby-cell">
+            <div class="response-standby-label">Headers</div>
+            <div class="response-standby-value">Waiting</div>
+          </div>
+          <div class="response-standby-cell">
+            <div class="response-standby-label">Body</div>
+            <div class="response-standby-value">No payload yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function clearResponse() {
   document.getElementById('responseStatus').style.display = 'none';
   document.getElementById('responseBody').innerHTML = '<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-title">等待请求</div><div class="empty-desc">点击"发送"按钮执行请求</div></div>';
   document.getElementById('responseHeaders').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无响应头</div></div>';
 }
 
+function clearResponse() {
+  document.getElementById('responseStatus').style.display = 'none';
+  document.getElementById('responseBody').innerHTML = getResponseStandbyHtml();
+  document.getElementById('responseHeaders').innerHTML = '<div class="empty-state"><div class="empty-title">No response headers</div></div>';
+}
+
 function copyResponse() {
+  const raw = document.getElementById('responseBody')?.dataset.rawResponse;
+  if (raw) {
+    navigator.clipboard.writeText(raw).then(() => {
+      toast('å·²å¤åˆ¶åˆ°å‰ªè´´æ¿', 'success');
+    });
+    return;
+  }
+  const treeRaw = document.querySelector('#responseBody .json-tree')?.dataset.raw;
+  if (treeRaw) {
+    navigator.clipboard.writeText(treeRaw).then(() => {
+      toast('å·²å¤åˆ¶åˆ°å‰ªè´´æ¿', 'success');
+    });
+    return;
+  }
   const pre = document.querySelector('#responseBody pre');
   if (pre) {
     navigator.clipboard.writeText(pre.textContent).then(() => {
@@ -3965,6 +4637,76 @@ function highlightJSON(str) {
       return `<span class="${cls}">${match}</span>`;
     }
   );
+}
+
+function renderResponseBody(rawText) {
+  const raw = String(rawText);
+  try {
+    const parsed = JSON.parse(raw);
+    const formatted = JSON.stringify(parsed, null, 2);
+    return `
+      <div class="response-tools">
+        <button class="copy-btn" onclick="copyResponse()">Copy</button>
+        <button class="json-tree-action" onclick="toggleJsonTree(true)">Expand</button>
+        <button class="json-tree-action" onclick="toggleJsonTree(false)">Collapse</button>
+      </div>
+      <div class="json-tree" data-raw="${escapeHtml(formatted)}">${renderJsonNode(parsed, '', 0)}</div>
+    `;
+  } catch (e) {
+    return `<button class="copy-btn" onclick="copyResponse()">Copy</button><pre>${highlightJSON(raw)}</pre>`;
+  }
+}
+
+function renderJsonNode(value, key, depth) {
+  if (value && typeof value === 'object') {
+    const isArray = Array.isArray(value);
+    const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
+    const open = depth < 2 ? ' open' : '';
+    const label = key !== '' ? `<span class="json-key">"${escapeHtml(key)}"</span><span class="json-punctuation">: </span>` : '';
+    const openChar = isArray ? '[' : '{';
+    const closeChar = isArray ? ']' : '}';
+    const summary = `${entries.length} ${isArray ? 'items' : 'keys'}`;
+    const children = entries.map(([childKey, childValue]) => renderJsonNode(childValue, String(childKey), depth + 1)).join('');
+    return `<details class="json-node"${open}><summary>${label}<span class="json-punctuation">${openChar}</span><span class="json-summary">${summary}</span></summary><div class="json-children">${children}</div><div class="json-closing"><span class="json-punctuation">${closeChar}</span></div></details>`;
+  }
+  const label = key !== '' ? `<span class="json-key">"${escapeHtml(key)}"</span><span class="json-punctuation">: </span>` : '';
+  return `<div class="json-row">${label}${formatJsonValue(value)}</div>`;
+}
+
+function formatJsonValue(value) {
+  if (typeof value === 'string') return `<span class="json-string">"${escapeHtml(value)}"</span>`;
+  if (typeof value === 'number') return `<span class="json-number">${value}</span>`;
+  if (typeof value === 'boolean') return `<span class="json-boolean">${value}</span>`;
+  if (value === null) return '<span class="json-null">null</span>';
+  return `<span>${escapeHtml(String(value))}</span>`;
+}
+
+function toggleJsonTree(expand) {
+  document.querySelectorAll('#responseBody .json-node').forEach(node => {
+    node.open = expand;
+  });
+}
+
+function upgradeResponseJsonTree() {
+  const body = document.getElementById('responseBody');
+  if (!body || body.querySelector('.json-tree')) return;
+  const pre = body.querySelector('pre');
+  if (!pre) return;
+  const raw = pre.textContent;
+  try {
+    JSON.parse(raw);
+  } catch (e) {
+    return;
+  }
+  body.innerHTML = renderResponseBody(raw);
+  body.dataset.rawResponse = JSON.stringify(JSON.parse(raw), null, 2);
+}
+
+function setupResponseJsonTreeObserver() {
+  const body = document.getElementById('responseBody');
+  if (!body) return;
+  const observer = new MutationObserver(() => upgradeResponseJsonTree());
+  observer.observe(body, { childList: true });
 }
 
 // ============================================
@@ -4023,6 +4765,8 @@ function doSave() {
   api.group = group;
 
   saveToStorage();
+  _lastSavedAt = Date.now();
+  updateRequestInspector();
   renderSidebar();
   updateGroupSelects();
   closeSaveModal();
@@ -5521,6 +6265,7 @@ function escapeHtml(str) {
 // INIT
 // ============================================
 init();
+setupResponseJsonTreeObserver();
 </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -765,6 +765,107 @@ a { color: var(--accent); text-decoration: none; }
   transition: background var(--transition), border var(--transition);
 }
 
+.request-inspector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-surface) 82%, var(--bg-base));
+  min-height: 42px;
+}
+
+.request-inspector .request-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.request-inspector .request-title strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.request-inspector .save-state {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.request-inspector .save-state.saving {
+  color: var(--status-redirect);
+  border-color: rgba(245,166,35,0.35);
+}
+
+.request-inspector .save-state.saved {
+  color: var(--status-success);
+  border-color: rgba(0,229,160,0.35);
+}
+
+.request-inspector .request-metrics {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.request-inspector .metric-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 4px 8px;
+  white-space: nowrap;
+  background: var(--bg-input);
+}
+
+.request-inspector .metric-chip.is-on {
+  color: var(--accent);
+  border-color: rgba(125,211,252,0.35);
+  background: var(--accent-dim);
+}
+
+.request-inspector .inspector-action {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+
+.request-inspector .inspector-action:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+@media (max-width: 980px) {
+  .request-inspector {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .request-inspector .request-metrics {
+    flex-wrap: wrap;
+  }
+}
+
 /* Method Selector */
 .method-select {
   position: relative;
@@ -1523,6 +1624,103 @@ a { color: var(--accent); text-decoration: none; }
 [data-theme="light"] .json-boolean { color: #9333ea; }
 [data-theme="light"] .json-null { color: #dc2626; }
 
+.response-tools {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px;
+  background: linear-gradient(180deg, var(--bg-surface), color-mix(in srgb, var(--bg-surface) 72%, transparent));
+  border-bottom: 1px solid var(--border);
+}
+
+.response-body .response-tools .copy-btn,
+.response-body .response-tools .json-tree-action {
+  position: relative;
+  top: auto;
+  right: auto;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.response-body .response-tools .copy-btn:hover,
+.response-body .response-tools .json-tree-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.json-tree {
+  padding: 12px 16px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.json-node {
+  margin-left: 14px;
+}
+
+.json-node summary {
+  cursor: pointer;
+  list-style: none;
+  outline: none;
+  width: fit-content;
+}
+
+.json-node summary::-webkit-details-marker {
+  display: none;
+}
+
+.json-node summary::before {
+  content: ">";
+  display: inline-block;
+  width: 12px;
+  margin-right: 4px;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+
+.json-node[open] > summary::before {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+
+.json-children {
+  margin-left: 16px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(0,229,160,0.14);
+}
+
+.json-row,
+.json-closing {
+  margin-left: 30px;
+}
+
+.json-summary {
+  color: var(--text-muted);
+  margin-left: 8px;
+  font-size: 11px;
+}
+
+.json-punctuation {
+  color: var(--text-muted);
+}
+
 /* Empty State */
 .empty-state {
   display: flex;
@@ -1553,6 +1751,89 @@ a { color: var(--accent); text-decoration: none; }
   max-width: 300px;
   line-height: 1.5;
   opacity: 0.7;
+}
+
+.response-standby {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  color: var(--text-secondary);
+}
+
+.response-standby-card {
+  width: min(520px, 100%);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--accent));
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), transparent),
+    color-mix(in srgb, var(--bg-input) 84%, transparent);
+  box-shadow: 0 18px 56px rgba(0,0,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.025);
+  overflow: hidden;
+}
+
+.response-standby-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.response-standby-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 18px var(--accent);
+  animation: statusPulse 1.4s ease-in-out infinite;
+}
+
+.response-standby-title {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.response-standby-subtitle {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.response-standby-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+}
+
+.response-standby-cell {
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+}
+
+.response-standby-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.response-standby-value {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .response-standby-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ============================================
@@ -3050,6 +3331,208 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 /* ============================================
+   NEON CONSOLE POLISH
+   ============================================ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 18% 10%, rgba(0,229,160,0.10), transparent 26%),
+    radial-gradient(circle at 86% 18%, rgba(91,158,245,0.10), transparent 24%),
+    linear-gradient(135deg, transparent 0 48%, rgba(255,255,255,0.018) 48% 52%, transparent 52% 100%);
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+}
+
+[data-theme="dark"] .sidebar,
+[data-theme="dark"] .toolbar,
+[data-theme="dark"] .tabs,
+[data-theme="dark"] .response-status,
+[data-theme="dark"] .request-inspector {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), transparent),
+    color-mix(in srgb, var(--bg-surface) 88%, #061019);
+  backdrop-filter: blur(14px);
+}
+
+[data-theme="dark"] .sidebar {
+  box-shadow: inset -1px 0 0 rgba(0,229,160,0.08), 18px 0 60px rgba(0,0,0,0.18);
+}
+
+[data-theme="dark"] .toolbar {
+  box-shadow: inset 0 -1px 0 rgba(0,229,160,0.08);
+}
+
+[data-theme="dark"] .request-inspector {
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 -1px 0 rgba(91,158,245,0.08);
+}
+
+.request-inspector::after {
+  content: "";
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), rgba(91,158,245,0.75), transparent);
+  opacity: 0.45;
+}
+
+.request-inspector .save-state.saving {
+  animation: statusPulse 1.1s ease-in-out infinite;
+}
+
+.request-inspector .metric-chip,
+.response-status .status-detail,
+.tab .badge,
+.history-item .history-status {
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
+}
+
+.request-inspector .metric-chip.is-on,
+.response-status .status-code.success {
+  box-shadow: 0 0 18px var(--accent-glow), inset 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+.request-inspector .inspector-action,
+.save-btn,
+.send-dropdown-btn,
+.response-body .copy-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.request-inspector .inspector-action::before,
+.save-btn::before,
+.send-dropdown-btn::before,
+.response-body .copy-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.12), transparent);
+  transform: translateX(-110%);
+  transition: transform 0.45s ease;
+}
+
+.request-inspector .inspector-action:hover::before,
+.save-btn:hover::before,
+.send-dropdown-btn:hover::before,
+.response-body .copy-btn:hover::before {
+  transform: translateX(110%);
+}
+
+.send-btn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.10) inset, 0 10px 28px var(--accent-glow);
+}
+
+.send-btn::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  background: linear-gradient(90deg, var(--accent), #5b9ef5, var(--accent));
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.send-btn:hover::before,
+.send-btn.loading::before {
+  opacity: 1;
+}
+
+.send-btn.loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(110deg, transparent 0 10px, rgba(255,255,255,0.18) 10px 18px);
+  animation: scanStripe 0.8s linear infinite;
+  mix-blend-mode: soft-light;
+}
+
+.url-input:focus,
+.method-select .method-btn:hover {
+  box-shadow: 0 0 0 2px var(--accent-dim), 0 0 24px rgba(0,229,160,0.10);
+}
+
+.api-item {
+  position: relative;
+}
+
+.api-item::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  box-shadow: 0 0 12px var(--accent);
+  transition: opacity var(--transition), transform var(--transition);
+  transform: scaleY(0.4);
+}
+
+.api-item.active::before,
+.api-item:hover::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.api-item:hover {
+  box-shadow: inset 0 0 0 1px rgba(0,229,160,0.06);
+}
+
+.tab.active {
+  text-shadow: 0 0 18px var(--accent-glow);
+}
+
+.response-body {
+  background:
+    linear-gradient(90deg, rgba(0,229,160,0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(91,158,245,0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.response-status .status-code {
+  border: 1px solid currentColor;
+}
+
+.toast {
+  backdrop-filter: blur(12px);
+}
+
+@keyframes statusPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(245,166,35,0); }
+  50% { box-shadow: 0 0 18px rgba(245,166,35,0.24); }
+}
+
+@keyframes scanStripe {
+  from { background-position: 0 0; }
+  to { background-position: 44px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
    ANIMATION HELPERS
    ============================================ */
 .pulse {
@@ -3226,6 +3709,21 @@ a { color: var(--accent); text-decoration: none; }
         <div class="stream-toggle" data-action="toggle-streaming" title="流式输出模式（适合SSE/流式API）">
           <span class="stream-toggle-indicator" id="streamToggleIndicator"></span>
           <span class="stream-toggle-label">Stream</span>
+        </div>
+      </div>
+
+      <div class="request-inspector" id="requestInspector">
+        <div class="request-title">
+          <strong id="requestInspectorName">Untitled Request</strong>
+          <span class="save-state saved" id="requestSaveState">Saved</span>
+        </div>
+        <div class="request-metrics">
+          <span class="metric-chip" id="requestMetricParams">Params 0</span>
+          <span class="metric-chip" id="requestMetricHeaders">Headers 0</span>
+          <span class="metric-chip" id="requestMetricBody">Body 0 B</span>
+          <span class="metric-chip" id="requestMetricAuth">Auth none</span>
+          <span class="metric-chip" id="requestMetricScript">Script off</span>
+          <button class="inspector-action" data-action="copy-resolved-url" title="Copy URL with params and variables resolved">Copy URL</button>
         </div>
       </div>
 
@@ -3622,1882 +4120,5 @@ a { color: var(--accent); text-decoration: none; }
 
 <script src="main.js"></script>
 <!-- CSP-compliant: all JS moved to main.js, no inline scripts or event handlers -->
-<!--
-const STATE = {
-  apis: {},           // id -> api object
-  groups: {},         // groupName -> [apiIds]
-  groupOrder: [],     // ordered group names
-  currentApiId: null,
-  currentMethod: 'GET',
-  bodyType: 'json',
-  authType: 'none',
-  importType: 'curl',
-  collapsedGroups: {},
-  response: null,
-  theme: 'dark',
-};
-
-let contextMenuGroup = null;
-
-// ============================================
-// INITIALIZATION
-// ============================================
-function init() {
-  try {
-    loadFromStorage();
-  } catch (e) {
-    console.warn('Failed to load storage:', e);
-  }
-
-  try {
-    loadEnvironmentVars();
-  } catch (e) {
-    console.warn('Failed to load environment vars:', e);
-  }
-
-  try {
-    applyTheme();
-  } catch (e) {
-    console.warn('Failed to apply theme:', e);
-  }
-
-  try {
-    renderSidebar();
-  } catch (e) {
-    console.warn('Failed to render sidebar:', e);
-  }
-
-  try {
-    updateGroupSelects();
-  } catch (e) {
-    console.warn('Failed to update group selects:', e);
-  }
-
-  // Close dropdowns on outside click
-  document.addEventListener('click', (e) => {
-    try {
-      const dd = document.getElementById('methodDropdown');
-      if (dd && !e.target.closest('.method-select')) dd.classList.remove('show');
-      const cm = document.getElementById('contextMenu');
-      if (cm && !e.target.closest('.context-menu')) cm.classList.remove('show');
-    } catch (err) {}
-  });
-
-  // Resize handle
-  try {
-    initResize();
-  } catch (e) {
-    console.warn('Failed to init resize:', e);
-  }
-
-  // Keyboard shortcuts
-  document.addEventListener('keydown', (e) => {
-    try {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        sendRequest();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (STATE.currentApiId) showSaveModal();
-      }
-    } catch (err) {}
-  });
-}
-
-// ============================================
-// LOCAL STORAGE
-// ============================================
-function saveToStorage() {
-  try {
-    const data = {
-      apis: STATE.apis,
-      groups: STATE.groups,
-      groupOrder: STATE.groupOrder,
-      collapsedGroups: STATE.collapsedGroups,
-      theme: STATE.theme,
-    };
-    localStorage.setItem('apifix_bin_data', JSON.stringify(data));
-  } catch (e) {
-    console.warn('Storage save failed:', e);
-  }
-}
-
-function loadFromStorage() {
-  try {
-    const raw = localStorage.getItem('apifix_bin_data');
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    // Ensure all data structures are valid
-    STATE.apis = (data.apis && typeof data.apis === 'object') ? data.apis : {};
-    STATE.groups = (data.groups && typeof data.groups === 'object') ? data.groups : {};
-    STATE.groupOrder = Array.isArray(data.groupOrder) ? data.groupOrder : Object.keys(STATE.groups);
-    STATE.collapsedGroups = (data.collapsedGroups && typeof data.collapsedGroups === 'object') ? data.collapsedGroups : {};
-    STATE.theme = data.theme === 'light' ? 'light' : 'dark';
-    // Validate apis - remove corrupted entries
-    for (const id of Object.keys(STATE.apis)) {
-      const api = STATE.apis[id];
-      if (!api || typeof api !== 'object' || !api.id) {
-        delete STATE.apis[id];
-      }
-    }
-    // Validate groups - remove orphaned references
-    for (const name of Object.keys(STATE.groups)) {
-      if (!Array.isArray(STATE.groups[name])) {
-        STATE.groups[name] = [];
-      }
-      STATE.groups[name] = STATE.groups[name].filter(id => STATE.apis[id]);
-    }
-  } catch (e) {
-    console.warn('Storage load failed, resetting:', e);
-    localStorage.removeItem('apifix_bin_data');
-  }
-}
-
-// ============================================
-// THEME
-// ============================================
-function toggleTheme() {
-  STATE.theme = STATE.theme === 'dark' ? 'light' : 'dark';
-  applyTheme();
-  saveToStorage();
-}
-
-function applyTheme() {
-  document.documentElement.setAttribute('data-theme', STATE.theme);
-  document.getElementById('themeIcon').textContent = STATE.theme === 'dark' ? '🌙' : '☀️';
-  document.getElementById('themeLabel').textContent = STATE.theme === 'dark' ? '暗色' : '亮色';
-}
-
-// ============================================
-// SIDEBAR RENDERING
-// ============================================
-function renderSidebar() {
-  const body = document.getElementById('sidebarBody');
-  const searchVal = (document.getElementById('searchInput')?.value || '').toLowerCase();
-
-  // Ensure default group
-  if (STATE.groupOrder.length === 0) {
-    STATE.groupOrder = ['默认分组'];
-    STATE.groups['默认分组'] = [];
-  }
-  if (!STATE.groups['默认分组']) {
-    STATE.groups['默认分组'] = [];
-  }
-
-  let html = '';
-  for (const groupName of STATE.groupOrder) {
-    const apiIds = STATE.groups[groupName] || [];
-    const isCollapsed = STATE.collapsedGroups[groupName];
-
-    // Filter by search
-    const filteredIds = apiIds.filter(id => {
-      const api = STATE.apis[id];
-      if (!api) return false;
-      if (!searchVal) return true;
-      return api.name.toLowerCase().includes(searchVal) ||
-             api.url.toLowerCase().includes(searchVal) ||
-             api.method.toLowerCase().includes(searchVal);
-    });
-
-    if (searchVal && filteredIds.length === 0) continue;
-
-    html += `
-      <div class="api-group">
-        <div class="api-group-header" oncontextmenu="showGroupContextMenu(event, '${escapeHtml(groupName)}')" data-drop-group="${escapeHtml(groupName)}" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, '${escapeHtml(groupName)}')">
-          <span class="chevron ${isCollapsed ? 'collapsed' : ''}" onclick="toggleGroup('${escapeHtml(groupName)}')">▶</span>
-          <span class="group-name" onclick="toggleGroup('${escapeHtml(groupName)}')">${escapeHtml(groupName)}</span>
-          <span class="group-count">${filteredIds.length}</span>
-          <div class="group-actions">
-            <button onclick="createNewApiInGroup('${escapeHtml(groupName)}')" title="添加请求">+</button>
-          </div>
-        </div>
-        <div class="api-group-items ${isCollapsed ? 'collapsed' : ''}" style="max-height:${isCollapsed ? '0' : filteredIds.length * 40 + 'px'}">
-    `;
-
-    for (const id of filteredIds) {
-      const api = STATE.apis[id];
-      if (!api) continue;
-      const methodClass = api.method.toLowerCase();
-      const isActive = id === STATE.currentApiId;
-      html += `
-        <div class="api-item ${isActive ? 'active' : ''}" onclick="loadApi('${id}')" draggable="true" ondragstart="handleDragStart(event, '${id}')" ondragend="handleDragEnd(event)">
-          <span class="method-badge ${methodClass}">${api.method}</span>
-          <span class="api-name" title="${escapeHtml(api.url)}">${escapeHtml(api.name)}</span>
-          <div class="api-item-actions">
-            <button onclick="event.stopPropagation();deleteApi('${id}')" title="删除">✕</button>
-          </div>
-        </div>
-      `;
-    }
-
-    html += `</div></div>`;
-  }
-
-  body.innerHTML = html || '<div class="empty-state" style="padding:40px 20px"><div class="empty-icon">📭</div><div class="empty-title">暂无接口</div><div class="empty-desc">点击"新建"或"导入"开始</div></div>';
-}
-
-function toggleGroup(name) {
-  STATE.collapsedGroups[name] = !STATE.collapsedGroups[name];
-  saveToStorage();
-  renderSidebar();
-}
-
-// Drag and Drop for API items between groups
-let _dragApiId = null;
-
-function handleDragStart(e, apiId) {
-  _dragApiId = apiId;
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', apiId);
-  requestAnimationFrame(() => {
-    const el = e.target.closest('.api-item');
-    if (el) el.classList.add('dragging');
-  });
-}
-
-function handleDragEnd(e) {
-  _dragApiId = null;
-  document.querySelectorAll('.api-item.dragging').forEach(el => el.classList.remove('dragging'));
-  document.querySelectorAll('.api-group-header.drag-over').forEach(el => el.classList.remove('drag-over'));
-  document.querySelectorAll('.api-item.drag-over-item').forEach(el => el.classList.remove('drag-over-item'));
-}
-
-function handleDragOver(e) {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  const header = e.target.closest('.api-group-header');
-  if (header) header.classList.add('drag-over');
-}
-
-function handleDragLeave(e) {
-  const header = e.target.closest('.api-group-header');
-  if (header) header.classList.remove('drag-over');
-}
-
-function handleDrop(e, targetGroup) {
-  e.preventDefault();
-  const apiId = e.dataTransfer.getData('text/plain') || _dragApiId;
-  if (!apiId) return;
-
-  document.querySelectorAll('.api-group-header.drag-over').forEach(el => el.classList.remove('drag-over'));
-  document.querySelectorAll('.api-item.dragging').forEach(el => el.classList.remove('dragging'));
-
-  let sourceGroup = null;
-  for (const gName of STATE.groupOrder) {
-    if ((STATE.groups[gName] || []).includes(apiId)) {
-      sourceGroup = gName;
-      break;
-    }
-  }
-
-  if (!sourceGroup) return;
-  if (sourceGroup === targetGroup) return;
-
-  const srcArr = STATE.groups[sourceGroup];
-  const idx = srcArr.indexOf(apiId);
-  if (idx !== -1) srcArr.splice(idx, 1);
-
-  if (!STATE.groups[targetGroup]) STATE.groups[targetGroup] = [];
-  STATE.groups[targetGroup].push(apiId);
-
-  saveToStorage();
-  renderSidebar();
-  toast(`已移动到「${targetGroup}」`, 'success');
-}
-
-function filterApis() {
-  renderSidebar();
-}
-
-// ============================================
-// API CRUD
-// ============================================
-function generateId() {
-  return 'api_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-}
-
-function createNewApi() {
-  createNewApiInGroup('');
-}
-
-function createNewApiInGroup(groupName) {
-  const id = generateId();
-  const group = groupName || '默认分组';
-
-  STATE.apis[id] = {
-    id,
-    name: '新请求',
-    method: 'GET',
-    url: '',
-    headers: [],
-    params: [],
-    bodyType: 'json',
-    body: '',
-    formdata: [],
-    urlencoded: [],
-    authType: 'none',
-    bearerToken: '',
-    basicUser: '',
-    basicPass: '',
-    preRequestScript: '',
-    group,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-
-  if (!STATE.groups[group]) {
-    STATE.groups[group] = [];
-    if (!STATE.groupOrder.includes(group)) {
-      STATE.groupOrder.push(group);
-    }
-  }
-  STATE.groups[group].push(id);
-
-  saveToStorage();
-  renderSidebar();
-  updateGroupSelects();
-  loadApi(id);
-}
-
-async function deleteApi(id) {
-  const api = STATE.apis[id];
-  if (!api) return;
-  if (!await customConfirm('删除接口', `确定删除接口"${api.name}"？`, { icon: '🗑️', okText: '删除', danger: true })) return;
-
-  // Remove from group
-  const group = api.group || '默认分组';
-  if (STATE.groups[group]) {
-    STATE.groups[group] = STATE.groups[group].filter(x => x !== id);
-  }
-
-  delete STATE.apis[id];
-
-  if (STATE.currentApiId === id) {
-    STATE.currentApiId = null;
-    showWelcome();
-  }
-
-  saveToStorage();
-  renderSidebar();
-  updateGroupSelects();
-  toast('接口已删除', 'success');
-}
-
-function loadApi(id) {
-  const api = STATE.apis[id];
-  if (!api) return;
-
-  STATE.currentApiId = id;
-  STATE.currentMethod = api.method;
-  STATE.bodyType = api.bodyType || 'json';
-  STATE.authType = api.authType || 'none';
-
-  // Show editor
-  document.getElementById('welcomeScreen').style.display = 'none';
-  document.getElementById('editorView').style.display = 'flex';
-
-  // Method
-  updateMethodDisplay(api.method);
-
-  // URL
-  document.getElementById('urlInput').value = api.url || '';
-
-  // Params
-  renderKvEditor('paramsEditor', api.params || [], 'params');
-
-  // Headers
-  renderKvEditor('headersEditor', api.headers || [], 'headers');
-
-  // Body
-  selectBodyType(STATE.bodyType);
-  document.getElementById('bodyTextarea').value = api.body || '';
-  renderKvEditor('formdataEditor', api.formdata || [], 'formdata');
-  renderKvEditor('urlencodedEditor', api.urlencoded || [], 'urlencoded');
-
-  // Auth
-  selectAuthType(STATE.authType);
-  document.getElementById('bearerToken').value = api.bearerToken || '';
-  document.getElementById('basicUser').value = api.basicUser || '';
-  document.getElementById('basicPass').value = api.basicPass || '';
-
-  // Pre-request Script
-  document.getElementById('preRequestScript').value = api.preRequestScript || '';
-  updateScriptBadge(api.preRequestScript);
-
-  // Clear response
-  clearResponse();
-
-  // Update sidebar active state
-  renderSidebar();
-}
-
-function showWelcome() {
-  document.getElementById('welcomeScreen').style.display = 'flex';
-  document.getElementById('editorView').style.display = 'none';
-}
-
-function syncCurrentApi() {
-  if (!STATE.currentApiId) return;
-  const api = STATE.apis[STATE.currentApiId];
-  if (!api) return;
-
-  api.method = STATE.currentMethod;
-  api.url = document.getElementById('urlInput').value;
-  api.params = getKvData('paramsEditor');
-  api.headers = getKvData('headersEditor');
-  api.bodyType = STATE.bodyType;
-  api.body = document.getElementById('bodyTextarea').value;
-  api.formdata = getKvData('formdataEditor');
-  api.urlencoded = getKvData('urlencodedEditor');
-  api.authType = STATE.authType;
-  api.bearerToken = document.getElementById('bearerToken').value;
-  api.basicUser = document.getElementById('basicUser').value;
-  api.basicPass = document.getElementById('basicPass').value;
-  api.preRequestScript = document.getElementById('preRequestScript').value;
-  api.updatedAt = Date.now();
-}
-
-// ============================================
-// METHOD SELECTOR
-// ============================================
-function toggleMethodDropdown() {
-  document.getElementById('methodDropdown').classList.toggle('show');
-}
-
-function selectMethod(method) {
-  STATE.currentMethod = method;
-  updateMethodDisplay(method);
-  document.getElementById('methodDropdown').classList.remove('show');
-  syncCurrentApi();
-}
-
-function updateMethodDisplay(method) {
-  const btn = document.getElementById('methodBtn');
-  const text = document.getElementById('methodText');
-  text.textContent = method;
-  const m = method.toLowerCase();
-  const colorVar = `var(--method-${m})`;
-  btn.style.color = colorVar;
-}
-
-// ============================================
-// TABS
-// ============================================
-function switchRequestTab(tab) {
-  document.querySelectorAll('.request-panel .tab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.request-panel .tab[data-tab="${tab}"]`).classList.add('active');
-  document.querySelectorAll('#tab-params, #tab-headers, #tab-body, #tab-auth, #tab-script').forEach(p => p.classList.remove('active'));
-  document.getElementById(`tab-${tab}`).classList.add('active');
-}
-
-function switchResponseTab(tab) {
-  document.querySelectorAll('.response-panel .tab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.response-panel .tab[data-rtab="${tab}"]`).classList.add('active');
-  document.querySelectorAll('#rtab-body, #rtab-headers, #rtab-console').forEach(p => p.classList.remove('active'));
-  document.getElementById(`rtab-${tab}`).classList.add('active');
-}
-
-// ============================================
-// KEY-VALUE EDITOR
-// ============================================
-function renderKvEditor(editorId, data, type) {
-  const editor = document.getElementById(editorId);
-  let html = '';
-  data.forEach((item, i) => {
-    html += `
-      <div class="kv-row">
-        <input class="kv-key" type="text" placeholder="Key" value="${escapeHtml(item.key)}" oninput="syncCurrentApi();updateKvCount('${type}')">
-        <input class="kv-value" type="text" placeholder="Value" value="${escapeHtml(item.value)}" oninput="syncCurrentApi()">
-        <input type="checkbox" class="kv-toggle" ${item.enabled !== false ? 'checked' : ''} onchange="syncCurrentApi()">
-        <button class="kv-remove" onclick="removeKvRow(this, '${editorId}', '${type}')">✕</button>
-      </div>
-    `;
-  });
-  editor.innerHTML = html;
-  updateKvCount(type);
-}
-
-function addKvRow(editorId, type) {
-  const editor = document.getElementById(editorId);
-  const row = document.createElement('div');
-  row.className = 'kv-row';
-  row.innerHTML = `
-    <input class="kv-key" type="text" placeholder="Key" oninput="syncCurrentApi();updateKvCount('${type}')">
-    <input class="kv-value" type="text" placeholder="Value" oninput="syncCurrentApi()">
-    <input type="checkbox" class="kv-toggle" checked onchange="syncCurrentApi()">
-    <button class="kv-remove" onclick="removeKvRow(this, '${editorId}', '${type}')">✕</button>
-  `;
-  editor.appendChild(row);
-  row.querySelector('.kv-key').focus();
-  syncCurrentApi();
-}
-
-function removeKvRow(btn, editorId, type) {
-  btn.closest('.kv-row').remove();
-  syncCurrentApi();
-  updateKvCount(type);
-}
-
-function getKvData(editorId) {
-  const editor = document.getElementById(editorId);
-  const rows = editor.querySelectorAll('.kv-row');
-  const data = [];
-  rows.forEach(row => {
-    const key = row.querySelector('.kv-key').value;
-    const value = row.querySelector('.kv-value').value;
-    const enabled = row.querySelector('.kv-toggle').checked;
-    data.push({ key, value, enabled });
-  });
-  return data;
-}
-
-function updateKvCount(type) {
-  const editorId = type === 'params' ? 'paramsEditor' : 'headersEditor';
-  const badgeId = type === 'params' ? 'paramsCount' : 'headersCount';
-  const data = getKvData(editorId);
-  const count = data.filter(d => d.key.trim()).length;
-  const badge = document.getElementById(badgeId);
-  if (count > 0) {
-    badge.textContent = count;
-    badge.style.display = 'inline';
-  } else {
-    badge.style.display = 'none';
-  }
-}
-
-// ============================================
-// BODY TYPE
-// ============================================
-function selectBodyType(type) {
-  STATE.bodyType = type;
-  document.querySelectorAll('.body-type-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector(`.body-type-btn[data-btype="${type}"]`).classList.add('active');
-
-  document.getElementById('bodyTextarea').style.display = (type === 'json' || type === 'text') ? 'block' : 'none';
-  document.getElementById('bodyNone').style.display = type === 'none' ? 'block' : 'none';
-  document.getElementById('bodyFormdata').style.display = type === 'formdata' ? 'block' : 'none';
-  document.getElementById('bodyUrlencoded').style.display = type === 'urlencoded' ? 'block' : 'none';
-
-  if (type === 'text') {
-    document.getElementById('bodyTextarea').placeholder = '输入纯文本内容...';
-  } else {
-    document.getElementById('bodyTextarea').placeholder = '{"key": "value"}';
-  }
-
-  syncCurrentApi();
-}
-
-// ============================================
-// AUTH
-// ============================================
-function selectAuthType(type) {
-  STATE.authType = type;
-  document.querySelectorAll('.auth-type-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector(`.auth-type-btn[data-auth="${type}"]`).classList.add('active');
-
-  document.getElementById('authNone').style.display = type === 'none' ? 'block' : 'none';
-  document.getElementById('authBearer').style.display = type === 'bearer' ? 'block' : 'none';
-  document.getElementById('authBasic').style.display = type === 'basic' ? 'block' : 'none';
-
-  syncCurrentApi();
-}
-
-// ============================================
-// SEND REQUEST
-// ============================================
-async function sendRequest() {
-  syncCurrentApi();
-
-  const url = document.getElementById('urlInput').value.trim();
-  if (!url) {
-    toast('请输入请求URL', 'error');
-    document.getElementById('urlInput').focus();
-    return;
-  }
-
-  const btn = document.getElementById('sendBtn');
-  btn.classList.add('loading');
-  clearReqConsole();
-
-  try {
-    const method = STATE.currentMethod;
-    const allHeaders = {};
-    const headerData = getKvData('headersEditor');
-    headerData.forEach(h => {
-      if (h.enabled && h.key.trim()) {
-        allHeaders[h.key] = h.value;
-      }
-    });
-
-    // Auth
-    if (STATE.authType === 'bearer') {
-      const token = document.getElementById('bearerToken').value;
-      if (token) allHeaders['Authorization'] = `Bearer ${token}`;
-    } else if (STATE.authType === 'basic') {
-      const user = document.getElementById('basicUser').value;
-      const pass = document.getElementById('basicPass').value;
-      if (user) allHeaders['Authorization'] = `Basic ${btoa(user + ':' + pass)}`;
-    }
-
-    // Build URL with params
-    let finalUrl = url;
-    const params = getKvData('paramsEditor');
-    const enabledParams = params.filter(p => p.enabled && p.key.trim());
-    if (enabledParams.length > 0) {
-      try {
-        const urlObj = new URL(url.startsWith('http') ? url : 'https://' + url);
-        enabledParams.forEach(p => urlObj.searchParams.append(p.key, p.value));
-        finalUrl = urlObj.toString();
-      } catch (e) {
-        const sep = finalUrl.includes('?') ? '&' : '?';
-        const qs = enabledParams.map(p => encodeURIComponent(p.key) + '=' + encodeURIComponent(p.value)).join('&');
-        finalUrl = finalUrl + sep + qs;
-      }
-    }
-
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      finalUrl = 'https://' + finalUrl;
-    }
-
-    // Build body
-    let body = null;
-    let formdataFields = null;
-    const currentUrlencoded = STATE.bodyType === 'urlencoded' ? getKvData('urlencodedEditor') : [];
-    const currentFormdata = STATE.bodyType === 'formdata' ? getKvData('formdataEditor') : [];
-    if (!['GET', 'HEAD'].includes(method)) {
-      if (STATE.bodyType === 'json') {
-        const bodyVal = document.getElementById('bodyTextarea').value;
-        if (bodyVal.trim()) {
-          body = bodyVal;
-          if (!allHeaders['Content-Type']) allHeaders['Content-Type'] = 'application/json';
-        }
-      } else if (STATE.bodyType === 'text') {
-        const bodyVal = document.getElementById('bodyTextarea').value;
-        if (bodyVal.trim()) {
-          body = bodyVal;
-          if (!allHeaders['Content-Type']) allHeaders['Content-Type'] = 'text/plain';
-        }
-      } else if (STATE.bodyType === 'urlencoded') {
-        const urlParams = new URLSearchParams();
-        getKvData('urlencodedEditor').forEach(d => {
-          if (d.enabled && d.key.trim()) urlParams.append(d.key, d.value);
-        });
-        body = urlParams.toString();
-        if (!allHeaders['Content-Type']) allHeaders['Content-Type'] = 'application/x-www-form-urlencoded';
-      } else if (STATE.bodyType === 'formdata') {
-        formdataFields = getKvData('formdataEditor');
-      }
-    }
-
-    // ---- Execute Pre-request Script ----
-    const scriptText = document.getElementById('preRequestScript')?.value || '';
-    if (scriptText.trim()) {
-      try {
-        const scriptResult = executePreRequestScript(
-          scriptText,
-          allHeaders,
-          finalUrl,
-          body,
-          currentUrlencoded,
-          currentFormdata
-        );
-        // Apply script modifications
-        if (scriptResult.headers) {
-          Object.keys(scriptResult.headers).forEach(k => { allHeaders[k] = scriptResult.headers[k]; });
-        }
-        if (scriptResult.url && scriptResult.url !== finalUrl) {
-          finalUrl = scriptResult.url;
-        }
-        if (scriptResult.body !== undefined && scriptResult.body !== null) {
-          body = scriptResult.body;
-        }
-        if (scriptResult.urlencoded && scriptResult.urlencoded.length > 0 && STATE.bodyType === 'urlencoded') {
-          const urlParams = new URLSearchParams();
-          scriptResult.urlencoded.forEach(d => {
-            if (d.enabled && d.key.trim()) urlParams.append(d.key, d.value);
-          });
-          body = urlParams.toString();
-        }
-        if (scriptResult.formdata && scriptResult.formdata.length > 0 && STATE.bodyType === 'formdata') {
-          formdataFields = scriptResult.formdata;
-        }
-      } catch (scriptErr) {
-        appendScriptLog('error', 'Pre-request Script 执行异常: ' + scriptErr.message);
-      }
-    }
-
-    // ---- Send via Chrome Extension API (no CORS restriction) ----
-    appendReqLog('req', `${method} ${finalUrl}`);
-    const headerKeys = Object.keys(allHeaders);
-    if (headerKeys.length > 0) {
-      appendReqLog('info', `Headers: ${headerKeys.map(k => k + ': ' + (k.toLowerCase().includes('auth') || k.toLowerCase().includes('token') || k.toLowerCase().includes('key') ? '•••' : allHeaders[k])).join(' | ')}`);
-    }
-    if (body) {
-      const bodyPreview = body.length > 200 ? body.substring(0, 200) + '...' : body;
-      appendReqLog('info', `Body: ${bodyPreview}`);
-    }
-
-    const startTime = performance.now();
-    const result = await chrome.runtime.sendMessage({
-      type: 'API_REQUEST',
-      data: {
-        method,
-        url: finalUrl,
-        headers: allHeaders,
-        body,
-        bodyType: STATE.bodyType,
-        formdataFields,
-      }
-    });
-    const endTime = performance.now();
-    const duration = Math.round(endTime - startTime);
-
-    if (!result.success) {
-      appendReqLog('err', result.error || '请求失败');
-      throw new Error(result.error || '请求失败');
-    }
-
-    const data = result.data;
-    appendReqLog('res', `${data.status} ${data.statusText} — ${duration}ms — ${data.size > 1024 ? (data.size / 1024).toFixed(1) + ' KB' : data.size + ' B'}`);
-    const statusClass = data.status < 300 ? 'success' :
-                        data.status < 400 ? 'redirect' :
-                        data.status < 500 ? 'client-err' : 'server-err';
-
-    const sizeStr = data.size > 1024 ? (data.size / 1024).toFixed(1) + ' KB' : data.size + ' B';
-
-    // Update UI - Status
-    const statusEl = document.getElementById('responseStatus');
-    statusEl.style.display = 'flex';
-    const codeEl = document.getElementById('statusCode');
-    codeEl.textContent = data.status + ' ' + data.statusText;
-    codeEl.className = 'status-code ' + statusClass;
-    document.getElementById('responseTime').textContent = duration;
-    document.getElementById('responseSize').textContent = sizeStr;
-
-    // Render body
-    const bodyEl = document.getElementById('responseBody');
-    if (data.body) {
-      const highlighted = highlightJSON(data.body);
-      bodyEl.innerHTML = `<button class="copy-btn" onclick="copyResponse()">📋 复制</button><pre>${highlighted}</pre>`;
-    } else {
-      bodyEl.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-title">空响应</div></div>';
-    }
-
-    // Render headers
-    const headersEl = document.getElementById('responseHeaders');
-    if (data.headers && data.headers.length > 0) {
-      let hhtml = '<table class="headers-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>';
-      data.headers.forEach(h => {
-        hhtml += `<tr><td>${escapeHtml(h.key)}</td><td>${escapeHtml(h.value)}</td></tr>`;
-      });
-      hhtml += '</tbody></table>';
-      headersEl.innerHTML = hhtml;
-    } else {
-      headersEl.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无响应头</div></div>';
-    }
-
-  } catch (err) {
-    if (!document.getElementById('reqConsoleBody').querySelector('.req-console-line')) {
-      appendReqLog('err', err.message);
-    }
-    const statusEl = document.getElementById('responseStatus');
-    statusEl.style.display = 'flex';
-    const codeEl = document.getElementById('statusCode');
-    codeEl.textContent = 'Error';
-    codeEl.className = 'status-code client-err';
-    document.getElementById('responseTime').textContent = '-';
-    document.getElementById('responseSize').textContent = '-';
-
-    const bodyEl = document.getElementById('responseBody');
-    bodyEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">请求失败</div><div class="empty-desc">${escapeHtml(err.message)}</div></div>`;
-
-    if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-      bodyEl.innerHTML += `<div style="text-align:center;padding:16px;font-size:12px;color:var(--text-muted);max-width:500px;margin:0 auto;line-height:1.8;">
-        <strong style="color:var(--status-redirect);">🔧 可能的原因：</strong><br><br>
-        <strong>1. 服务器不可达</strong><br>
-        <em>→ 确认URL正确，服务器运行中</em><br><br>
-        <strong>2. SSL证书问题</strong><br>
-        <em>→ 确认HTTPS证书有效</em><br><br>
-        <strong>3. DNS解析失败</strong><br>
-        <em>→ 检查域名是否正确</em>
-      </div>`;
-    }
-  } finally {
-    btn.classList.remove('loading');
-  }
-}
-
-function clearResponse() {
-  document.getElementById('responseStatus').style.display = 'none';
-  document.getElementById('responseBody').innerHTML = '<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-title">等待请求</div><div class="empty-desc">点击"发送"按钮执行请求</div></div>';
-  document.getElementById('responseHeaders').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无响应头</div></div>';
-}
-
-function copyResponse() {
-  const pre = document.querySelector('#responseBody pre');
-  if (pre) {
-    navigator.clipboard.writeText(pre.textContent).then(() => {
-      toast('已复制到剪贴板', 'success');
-    });
-  }
-}
-
-// ============================================
-// JSON SYNTAX HIGHLIGHTING
-// ============================================
-function highlightJSON(str) {
-  // Escape HTML first
-  str = escapeHtml(str);
-
-  // Highlight JSON
-  return str.replace(
-    /("(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-    (match) => {
-      let cls = 'json-number';
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          cls = 'json-key';
-        } else {
-          cls = 'json-string';
-        }
-      } else if (/true|false/.test(match)) {
-        cls = 'json-boolean';
-      } else if (/null/.test(match)) {
-        cls = 'json-null';
-      }
-      return `<span class="${cls}">${match}</span>`;
-    }
-  );
-}
-
-// ============================================
-// SAVE
-// ============================================
-function showSaveModal() {
-  syncCurrentApi();
-
-  const api = STATE.apis[STATE.currentApiId];
-  if (!api) {
-    toast('请先选择或创建一个接口', 'info');
-    return;
-  }
-
-  document.getElementById('saveName').value = api.name || '';
-  updateGroupSelects();
-  document.getElementById('saveGroup').value = api.group || '';
-  document.getElementById('saveNewGroup').value = '';
-  document.getElementById('saveModal').classList.add('show');
-  document.getElementById('saveName').focus();
-}
-
-function closeSaveModal() {
-  document.getElementById('saveModal').classList.remove('show');
-}
-
-function doSave() {
-  const name = document.getElementById('saveName').value.trim();
-  if (!name) {
-    toast('请输入接口名称', 'error');
-    return;
-  }
-
-  const api = STATE.apis[STATE.currentApiId];
-  if (!api) return;
-
-  let newGroup = document.getElementById('saveNewGroup').value.trim();
-  let group = newGroup || document.getElementById('saveGroup').value || '默认分组';
-
-  // Move between groups if changed
-  const oldGroup = api.group || '默认分组';
-  if (oldGroup !== group) {
-    if (STATE.groups[oldGroup]) {
-      STATE.groups[oldGroup] = STATE.groups[oldGroup].filter(x => x !== api.id);
-    }
-    if (!STATE.groups[group]) {
-      STATE.groups[group] = [];
-      if (!STATE.groupOrder.includes(group)) {
-        STATE.groupOrder.push(group);
-      }
-    }
-    STATE.groups[group].push(api.id);
-  }
-
-  api.name = name;
-  api.group = group;
-
-  saveToStorage();
-  renderSidebar();
-  updateGroupSelects();
-  closeSaveModal();
-  toast('接口已保存', 'success');
-}
-
-// ============================================
-// IMPORT
-// ============================================
-function showImportModal() {
-  document.getElementById('importTextarea').value = '';
-  document.getElementById('importTextarea').placeholder = '粘贴cURL命令...\n\n示例: curl -X GET https://api.example.com/users -H \'Authorization: Bearer token123\'';
-  document.getElementById('importFileRow').style.display = 'none';
-  document.getElementById('importFileName').textContent = '';
-  const fileInput = document.getElementById('importFileInput');
-  if (fileInput) fileInput.value = '';
-  updateGroupSelects();
-  document.getElementById('importGroup').value = '';
-  document.getElementById('importModal').classList.add('show');
-  document.getElementById('importTextarea').focus();
-}
-
-function closeImportModal() {
-  document.getElementById('importModal').classList.remove('show');
-}
-
-function selectImportType(type) {
-  STATE.importType = type;
-  document.querySelectorAll('.import-type-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector(`.import-type-btn[data-itype="${type}"]`).classList.add('active');
-  const ta = document.getElementById('importTextarea');
-  const fileRow = document.getElementById('importFileRow');
-  if (type === 'curl') {
-    ta.placeholder = "粘贴cURL命令...\n\n示例: curl -X GET https://api.example.com/users -H 'Authorization: Bearer token123'";
-    fileRow.style.display = 'none';
-  } else {
-    ta.placeholder = "粘贴Postman导出的JSON，或点击上方按钮选择文件...\n\n支持Postman Collection v2.1格式";
-    fileRow.style.display = 'flex';
-  }
-}
-
-function handleImportFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  if (!file.name.endsWith('.json')) {
-    toast('请选择 .json 文件', 'error');
-    input.value = '';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    document.getElementById('importTextarea').value = e.target.result;
-    document.getElementById('importFileName').textContent = '✓ ' + file.name;
-  };
-  reader.onerror = function() {
-    toast('文件读取失败', 'error');
-  };
-  reader.readAsText(file);
-}
-
-function doImport() {
-  const text = document.getElementById('importTextarea').value.trim();
-  if (!text) {
-    toast('请粘贴内容', 'error');
-    return;
-  }
-
-  try {
-    if (STATE.importType === 'curl') {
-      importCurl(text);
-    } else {
-      importPostman(text);
-    }
-  } catch (err) {
-    toast('导入失败: ' + err.message, 'error');
-  }
-}
-
-function importCurl(curlStr) {
-  const api = {
-    id: generateId(),
-    name: '',
-    method: 'GET',
-    url: '',
-    headers: [],
-    params: [],
-    bodyType: 'none',
-    body: '',
-    formdata: [],
-    urlencoded: [],
-    authType: 'none',
-    bearerToken: '',
-    basicUser: '',
-    basicPass: '',
-    preRequestScript: '',
-    group: '',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-
-  // Step 1: Tokenize the curl command with proper quote handling
-  const tokens = tokenizeCurl(curlStr);
-
-  // Step 2: Parse tokens into structured data
-  let i = 0;
-
-  // Skip 'curl' command itself
-  if (tokens.length > 0 && tokens[0].toLowerCase() === 'curl') {
-    i = 1;
-  }
-
-  while (i < tokens.length) {
-    const token = tokens[i];
-
-    if (token === '-X' || token === '--request') {
-      // HTTP Method
-      i++;
-      if (i < tokens.length) {
-        api.method = tokens[i].toUpperCase();
-      }
-    } else if (token === '-H' || token === '--header') {
-      // Header
-      i++;
-      if (i < tokens.length) {
-        const headerStr = tokens[i];
-        const colonIdx = headerStr.indexOf(':');
-        if (colonIdx > 0) {
-          const key = headerStr.substring(0, colonIdx).trim();
-          const value = headerStr.substring(colonIdx + 1).trim();
-          api.headers.push({ key, value, enabled: true });
-
-          // Detect auth
-          if (key.toLowerCase() === 'authorization') {
-            if (value.startsWith('Bearer ')) {
-              api.authType = 'bearer';
-              api.bearerToken = value.replace('Bearer ', '');
-            } else if (value.startsWith('Basic ')) {
-              api.authType = 'basic';
-              try {
-                const decoded = atob(value.replace('Basic ', ''));
-                const [u, p] = decoded.split(':');
-                api.basicUser = u || '';
-                api.basicPass = p || '';
-              } catch (e) {}
-            }
-          }
-        }
-      }
-    } else if (token === '-b' || token === '--cookie' || token === '-c' || token === '--cookie-jar') {
-      // Cookie
-      i++;
-      if (i < tokens.length) {
-        const cookieStr = tokens[i];
-        // Add as Cookie header
-        const existingCookie = api.headers.find(h => h.key.toLowerCase() === 'cookie');
-        if (existingCookie) {
-          existingCookie.value = existingCookie.value + '; ' + cookieStr;
-        } else {
-          api.headers.push({ key: 'Cookie', value: cookieStr, enabled: true });
-        }
-      }
-    } else if (token === '-d' || token === '--data' || token === '--data-raw' || token === '--data-binary') {
-      // Body data
-      i++;
-      if (i < tokens.length) {
-        api.body = tokens[i];
-        api.bodyType = 'json';
-        if (api.method === 'GET') api.method = 'POST';
-
-        // Detect body type
-        const hasFormUrlencoded = api.headers.some(h => h.key.toLowerCase() === 'content-type' && h.value.includes('x-www-form-urlencoded'));
-        if (hasFormUrlencoded) {
-          api.bodyType = 'urlencoded';
-          // Parse into urlencoded fields
-          api.urlencoded = [];
-          tokens[i].split('&').forEach(pair => {
-            const eqIdx = pair.indexOf('=');
-            if (eqIdx > 0) {
-              api.urlencoded.push({ key: decodeURIComponent(pair.substring(0, eqIdx)), value: decodeURIComponent(pair.substring(eqIdx + 1)), enabled: true });
-            }
-          });
-        } else {
-          try { JSON.parse(api.body); } catch (e) { api.bodyType = 'text'; }
-        }
-      }
-    } else if (token === '-F' || token === '--form') {
-      // Form data
-      i++;
-      if (i < tokens.length) {
-        api.bodyType = 'formdata';
-        if (api.method === 'GET') api.method = 'POST';
-        const eqIdx = tokens[i].indexOf('=');
-        if (eqIdx > 0) {
-          api.formdata.push({ key: tokens[i].substring(0, eqIdx), value: tokens[i].substring(eqIdx + 1), enabled: true });
-        }
-      }
-    } else if (token === '-u' || token === '--user') {
-      // Basic auth
-      i++;
-      if (i < tokens.length) {
-        api.authType = 'basic';
-        const colonIdx = tokens[i].indexOf(':');
-        if (colonIdx > 0) {
-          api.basicUser = tokens[i].substring(0, colonIdx);
-          api.basicPass = tokens[i].substring(colonIdx + 1);
-        } else {
-          api.basicUser = tokens[i];
-        }
-      }
-    } else if (token === '-A' || token === '--user-agent') {
-      // User-Agent
-      i++;
-      if (i < tokens.length) {
-        const existing = api.headers.find(h => h.key.toLowerCase() === 'user-agent');
-        if (existing) {
-          existing.value = tokens[i];
-        } else {
-          api.headers.push({ key: 'User-Agent', value: tokens[i], enabled: true });
-        }
-      }
-    } else if (token === '-e' || token === '--referer') {
-      // Referer
-      i++;
-      if (i < tokens.length) {
-        const existing = api.headers.find(h => h.key.toLowerCase() === 'referer');
-        if (existing) {
-          existing.value = tokens[i];
-        } else {
-          api.headers.push({ key: 'Referer', value: tokens[i], enabled: true });
-        }
-      }
-    } else if (token === '--compressed' || token === '-k' || token === '--insecure' || token === '-L' || token === '--location' || token === '-v' || token === '--verbose' || token === '-s' || token === '--silent' || token === '-S' || token === '--show-error') {
-      // Flags with no value - skip
-    } else if (token === '-o' || token === '--output' || token === '--max-time' || token === '-m' || token === '--connect-timeout') {
-      // Flags with value - skip value too
-      i++;
-    } else if (!token.startsWith('-') && !api.url) {
-      // This should be the URL
-      api.url = token;
-    }
-
-    i++;
-  }
-
-  if (!api.url) {
-    toast('无法解析URL，请检查cURL格式', 'error');
-    return;
-  }
-
-  // Parse URL query params
-  try {
-    const urlObj = new URL(api.url.startsWith('http') ? api.url : 'https://' + api.url);
-    urlObj.searchParams.forEach((value, key) => {
-      api.params.push({ key, value, enabled: true });
-    });
-    // Clean URL without query params
-    if (api.params.length > 0) {
-      api.url = urlObj.origin + urlObj.pathname;
-    }
-  } catch (e) {}
-
-  // Generate name from URL
-  const urlPath = api.url.replace(/^https?:\/\//, '');
-  api.name = api.method + ' ' + (urlPath.split('/').pop() || urlPath);
-
-  // Assign group
-  const group = document.getElementById('importGroup').value || '默认分组';
-  api.group = group;
-  if (!STATE.groups[group]) {
-    STATE.groups[group] = [];
-    STATE.groupOrder.push(group);
-  }
-  STATE.groups[group].push(api.id);
-  STATE.apis[api.id] = api;
-
-  saveToStorage();
-  renderSidebar();
-  updateGroupSelects();
-  closeImportModal();
-  loadApi(api.id);
-  toast(`cURL导入成功，已解析 ${api.headers.length} 个Header`, 'success');
-}
-
-/**
- * Tokenize a curl command string, properly handling:
- * - Single and double quoted strings (with internal quotes of the other type)
- * - Line continuations (backslash + newline)
- * - Escape sequences within quotes
- */
-function tokenizeCurl(input) {
-  // Step 1: Remove line continuations (\ followed by newline)
-  let str = input.replace(/\\\r?\n/g, ' ');
-
-  const tokens = [];
-  let pos = 0;
-  const len = str.length;
-
-  while (pos < len) {
-    // Skip whitespace
-    while (pos < len && /\s/.test(str[pos])) pos++;
-    if (pos >= len) break;
-
-    const char = str[pos];
-
-    if (char === "'" || char === '"') {
-      // Quoted string - read until matching close quote
-      // Within single quotes: no escaping at all
-      // Within double quotes: \" and \\ are escapes
-      const quote = char;
-      pos++; // skip opening quote
-      let value = '';
-
-      if (quote === "'") {
-        // Single quotes: find closing quote, no escape processing
-        const closeIdx = str.indexOf("'", pos);
-        if (closeIdx === -1) {
-          // No closing quote, take rest
-          value = str.substring(pos);
-          pos = len;
-        } else {
-          value = str.substring(pos, closeIdx);
-          pos = closeIdx + 1;
-        }
-      } else {
-        // Double quotes: process \" and \\ escapes
-        while (pos < len) {
-          if (str[pos] === '\\' && pos + 1 < len && (str[pos + 1] === '"' || str[pos + 1] === '\\')) {
-            value += str[pos + 1];
-            pos += 2;
-          } else if (str[pos] === '"') {
-            pos++; // skip closing quote
-            break;
-          } else {
-            value += str[pos];
-            pos++;
-          }
-        }
-      }
-
-      tokens.push(value);
-    } else if (char === '-' && pos + 1 < len && /[a-zA-Z]/.test(str[pos + 1])) {
-      // Option flag like -X, -H, -d, etc.
-      let flag = '';
-      while (pos < len && !/\s/.test(str[pos])) {
-        flag += str[pos];
-        pos++;
-      }
-      tokens.push(flag);
-    } else if (char === '-' && pos + 1 < len && str[pos + 1] === '-') {
-      // Long option like --data, --header
-      let flag = '';
-      while (pos < len && !/\s/.test(str[pos])) {
-        flag += str[pos];
-        pos++;
-      }
-      tokens.push(flag);
-    } else {
-      // Unquoted word - read until whitespace
-      let word = '';
-      while (pos < len && !/\s/.test(str[pos])) {
-        word += str[pos];
-        pos++;
-      }
-      tokens.push(word);
-    }
-  }
-
-  return tokens;
-}
-
-function importPostman(jsonStr) {
-  const data = JSON.parse(jsonStr);
-  const group = document.getElementById('importGroup').value || 'Postman导入';
-  let importedCount = 0;
-
-  // Postman Collection v2.1
-  if (data.info && data.item) {
-    if (!STATE.groups[group]) {
-      STATE.groups[group] = [];
-      STATE.groupOrder.push(group);
-    }
-
-    function processItems(items, parentGroup) {
-      items.forEach(item => {
-        if (item.item) {
-          // This is a folder
-          const subGroup = parentGroup + ' / ' + item.name;
-          if (!STATE.groups[subGroup]) {
-            STATE.groups[subGroup] = [];
-            STATE.groupOrder.push(subGroup);
-          }
-          processItems(item.item, subGroup);
-        } else if (item.request) {
-          const req = item.request;
-          const api = {
-            id: generateId(),
-            name: item.name || '未命名',
-            method: (req.method || 'GET').toUpperCase(),
-            url: '',
-            headers: [],
-            params: [],
-            bodyType: 'none',
-            body: '',
-            formdata: [],
-            urlencoded: [],
-            authType: 'none',
-            bearerToken: '',
-            basicUser: '',
-            basicPass: '',
-            preRequestScript: '',
-            group: parentGroup,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-
-          // URL
-          if (typeof req.url === 'string') {
-            api.url = req.url;
-          } else if (req.url && req.url.raw) {
-            api.url = req.url.raw;
-          }
-
-          // Parse URL params
-          try {
-            const urlStr = api.url.startsWith('http') ? api.url : 'https://' + api.url;
-            const urlObj = new URL(urlStr);
-            urlObj.searchParams.forEach((v, k) => {
-              api.params.push({ key: k, value: v, enabled: true });
-            });
-            api.url = urlObj.origin + urlObj.pathname;
-          } catch (e) {}
-
-          // Headers
-          if (req.header) {
-            req.header.forEach(h => {
-              api.headers.push({ key: h.key, value: h.value, enabled: !h.disabled });
-            });
-          }
-
-          // Body
-          if (req.body) {
-            if (req.body.mode === 'raw') {
-              api.body = req.body.raw || '';
-              const lang = req.body.options?.raw?.language || '';
-              api.bodyType = lang === 'json' || api.body.trim().startsWith('{') ? 'json' : 'text';
-            } else if (req.body.mode === 'formdata') {
-              api.bodyType = 'formdata';
-              if (req.body.formdata) {
-                req.body.formdata.forEach(f => {
-                  api.formdata.push({ key: f.key, value: f.value || '', enabled: !f.disabled });
-                });
-              }
-            } else if (req.body.mode === 'urlencoded') {
-              api.bodyType = 'urlencoded';
-              if (req.body.urlencoded) {
-                req.body.urlencoded.forEach(f => {
-                  api.urlencoded.push({ key: f.key, value: f.value || '', enabled: !f.disabled });
-                });
-              }
-            }
-          }
-
-          // Auth
-          if (req.auth) {
-            if (req.auth.type === 'bearer') {
-              api.authType = 'bearer';
-              const token = req.auth.bearer?.[0]?.value;
-              if (token) api.bearerToken = token;
-            } else if (req.auth.type === 'basic') {
-              api.authType = 'basic';
-              req.auth.basic?.forEach(b => {
-                if (b.key === 'username') api.basicUser = b.value;
-                if (b.key === 'password') api.basicPass = b.value;
-              });
-            }
-          }
-
-          // Update method based on body presence
-          if (api.body && api.method === 'GET') {
-            api.method = 'POST';
-          }
-
-          STATE.apis[api.id] = api;
-          if (!STATE.groups[parentGroup]) {
-            STATE.groups[parentGroup] = [];
-            STATE.groupOrder.push(parentGroup);
-          }
-          STATE.groups[parentGroup].push(api.id);
-          importedCount++;
-        }
-      });
-    }
-
-    processItems(data.item, group);
-  } else {
-    toast('无法识别的Postman格式', 'error');
-    return;
-  }
-
-  saveToStorage();
-  renderSidebar();
-  updateGroupSelects();
-  closeImportModal();
-  toast(`成功导入 ${importedCount} 个接口`, 'success');
-}
-
-// ============================================
-// EXPORT
-// ============================================
-function showExportModal() {
-  const apiCount = Object.keys(STATE.apis).length;
-  if (apiCount === 0) {
-    toast('暂无可导出的接口', 'info');
-    return;
-  }
-
-  const list = document.getElementById('exportGroupList');
-  let html = '';
-  for (const groupName of STATE.groupOrder) {
-    const apiIds = STATE.groups[groupName] || [];
-    if (apiIds.length === 0) continue;
-    html += `
-      <label class="export-group-item">
-        <input type="checkbox" data-export-group="${escapeHtml(groupName)}" checked>
-        <span class="export-group-name">${escapeHtml(groupName)}</span>
-        <span class="export-group-count">${apiIds.length} 个接口</span>
-      </label>
-    `;
-  }
-  list.innerHTML = html;
-  document.getElementById('exportSelectAll').checked = true;
-  document.getElementById('exportModal').classList.add('show');
-}
-
-function closeExportModal() {
-  document.getElementById('exportModal').classList.remove('show');
-}
-
-function toggleExportSelectAll(checked) {
-  document.querySelectorAll('#exportGroupList input[type="checkbox"]').forEach(cb => cb.checked = checked);
-}
-
-function doExport() {
-  const selectedGroups = [];
-  document.querySelectorAll('#exportGroupList input[type="checkbox"]:checked').forEach(cb => {
-    selectedGroups.push(cb.dataset.exportGroup);
-  });
-
-  if (selectedGroups.length === 0) {
-    toast('请至少选择一个分组', 'error');
-    return;
-  }
-
-  const collectionId = generateId().replace(/[^a-zA-Z0-9-]/g, '');
-  const collectionName = 'ApiFix Bin Export';
-
-  const items = [];
-  let totalCount = 0;
-  for (const groupName of selectedGroups) {
-    const apiIds = STATE.groups[groupName] || [];
-    if (apiIds.length === 0) continue;
-
-    if (groupName === '默认分组') {
-      for (const id of apiIds) {
-        const api = STATE.apis[id];
-        if (api) { items.push(apiToPostmanItem(api)); totalCount++; }
-      }
-    } else {
-      const folderItems = [];
-      for (const id of apiIds) {
-        const api = STATE.apis[id];
-        if (api) { folderItems.push(apiToPostmanItem(api)); totalCount++; }
-      }
-      if (folderItems.length > 0) {
-        items.push({ name: groupName, item: folderItems });
-      }
-    }
-  }
-
-  if (totalCount === 0) {
-    toast('选中的分组中没有接口', 'info');
-    return;
-  }
-
-  const exportData = {
-    info: {
-      _postman_id: collectionId,
-      name: collectionName,
-      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
-    },
-    item: items
-  };
-
-  const json = JSON.stringify(exportData, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `apifix-export-${new Date().toISOString().slice(0,10)}.postman_collection.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-
-  closeExportModal();
-  toast(`已导出 ${totalCount} 个接口（${selectedGroups.length} 个分组，Postman v2.1 格式）`, 'success');
-}
-
-function exportAllApis() {
-  showExportModal();
-}
-
-// ============================================
-// GROUP MANAGEMENT
-// ============================================
-function updateGroupSelects() {
-  const options = STATE.groupOrder.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
-
-  const saveSelect = document.getElementById('saveGroup');
-  if (saveSelect) saveSelect.innerHTML = '<option value="">默认分组</option>' + options;
-
-  const importSelect = document.getElementById('importGroup');
-  if (importSelect) importSelect.innerHTML = '<option value="">默认分组</option>' + options;
-}
-
-function showGroupContextMenu(e, groupName) {
-  e.preventDefault();
-  contextMenuGroup = groupName;
-  const menu = document.getElementById('contextMenu');
-  menu.style.left = e.clientX + 'px';
-  menu.style.top = e.clientY + 'px';
-  menu.classList.add('show');
-}
-
-// ============================================
-// CUSTOM PROMPT & CONFIRM (替代原生弹窗)
-// ============================================
-let _promptResolve = null;
-let _confirmResolve = null;
-
-function customPrompt(title, message, defaultValue) {
-  return new Promise((resolve) => {
-    _promptResolve = resolve;
-    document.getElementById('promptTitle').textContent = title || '提示';
-    document.getElementById('promptMessage').textContent = message || '';
-    const input = document.getElementById('promptInput');
-    input.value = defaultValue || '';
-    document.getElementById('promptModal').classList.add('show');
-    setTimeout(() => { input.focus(); input.select(); }, 50);
-  });
-}
-
-function closeCustomPrompt(ok) {
-  document.getElementById('promptModal').classList.remove('show');
-  if (_promptResolve) {
-    _promptResolve(ok ? document.getElementById('promptInput').value : null);
-    _promptResolve = null;
-  }
-}
-
-function customConfirm(title, message, options) {
-  return new Promise((resolve) => {
-    _confirmResolve = resolve;
-    const opts = options || {};
-    document.getElementById('confirmTitle').textContent = title || '确认操作';
-    document.getElementById('confirmMessage').textContent = message || '';
-    document.getElementById('confirmIcon').textContent = opts.icon || '⚠️';
-    const okBtn = document.getElementById('confirmOkBtn');
-    okBtn.textContent = opts.okText || '确定';
-    if (opts.danger) {
-      okBtn.className = 'btn btn-danger';
-    } else {
-      okBtn.className = 'btn btn-primary';
-    }
-    document.getElementById('confirmModal').classList.add('show');
-  });
-}
-
-function closeCustomConfirm(ok) {
-  document.getElementById('confirmModal').classList.remove('show');
-  if (_confirmResolve) {
-    _confirmResolve(ok);
-    _confirmResolve = null;
-  }
-}
-
-async function renameGroup() {
-  document.getElementById('contextMenu').classList.remove('show');
-  if (!contextMenuGroup) return;
-  const newName = await customPrompt('重命名分组', '输入新的分组名称:', contextMenuGroup);
-  if (!newName || newName === contextMenuGroup) return;
-
-  // Rename in all data structures
-  STATE.groups[newName] = STATE.groups[contextMenuGroup] || [];
-  delete STATE.groups[contextMenuGroup];
-
-  const idx = STATE.groupOrder.indexOf(contextMenuGroup);
-  if (idx !== -1) STATE.groupOrder[idx] = newName;
-
-  // Update apis
-  STATE.groups[newName].forEach(id => {
-    if (STATE.apis[id]) STATE.apis[id].group = newName;
-  });
-
-  if (STATE.collapsedGroups[contextMenuGroup]) {
-    STATE.collapsedGroups[newName] = STATE.collapsedGroups[contextMenuGroup];
-    delete STATE.collapsedGroups[contextMenuGroup];
-  }
-
-  contextMenuGroup = newName;
-  saveToStorage();
-  renderSidebar();
-  updateGroupSelects();
-  toast('分组已重命名', 'success');
-}
-
-async function deleteGroup() {
-  document.getElementById('contextMenu').classList.remove('show');
-  if (!contextMenuGroup) return;
-  if (contextMenuGroup === '默认分组') {
-    toast('不能删除默认分组', 'error');
-    return;
-  }
-
-  if (!await customConfirm('删除分组', `确定删除分组"${contextMenuGroup}"及其所有接口？此操作不可撤销。`, { icon: '🗑️', okText: '删除', danger: true })) return;
-
-  const ids = STATE.groups[contextMenuGroup] || [];
-  ids.forEach(id => delete STATE.apis[id]);
-  delete STATE.groups[contextMenuGroup];
-  STATE.groupOrder = STATE.groupOrder.filter(g => g !== contextMenuGroup);
-  delete STATE.collapsedGroups[contextMenuGroup];
-
-  if (STATE.currentApiId && !STATE.apis[STATE.currentApiId]) {
-    STATE.currentApiId = null;
-    showWelcome();
-  }
-
-  contextMenuGroup = null;
-  saveToStorage();
-  renderSidebar();
-  updateGroupSelects();
-  toast('分组已删除', 'success');
-}
-
-// ============================================
-// RESIZE HANDLE
-// ============================================
-function initResize() {
-  const handle = document.getElementById('resizeHandle');
-  const requestPanel = document.getElementById('requestPanel');
-  const responsePanel = document.getElementById('responsePanel');
-  let isResizing = false;
-  let startY, startReqHeight, startRespHeight;
-
-  handle.addEventListener('mousedown', (e) => {
-    isResizing = true;
-    startY = e.clientY;
-    startReqHeight = requestPanel.offsetHeight;
-    startRespHeight = responsePanel.offsetHeight;
-    handle.classList.add('active');
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
-    const delta = e.clientY - startY;
-    const newReqH = Math.max(150, startReqHeight + delta);
-    const newRespH = Math.max(150, startRespHeight - delta);
-    requestPanel.style.flex = 'none';
-    responsePanel.style.flex = 'none';
-    requestPanel.style.height = newReqH + 'px';
-    responsePanel.style.height = newRespH + 'px';
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (!isResizing) return;
-    isResizing = false;
-    handle.classList.remove('active');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  });
-}
-
-// ============================================
-// TOAST NOTIFICATIONS
-// ============================================
-function toast(message, type = 'info') {
-  const container = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  const icons = { success: '✓', error: '✕', info: 'ℹ' };
-  t.innerHTML = `<span>${icons[type] || 'ℹ'}</span> ${escapeHtml(message)}`;
-  container.appendChild(t);
-
-  setTimeout(() => {
-    t.style.animation = 'toastOut 0.3s ease forwards';
-    setTimeout(() => t.remove(), 300);
-  }, 3000);
-}
-
-// ============================================
-// PRE-REQUEST SCRIPT
-// ============================================
-function updateScriptBadge(script) {
-  const badge = document.getElementById('scriptBadge');
-  if (badge) {
-    if (script && script.trim()) {
-      badge.style.display = 'inline';
-      badge.className = 'badge count script-badge has-script';
-    } else {
-      badge.style.display = 'none';
-    }
-  }
-}
-
-function clearScriptConsole() {
-  const consoleBody = document.getElementById('scriptConsoleBody');
-  if (consoleBody) consoleBody.innerHTML = '';
-  const consoleEl = document.getElementById('scriptConsole');
-  if (consoleEl) consoleEl.classList.remove('show');
-}
-
-// ============================================
-// REQUEST CONSOLE (Response Panel)
-// ============================================
-function clearReqConsole() {
-  const body = document.getElementById('reqConsoleBody');
-  if (body) body.innerHTML = '';
-}
-
-function appendReqLog(tag, msg) {
-  const body = document.getElementById('reqConsoleBody');
-  if (!body) return;
-
-  // Remove empty state on first log
-  const emptyState = body.querySelector('.empty-state');
-  if (emptyState) emptyState.remove();
-
-  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const line = document.createElement('div');
-  line.className = 'req-console-line';
-  line.innerHTML = `<span class="log-tag ${tag}">${tag.toUpperCase()}</span><span class="log-msg"><span style="color:var(--text-muted);margin-right:6px;">${ts}</span>${escapeHtml(String(msg))}</span>`;
-  body.appendChild(line);
-  body.scrollTop = body.scrollHeight;
-}
-
-function appendScriptLog(type, ...args) {
-  const consoleEl = document.getElementById('scriptConsole');
-  const consoleBody = document.getElementById('scriptConsoleBody');
-  if (!consoleEl || !consoleBody) return;
-
-  consoleEl.classList.add('show');
-
-  const msg = args.map(a => {
-    if (typeof a === 'object') {
-      try { return JSON.stringify(a, null, 2); } catch (e) { return String(a); }
-    }
-    return String(a);
-  }).join(' ');
-
-  const line = document.createElement('div');
-  line.className = 'console-line';
-  line.innerHTML = `<span class="log-type ${type}">${type.toUpperCase()}</span><span class="log-msg">${escapeHtml(msg)}</span>`;
-  consoleBody.appendChild(line);
-  consoleBody.scrollTop = consoleBody.scrollHeight;
-}
-
-function executePreRequestScript(script, currentHeaders, currentUrl, currentBody, currentUrlencoded, currentFormdata) {
-  clearScriptConsole();
-
-  if (!script || !script.trim()) {
-    return { headers: currentHeaders, url: currentUrl, body: currentBody, urlencoded: currentUrlencoded, formdata: currentFormdata };
-  }
-
-  const envStore = { ..._environmentVars };
-
-  const pm = {
-    request: {
-      headers: {
-        _store: { ...currentHeaders },
-        set(key, value) { this._store[key] = value; },
-        get(key) { return this._store[key]; },
-        remove(key) { delete this._store[key]; },
-        has(key) { return key in this._store; },
-      },
-      body: {
-        _raw: currentBody,
-        _fields: currentUrlencoded.map(f => ({ ...f })),
-        _formdata: currentFormdata.map(f => ({ ...f })),
-        set raw(val) { this._raw = val; },
-        get raw() { return this._raw; },
-        set(key, value) {
-          const existing = this._fields.find(f => f.key === key);
-          if (existing) { existing.value = value; existing.enabled = true; }
-          else { this._fields.push({ key, value, enabled: true }); }
-        },
-        get(key) {
-          const f = this._fields.find(f => f.key === key);
-          return f ? f.value : undefined;
-        },
-      },
-      url: {
-        _url: currentUrl,
-        set(val) { this._url = val; },
-        get() { return this._url; },
-        addQueryParams(key, value) {
-          const sep = this._url.includes('?') ? '&' : '?';
-          this._url += sep + encodeURIComponent(key) + '=' + encodeURIComponent(value);
-        },
-      },
-    },
-    environment: {
-      set(key, value) { envStore[key] = value; _environmentVars[key] = value; saveEnvironmentVars(); },
-      get(key) { return envStore[key]; },
-      unset(key) { delete envStore[key]; delete _environmentVars[key]; saveEnvironmentVars(); },
-      has(key) { return key in envStore; },
-    },
-  };
-
-  const scriptConsole = {
-    log: (...args) => { appendScriptLog('log', ...args); },
-    warn: (...args) => { appendScriptLog('warn', ...args); },
-    error: (...args) => { appendScriptLog('error', ...args); },
-  };
-
-  try {
-    const fn = new Function('pm', 'console', 'Math', 'Date', 'parseInt', 'parseFloat', 'JSON', 'encodeURIComponent', 'decodeURIComponent', 'btoa', 'atob', 'setTimeout', script);
-    fn(pm, scriptConsole, Math, Date, parseInt, parseFloat, JSON, encodeURIComponent, decodeURIComponent, btoa, atob, setTimeout);
-
-    appendScriptLog('log', '✓ Pre-request Script 执行成功');
-  } catch (err) {
-    appendScriptLog('error', '✕ 脚本执行错误: ' + err.message);
-  }
-
-  return {
-    headers: pm.request.headers._store,
-    url: pm.request.url._url,
-    body: pm.request.body._raw,
-    urlencoded: pm.request.body._fields,
-    formdata: pm.request.body._formdata,
-  };
-}
-
-// Environment variables storage
-let _environmentVars = {};
-
-function loadEnvironmentVars() {
-  try {
-    const raw = localStorage.getItem('apifix_env_vars');
-    if (raw) _environmentVars = JSON.parse(raw);
-  } catch (e) {
-    _environmentVars = {};
-  }
-}
-
-function saveEnvironmentVars() {
-  try {
-    localStorage.setItem('apifix_env_vars', JSON.stringify(_environmentVars));
-  } catch (e) {}
-}
-
-// ============================================
-// HELPERS
-// ============================================
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-}
-
-// ============================================
-// INIT
-// ============================================
-init();
---></body>
+</body>
 </html>
