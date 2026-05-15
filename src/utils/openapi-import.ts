@@ -12,6 +12,7 @@ function createDefaultApi(partial: Partial<ApiConfig> = {}): ApiConfig {
     url: partial.url || '',
     headers: partial.headers || [],
     params: partial.params || [],
+    cookies: partial.cookies || [],
     body: partial.body || { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
     auth: partial.auth || { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
     preRequestScript: '',

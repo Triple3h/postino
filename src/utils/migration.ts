@@ -121,6 +121,7 @@ function convertLegacyApi(legacy: LegacyApi): ApiConfig {
     url: legacy.url || '',
     headers,
     params,
+    cookies: [],
     body,
     auth: {
       type: (legacy.authType as any) || 'none',
