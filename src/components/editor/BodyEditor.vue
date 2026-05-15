@@ -1,0 +1,259 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import type { BodyConfig, KvPair } from '@/types'
+import KvEditor from '@/components/common/KvEditor.vue'
+
+const props = defineProps<{
+  modelValue: BodyConfig
+  method: string
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: BodyConfig]
+}>()
+
+const body = computed({
+  get: () => props.modelValue,
+  set: (val) => emit('update:modelValue', val),
+})
+
+const bodyTypes: { value: BodyConfig['type']; label: string }[] = [
+  { value: 'none', label: 'none' },
+  { value: 'json', label: 'JSON' },
+  { value: 'form', label: 'form-data' },
+  { value: 'urlencoded', label: 'x-www-form-urlencoded' },
+  { value: 'raw', label: 'raw' },
+  { value: 'binary', label: 'binary' },
+]
+
+const rawModes: { value: string; label: string }[] = [
+  { value: 'text/plain', label: 'Text' },
+  { value: 'application/json', label: 'JSON' },
+  { value: 'application/xml', label: 'XML' },
+  { value: 'text/html', label: 'HTML' },
+  { value: 'text/javascript', label: 'JavaScript' },
+]
+
+const rawContent = ref(props.modelValue.raw)
+
+watch(() => props.modelValue.raw, (val) => {
+  rawContent.value = val
+})
+
+function update(partial: Partial<BodyConfig>) {
+  emit('update:modelValue', { ...props.modelValue, ...partial })
+}
+
+function updateType(type: BodyConfig['type']) {
+  const updates: Partial<BodyConfig> = { type }
+  if (type === 'json') {
+    updates.contentType = 'application/json'
+    if (!props.modelValue.raw) updates.raw = '{\n  \n}'
+  } else if (type === 'raw') {
+    updates.contentType = props.modelValue.contentType || 'text/plain'
+  }
+  emit('update:modelValue', { ...props.modelValue, ...updates })
+}
+
+function updateFormData(formData: KvPair[]) {
+  update({ formData })
+}
+
+function updateUrlEncoded(urlEncoded: KvPair[]) {
+  update({ urlEncoded })
+}
+
+function updateRawContent() {
+  update({ raw: rawContent.value })
+}
+
+const isBodyDisabled = computed(() => props.method === 'GET' || props.method === 'HEAD')
+</script>
+
+<template>
+  <div class="body-editor" :class="{ disabled: isBodyDisabled }">
+    <div v-if="isBodyDisabled" class="body-disabled-hint">
+      {{ method }} 请求不支持 Body
+    </div>
+    <template v-else>
+      <div class="body-type-bar">
+        <button
+          v-for="bt in bodyTypes"
+          :key="bt.value"
+          :class="['body-type-btn', { active: body.type === bt.value }]"
+          @click="updateType(bt.value)"
+        >
+          {{ bt.label }}
+        </button>
+      </div>
+
+      <div v-if="body.type === 'none'" class="body-empty">
+        该请求没有 Body
+      </div>
+
+      <div v-if="body.type === 'json'" class="body-raw">
+        <textarea
+          v-model="rawContent"
+          class="code-editor"
+          placeholder='{"key": "value"}'
+          @input="updateRawContent"
+          spellcheck="false"
+        ></textarea>
+      </div>
+
+      <div v-if="body.type === 'raw'" class="body-raw">
+        <div class="raw-mode-select">
+          <select :value="body.contentType" @change="update({ contentType: ($event.target as HTMLSelectElement).value })">
+            <option v-for="rm in rawModes" :key="rm.value" :value="rm.value">{{ rm.label }}</option>
+          </select>
+        </div>
+        <textarea
+          v-model="rawContent"
+          class="code-editor"
+          placeholder="输入请求体内容..."
+          @input="updateRawContent"
+          spellcheck="false"
+        ></textarea>
+      </div>
+
+      <div v-if="body.type === 'form'" class="body-form">
+        <KvEditor
+          :model-value="body.formData"
+          @update:model-value="updateFormData"
+          key-placeholder="字段名"
+          value-placeholder="值"
+        />
+      </div>
+
+      <div v-if="body.type === 'urlencoded'" class="body-urlencoded">
+        <KvEditor
+          :model-value="body.urlEncoded"
+          @update:model-value="updateUrlEncoded"
+          key-placeholder="字段名"
+          value-placeholder="值"
+        />
+      </div>
+
+      <div v-if="body.type === 'binary'" class="body-binary">
+        <div class="binary-upload">
+          <input type="file" @change="update({ binaryFile: ($event.target as HTMLInputElement).files?.[0]?.name ?? null })" />
+          <span v-if="body.binaryFile" class="binary-filename">{{ body.binaryFile }}</span>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.body-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.body-editor.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.body-disabled-hint {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.body-type-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: 4px;
+}
+
+.body-type-btn {
+  padding: 2px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+}
+
+.body-type-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.body-type-btn.active {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.body-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.body-raw {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.raw-mode-select {
+  margin-bottom: 4px;
+}
+
+.raw-mode-select select {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-small);
+  background: var(--bg-base);
+}
+
+.code-editor {
+  flex: 1;
+  width: 100%;
+  min-height: 150px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-code);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-code);
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+}
+
+.code-editor:focus {
+  border-color: var(--primary);
+}
+
+.body-form,
+.body-urlencoded {
+  flex: 1;
+  overflow: auto;
+}
+
+.body-binary {
+  padding: 20px;
+}
+
+.binary-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.binary-filename {
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+}
+</style>
