@@ -1,0 +1,102 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useAppStore } from '@/stores/app'
+import { migrateLegacyData, hasLegacyData } from '@/utils/migration'
+
+const store = useAppStore()
+const show = ref(false)
+const migrationResult = ref<ReturnType<typeof migrateLegacyData> | null>(null)
+
+onMounted(() => {
+  if (hasLegacyData() && Object.keys(store.apis).length === 0) {
+    show.value = true
+  }
+})
+
+function doMigrate() {
+  migrationResult.value = migrateLegacyData()
+  if (migrationResult.value.migrated) {
+    store.apis = migrationResult.value.apis
+    store.groups = migrationResult.value.groups
+    store.groupOrder = migrationResult.value.groupOrder
+    store.environments = migrationResult.value.environments
+    store.history = migrationResult.value.history
+  }
+}
+
+function skip() {
+  show.value = false
+}
+</script>
+
+<template>
+  <div v-if="show" class="migration-overlay">
+    <div class="migration-dialog">
+      <h2>数据迁移</h2>
+      <p>检测到旧版数据，是否迁移到新版本？</p>
+
+      <div v-if="migrationResult" class="migration-result">
+        <p>迁移完成！</p>
+        <ul>
+          <li>{{ migrationResult.counts.apis }} 个接口</li>
+          <li>{{ migrationResult.counts.groups }} 个分组</li>
+          <li>{{ migrationResult.counts.envVars }} 个环境变量</li>
+          <li>{{ migrationResult.counts.historyEntries }} 条历史记录</li>
+        </ul>
+        <button class="btn btn-primary" @click="show = false">完成</button>
+      </div>
+
+      <div v-else class="migration-actions">
+        <button class="btn" @click="skip">跳过</button>
+        <button class="btn btn-primary" @click="doMigrate">迁移数据</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.migration-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1003;
+}
+
+.migration-dialog {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 400px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.migration-dialog h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.migration-dialog p {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.migration-result ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 16px;
+}
+
+.migration-result li {
+  padding: 4px 0;
+  color: var(--text-secondary);
+}
+
+.migration-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+</style>
