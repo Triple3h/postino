@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Script Sandbox</title>
+</head>
+<body>
+<script>
+const BLOCKED_GLOBALS = [
+  'window', 'self', 'document', 'localStorage', 'sessionStorage',
+  'indexedDB', 'caches', 'cookieStore', 'navigator', 'location',
+  'history', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
+  'Worker', 'SharedWorker', 'ServiceWorker',
+  'importScripts', 'chrome',
+]
+
+function createSandbox() {
+  const sandbox = {}
+  const globalKeys = Object.getOwnPropertyNames(globalThis)
+
+  for (const key of globalKeys) {
+    if (!BLOCKED_GLOBALS.includes(key)) {
+      try {
+        Object.defineProperty(sandbox, key, {
+          get: () => globalThis[key],
+          set: (val) => { globalThis[key] = val },
+          enumerable: true,
+          configurable: true,
+        })
+      } catch {}
+    }
+  }
+
+  return sandbox
+}
+
+window.addEventListener('message', async (event) => {
+  const { type, script, envVars, headers, url, body, urlencoded, formdata, requestId } = event.data
+
+  if (type !== 'EXECUTE_SCRIPT') return
+
+  const logs = []
+  const sandboxedConsole = {
+    log: (...args) => logs.push({ level: 'log', args: args.map(String), timestamp: Date.now() }),
+    info: (...args) => logs.push({ level: 'info', args: args.map(String), timestamp: Date.now() }),
+    warn: (...args) => logs.push({ level: 'warn', args: args.map(String), timestamp: Date.now() }),
+    error: (...args) => logs.push({ level: 'error', args: args.map(String), timestamp: Date.now() }),
+    table: (...args) => logs.push({ level: 'table', args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)), timestamp: Date.now() }),
+  }
+
+  const envStore = { ...envVars }
+
+  const pm = {
+    request: {
+      headers: {
+        _store: { ...headers },
+        set(key, value) { this._store[key] = value },
+        get(key) { return this._store[key] },
+        remove(key) { delete this._store[key] },
+        has(key) { return key in this._store },
+      },
+      body: {
+        _raw: body || '',
+        _fields: [...(urlencoded || [])],
+        _formdata: [...(formdata || [])],
+        get raw() { return this._raw },
+        set raw(val) { this._raw = val },
+        set(key, value) {
+          const existing = this._fields.find(f => f.key === key)
+          if (existing) { existing.value = value; existing.enabled = true }
+          else this._fields.push({ key, value, enabled: true })
+        },
+        get(key) { return this._fields.find(f => f.key === key)?.value },
+      },
+      url: {
+        _url: url || '',
+        set(val) { this._url = val },
+        get() { return this._url },
+        addQueryParams(key, value) {
+          const sep = this._url.includes('?') ? '&' : '?'
+          this._url += sep + encodeURIComponent(key) + '=' + encodeURIComponent(value)
+        },
+      },
+    },
+    environment: {
+      set(key, value) { envStore[key] = value },
+      get(key) { return envStore[key] },
+      unset(key) { delete envStore[key] },
+      has(key) { return key in envStore },
+    },
+    sendRequest: null, // Will be set by parent
+  }
+
+  const postman = {
+    setEnvironmentVariable: (key, value) => pm.environment.set(key, value),
+    getEnvironmentVariable: (key) => pm.environment.get(key),
+    clearEnvironmentVariable: (key) => pm.environment.unset(key),
+    setGlobalVariable: (key, value) => pm.environment.set(key, value),
+    getGlobalVariable: (key) => pm.environment.get(key),
+    clearGlobalVariable: (key) => pm.environment.unset(key),
+    environment: pm.environment,
+    globals: pm.environment,
+    request: pm.request,
+  }
+
+  try {
+    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor
+    const fn = new AsyncFunction(
+      'pm', 'postman', 'console', 'Math', 'Date', 'parseInt', 'parseFloat',
+      'JSON', 'encodeURIComponent', 'decodeURIComponent', 'btoa', 'atob',
+      'setTimeout', 'Promise', 'Array', 'Object', 'String', 'Number', 'Boolean',
+      'RegExp', 'Map', 'Set', 'Error', 'TypeError', 'RangeError',
+      script,
+    )
+    await fn(
+      pm, postman, sandboxedConsole, Math, Date, parseInt, parseFloat,
+      JSON, encodeURIComponent, decodeURIComponent, btoa, atob,
+      setTimeout, Promise, Array, Object, String, Number, Boolean,
+      RegExp, Map, Set, Error, TypeError, RangeError,
+    )
+
+    event.source.postMessage({
+      type: 'SCRIPT_RESULT',
+      requestId,
+      success: true,
+      result: {
+        headers: pm.request.headers._store,
+        url: pm.request.url._url,
+        body: pm.request.body._raw,
+        urlencoded: pm.request.body._fields,
+        formdata: pm.request.body._formdata,
+        envVars: envStore,
+        logs,
+      },
+    }, '*')
+  } catch (err) {
+    logs.push({ level: 'error', args: [`脚本执行错误: ${err.message}`], timestamp: Date.now() })
+    event.source.postMessage({
+      type: 'SCRIPT_RESULT',
+      requestId,
+      success: false,
+      error: err.message,
+      result: {
+        headers: pm.request.headers._store,
+        url: pm.request.url._url,
+        body: pm.request.body._raw,
+        urlencoded: pm.request.body._fields,
+        formdata: pm.request.body._formdata,
+        envVars: envStore,
+        logs,
+      },
+    }, '*')
+  }
+})
+</script>
+</body>
+</html>
