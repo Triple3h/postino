@@ -1,0 +1,84 @@
+:root {
+  /* Primary */
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-light: #e0e7ff;
+
+  /* Background */
+  --bg-base: #ffffff;
+  --bg-sidebar: #f8f9fa;
+  --bg-panel: #ffffff;
+  --bg-code: #f4f5f7;
+  --bg-hover: #f3f4f6;
+
+  /* Border */
+  --border: #e5e7eb;
+  --divider: #f3f4f6;
+
+  /* Text */
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+
+  /* Status */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+
+  /* Method colors */
+  --method-get: #3b82f6;
+  --method-post: #10b981;
+  --method-put: #f59e0b;
+  --method-delete: #ef4444;
+  --method-patch: #8b5cf6;
+  --method-head: #9ca3af;
+  --method-options: #9ca3af;
+
+  /* Layout */
+  --sidebar-width: 260px;
+  --sidebar-collapsed: 48px;
+  --tab-height: 36px;
+  --row-height: 32px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Font */
+  --font-ui: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-code: JetBrains Mono, Consolas, monospace;
+  --font-size-title: 14px;
+  --font-size-body: 13px;
+  --font-size-code: 12px;
+  --font-size-small: 11px;
+}
+
+[data-theme="dark"] {
+  --primary: #818cf8;
+  --primary-hover: #6366f1;
+  --primary-light: #1e1b4b;
+
+  --bg-base: #1a1a2e;
+  --bg-sidebar: #16213e;
+  --bg-panel: #1a1a2e;
+  --bg-code: #0f3460;
+  --bg-hover: #16213e;
+
+  --border: #2d3748;
+  --divider: #1a202c;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #a0aec0;
+  --text-tertiary: #718096;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --info: #60a5fa;
+
+  --method-get: #60a5fa;
+  --method-post: #34d399;
+  --method-put: #fbbf24;
+  --method-delete: #f87171;
+  --method-patch: #a78bfa;
+}

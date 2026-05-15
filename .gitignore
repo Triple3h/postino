@@ -1,28 +1,24 @@
-# Dependencies
-desktop/node_modules/
-
-# Build output
-desktop/dist/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-
-# Electron
-*.blockmap
-*.exe
-*.dmg
-*.deb
-*.AppImage
-*.snap
-
 # Logs
+logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Worktrees
-.worktrees/
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
