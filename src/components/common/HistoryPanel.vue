@@ -1,22 +1,72 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
-import type { HttpMethod } from '@/types'
+import { generateCurl } from '@/utils/export'
+import type { ApiConfig, HistoryEntry, HttpMethod } from '@/types'
 
 const store = useAppStore()
 const searchQuery = ref('')
+const activeFilter = ref<'all' | 'starred' | 'success' | 'fail'>('all')
+const contextMenu = ref<{ x: number; y: number; entry: HistoryEntry } | null>(null)
+const toast = ref('')
 
 const filteredHistory = computed(() => {
-  if (!searchQuery.value.trim()) return store.history
-  const q = searchQuery.value.toLowerCase()
-  return store.history.filter(h =>
-    h.url.toLowerCase().includes(q) ||
-    h.method.toLowerCase().includes(q) ||
-    h.status.toString().includes(q)
-  )
+  let list = store.history
+
+  if (activeFilter.value === 'starred') {
+    list = list.filter(h => h.starred)
+  } else if (activeFilter.value === 'success') {
+    list = list.filter(h => h.status >= 200 && h.status < 400)
+  } else if (activeFilter.value === 'fail') {
+    list = list.filter(h => h.status === 0 || h.status >= 400)
+  }
+
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter(h =>
+      h.url.toLowerCase().includes(q) ||
+      h.method.toLowerCase().includes(q) ||
+      h.status.toString().includes(q)
+    )
+  }
+
+  return list
 })
 
-function statusClass(status: number): string {
+interface TimeGroup { label: string; entries: HistoryEntry[] }
+
+const groupedHistory = computed<TimeGroup[]>(() => {
+  const entries = filteredHistory.value
+  if (entries.length === 0) return []
+
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const yesterday = today - 86400000
+  const week = today - 7 * 86400000
+
+  const groups: TimeGroup[] = [
+    { label: '今天', entries: [] },
+    { label: '昨天', entries: [] },
+    { label: '最近7天', entries: [] },
+    { label: '更早', entries: [] },
+  ]
+
+  for (const entry of entries) {
+    if (entry.timestamp >= today) {
+      groups[0].entries.push(entry)
+    } else if (entry.timestamp >= yesterday) {
+      groups[1].entries.push(entry)
+    } else if (entry.timestamp >= week) {
+      groups[2].entries.push(entry)
+    } else {
+      groups[3].entries.push(entry)
+    }
+  }
+
+  return groups.filter(g => g.entries.length > 0)
+})
+
+function statusColor(status: number): string {
   if (status >= 200 && status < 300) return 'success'
   if (status >= 300 && status < 400) return 'redirect'
   if (status >= 400 && status < 500) return 'client-error'
@@ -24,48 +74,177 @@ function statusClass(status: number): string {
   return 'error'
 }
 
-function formatTime(ts: number): string {
-  const d = new Date(ts)
-  const now = new Date()
-  const isToday = d.toDateString() === now.toDateString()
-  if (isToday) return d.toLocaleTimeString()
-  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString()
+function durationColor(duration: number): string {
+  if (duration < 1000) return 'fast'
+  if (duration < 3000) return 'medium'
+  return 'slow'
 }
 
-function clearHistory() {
-  if (confirm('确定要清空历史记录吗？')) {
-    store.history = []
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function relativeTime(ts: number): string {
+  const diff = Date.now() - ts
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+  const d = new Date(ts)
+  const now = new Date()
+  if (d.toDateString() === new Date(now.getTime() - 86400000).toDateString()) return '昨天'
+  return d.toLocaleDateString()
+}
+
+function loadFromHistory(entry: HistoryEntry) {
+  store.currentApiId = entry.apiId
+}
+
+function toggleStar(entry: HistoryEntry, e: MouseEvent) {
+  e.stopPropagation()
+  store.toggleStar(entry.id)
+}
+
+function handleContextMenu(entry: HistoryEntry, e: MouseEvent) {
+  e.preventDefault()
+  contextMenu.value = { x: e.clientX, y: e.clientY, entry }
+}
+
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+function deleteEntry() {
+  if (!contextMenu.value) return
+  store.deleteHistoryEntry(contextMenu.value.entry.id)
+  contextMenu.value = null
+}
+
+function toggleStarFromMenu() {
+  if (!contextMenu.value) return
+  store.toggleStar(contextMenu.value.entry.id)
+  contextMenu.value = null
+}
+
+function buildApiConfigFromHistory(entry: HistoryEntry): ApiConfig {
+  const headers: ApiConfig['headers'] = Object.entries(entry.requestHeaders || {}).map(
+    ([key, value]) => ({ key, value, enabled: true })
+  )
+  const bodyType = entry.requestBody ? 'raw' as const : 'none' as const
+  return {
+    id: entry.apiId,
+    name: '',
+    method: entry.method as HttpMethod,
+    url: entry.url,
+    headers,
+    params: [],
+    cookies: [],
+    body: {
+      type: bodyType,
+      raw: entry.requestBody || '',
+      formData: [],
+      urlEncoded: [],
+      binaryFile: null,
+      contentType: '',
+    },
+    auth: {
+      type: 'none',
+      bearerToken: '',
+      basicUsername: '',
+      basicPassword: '',
+      apiKeyName: '',
+      apiKeyValue: '',
+      apiKeyIn: 'header',
+    },
+    preRequestScript: '',
+    postRequestScript: '',
+    folder: null,
+    createdAt: entry.timestamp,
+    updatedAt: entry.timestamp,
   }
 }
 
-function loadFromHistory(apiId: string) {
-  store.currentApiId = apiId
+async function copyCurl() {
+  if (!contextMenu.value) return
+  const entry = contextMenu.value.entry
+  const api = store.apis[entry.apiId]
+  const config = api || buildApiConfigFromHistory(entry)
+  const envVars = store.getEnvVariables()
+  const cmd = generateCurl(config, envVars)
+  try {
+    await navigator.clipboard.writeText(cmd)
+    showToast('已复制')
+  } catch {
+    showToast('复制失败')
+  }
+  contextMenu.value = null
+}
+
+function handleClearHistory() {
+  if (confirm('确定要清空历史记录吗？')) {
+    store.clearHistory()
+  }
+}
+
+function showToast(msg: string) {
+  toast.value = msg
+  setTimeout(() => { toast.value = '' }, 1500)
 }
 </script>
 
 <template>
-  <div class="history-panel">
+  <div class="history-panel" @click="closeContextMenu">
     <div class="history-header">
       <input v-model="searchQuery" type="text" placeholder="搜索历史..." class="history-search" />
-      <button class="btn btn-sm" @click="clearHistory" v-if="store.history.length > 0">清空</button>
+      <div class="filter-bar">
+        <button
+          v-for="f in ([
+            { key: 'all', label: '全部' },
+            { key: 'starred', label: '收藏' },
+            { key: 'success', label: '成功' },
+            { key: 'fail', label: '失败' },
+          ] as const)"
+          :key="f.key"
+          :class="['filter-btn', { active: activeFilter === f.key }]"
+          @click="activeFilter = f.key"
+        >{{ f.label }}</button>
+      </div>
+      <button class="btn btn-sm clear-btn" @click="handleClearHistory" v-if="store.history.length > 0">清空</button>
     </div>
     <div class="history-list">
-      <div
-        v-for="entry in filteredHistory"
-        :key="entry.id"
-        class="history-item"
-        @click="loadFromHistory(entry.apiId)"
-      >
-        <span :class="['method-badge', entry.method.toLowerCase()]">{{ entry.method }}</span>
-        <span class="history-url">{{ entry.url }}</span>
-        <span :class="['history-status', statusClass(entry.status)]">{{ entry.status }}</span>
-        <span class="history-duration">{{ entry.duration }}ms</span>
-        <span class="history-time">{{ formatTime(entry.timestamp) }}</span>
-      </div>
+      <template v-for="group in groupedHistory" :key="group.label">
+        <div class="time-group-label">{{ group.label }}</div>
+        <div
+          v-for="entry in group.entries"
+          :key="entry.id"
+          class="history-item"
+          @click="loadFromHistory(entry)"
+          @contextmenu="handleContextMenu(entry, $event)"
+        >
+          <button
+            :class="['star-btn', { starred: entry.starred }]"
+            @click="toggleStar(entry, $event)"
+            title="收藏"
+          >{{ entry.starred ? '★' : '☆' }}</button>
+          <span :class="['method-badge', entry.method.toLowerCase()]">{{ entry.method }}</span>
+          <span class="history-url" :title="entry.url">{{ entry.url }}</span>
+          <span :class="['history-status', statusColor(entry.status)]">{{ entry.status }}</span>
+          <span :class="['history-duration', durationColor(entry.duration)]">{{ formatDuration(entry.duration) }}</span>
+          <span class="history-time">{{ relativeTime(entry.timestamp) }}</span>
+        </div>
+      </template>
       <div v-if="filteredHistory.length === 0" class="history-empty">
-        暂无历史记录
+        {{ store.history.length === 0 ? '暂无历史记录' : '无匹配结果' }}
       </div>
     </div>
+    <div v-if="contextMenu" class="context-menu" :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }">
+      <button class="ctx-item" @click="deleteEntry">删除记录</button>
+      <button class="ctx-item" @click="toggleStarFromMenu">{{ contextMenu.entry.starred ? '取消收藏' : '收藏' }}</button>
+      <button class="ctx-item" @click="copyCurl">复制 cURL</button>
+    </div>
+    <Transition name="toast">
+      <div v-if="toast" class="toast-msg">{{ toast }}</div>
+    </Transition>
   </div>
 </template>
 
@@ -74,19 +253,51 @@ function loadFromHistory(apiId: string) {
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
 }
 
 .history-header {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 6px;
   padding: 8px;
   border-bottom: 1px solid var(--divider);
 }
 
 .history-search {
-  flex: 1;
+  width: 100%;
   height: 28px;
   font-size: var(--font-size-small);
+}
+
+.filter-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.filter-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  transition: all 0.15s;
+}
+
+.filter-btn:hover {
+  background: var(--bg-hover);
+}
+
+.filter-btn.active {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.clear-btn {
+  align-self: flex-end;
 }
 
 .history-list {
@@ -95,11 +306,24 @@ function loadFromHistory(apiId: string) {
   padding: 4px 0;
 }
 
+.time-group-label {
+  padding: 6px 12px 2px;
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  z-index: 1;
+}
+
 .history-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 5px 12px;
   cursor: pointer;
   font-size: var(--font-size-body);
   border-bottom: 1px solid var(--divider);
@@ -109,6 +333,26 @@ function loadFromHistory(apiId: string) {
   background: var(--bg-hover);
 }
 
+.star-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.star-btn:hover {
+  color: var(--warning);
+}
+
+.star-btn.starred {
+  color: var(--warning);
+}
+
 .history-url {
   flex: 1;
   overflow: hidden;
@@ -116,13 +360,15 @@ function loadFromHistory(apiId: string) {
   white-space: nowrap;
   font-family: var(--font-code);
   font-size: var(--font-size-small);
+  min-width: 0;
 }
 
 .history-status {
   font-weight: 600;
   font-size: var(--font-size-small);
-  min-width: 30px;
+  min-width: 28px;
   text-align: right;
+  flex-shrink: 0;
 }
 
 .history-status.success { color: var(--success); }
@@ -132,22 +378,78 @@ function loadFromHistory(apiId: string) {
 .history-status.error { color: var(--error); }
 
 .history-duration {
-  color: var(--text-secondary);
   font-size: var(--font-size-small);
-  min-width: 50px;
+  min-width: 40px;
   text-align: right;
+  flex-shrink: 0;
 }
+
+.history-duration.fast { color: var(--success); }
+.history-duration.medium { color: var(--warning); }
+.history-duration.slow { color: var(--error); }
 
 .history-time {
   color: var(--text-tertiary);
   font-size: var(--font-size-small);
-  min-width: 80px;
+  min-width: 50px;
   text-align: right;
+  flex-shrink: 0;
 }
 
 .history-empty {
   padding: 20px;
   text-align: center;
   color: var(--text-tertiary);
+}
+
+.context-menu {
+  position: fixed;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 120px;
+  padding: 4px 0;
+}
+
+.ctx-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+
+.ctx-item:hover {
+  background: var(--bg-hover);
+}
+
+.toast-msg {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text-primary);
+  color: var(--bg-panel);
+  padding: 6px 16px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-small);
+  pointer-events: none;
+  z-index: 1001;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.2s;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
 }
 </style>

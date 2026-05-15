@@ -1,20 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
-import type { ApiConfig, Environment, HistoryEntry, ResponseData, AppSettings, Group, AppState } from '@/types'
+import { ref } from 'vue'
+import type { ApiConfig, Environment, HistoryEntry, ResponseData, AppSettings, Group } from '@/types'
 import type { ScriptLog } from '@/utils/pre-request'
-
-const STORAGE_KEY = 'apifix_bin_data'
-const ENV_KEY = 'apifix_env_vars'
-const HISTORY_KEY = 'apifix_history'
-
-function loadFromStorage<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : fallback
-  } catch {
-    return fallback
-  }
-}
+import { db } from '@/db'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -26,36 +14,66 @@ const defaultSettings: AppSettings = {
 }
 
 export const useAppStore = defineStore('app', () => {
-  const apis = ref<Record<string, ApiConfig>>(loadFromStorage(STORAGE_KEY, {}).apis || {})
-  const groups = ref<Record<string, Group>>(loadFromStorage(STORAGE_KEY, {}).groups || {})
-  const groupOrder = ref<string[]>(loadFromStorage(STORAGE_KEY, {}).groupOrder || [])
+  const apis = ref<Record<string, ApiConfig>>({})
+  const groups = ref<Record<string, Group>>({})
+  const groupOrder = ref<string[]>([])
   const currentApiId = ref<string | null>(null)
   const activeTab = ref<string>('params')
   const response = ref<ResponseData | null>(null)
   const loading = ref(false)
-  const environments = ref<Environment[]>(loadFromStorage(ENV_KEY, []))
-  const currentEnvId = ref<string | null>(environments.value[0]?.id ?? null)
-  const history = ref<HistoryEntry[]>(loadFromStorage(HISTORY_KEY, []))
-  const settings = ref<AppSettings>(defaultSettings)
+  const environments = ref<Environment[]>([])
+  const currentEnvId = ref<string | null>(null)
+  const history = ref<HistoryEntry[]>([])
+  const settings = ref<AppSettings>({ ...defaultSettings })
   const expandedFolders = ref<string[]>([])
   const scriptLogs = ref<ScriptLog[]>([])
+  const autoCarryCookies = ref(false)
 
-  // Persist to localStorage on changes
-  watch([apis, groups, groupOrder], () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      apis: apis.value,
-      groups: groups.value,
-      groupOrder: groupOrder.value,
-    }))
-  }, { deep: true })
+  let initialized = false
 
-  watch(environments, () => {
-    localStorage.setItem(ENV_KEY, JSON.stringify(environments.value))
-  }, { deep: true })
+  async function init(): Promise<void> {
+    if (initialized) return
+    initialized = true
 
-  watch(history, () => {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value))
-  }, { deep: true })
+    try {
+      const [apiList, groupList, envList, historyList, settingsList] = await Promise.all([
+        db.apis.toArray(),
+        db.groups.toArray(),
+        db.environments.toArray(),
+        db.history.orderBy('timestamp').reverse().toArray(),
+        db.settings.toArray(),
+      ])
+
+      const apiMap: Record<string, ApiConfig> = {}
+      for (const api of apiList) {
+        apiMap[api.id] = api
+      }
+      apis.value = apiMap
+
+      const groupMap: Record<string, Group> = {}
+      for (const g of groupList) {
+        groupMap[g.name] = g.group
+      }
+      groups.value = groupMap
+
+      environments.value = envList
+      currentEnvId.value = envList[0]?.id ?? null
+      history.value = historyList
+
+      const loadedSettings: Partial<AppSettings> = {}
+      for (const s of settingsList) {
+        loadedSettings[s.key as keyof AppSettings] = s.value
+      }
+      settings.value = { ...defaultSettings, ...loadedSettings }
+
+      const go = settingsList.find(s => s.key === 'groupOrder')
+      if (go) {
+        groupOrder.value = go.value
+      }
+    } catch (e) {
+      console.error('Failed to load from IndexedDB:', e)
+    }
+  }
 
   function getCurrentApi(): ApiConfig | null {
     if (!currentApiId.value) return null
@@ -65,12 +83,15 @@ export const useAppStore = defineStore('app', () => {
   function updateApi(id: string, updates: Partial<ApiConfig>) {
     const api = apis.value[id]
     if (api) {
-      Object.assign(api, updates, { updatedAt: Date.now() })
+      const merged = { ...updates, updatedAt: Date.now() }
+      Object.assign(api, merged)
+      db.apis.update(id, merged).catch(e => console.error('Failed to update API in IndexedDB:', e))
     }
   }
 
   function addApi(api: ApiConfig) {
     apis.value[api.id] = api
+    db.apis.add(api).catch(e => console.error('Failed to add API to IndexedDB:', e))
   }
 
   function deleteApi(id: string) {
@@ -78,13 +99,36 @@ export const useAppStore = defineStore('app', () => {
     if (currentApiId.value === id) {
       currentApiId.value = null
     }
+    db.apis.delete(id).catch(e => console.error('Failed to delete API from IndexedDB:', e))
   }
 
   function addHistory(entry: HistoryEntry) {
+    if (entry.starred === undefined) entry.starred = false
     history.value.unshift(entry)
     if (history.value.length > settings.value.maxHistory) {
-      history.value = history.value.slice(0, settings.value.maxHistory)
+      const removed = history.value.splice(settings.value.maxHistory)
+      const removedIds = removed.map(h => h.id)
+      db.history.bulkDelete(removedIds).catch(e => console.error('Failed to delete old history from IndexedDB:', e))
     }
+    db.history.add(entry).catch(e => console.error('Failed to add history to IndexedDB:', e))
+  }
+
+  function toggleStar(id: string) {
+    const entry = history.value.find(h => h.id === id)
+    if (!entry) return
+    entry.starred = !entry.starred
+    db.history.update(id, { starred: entry.starred }).catch(e => console.error('Failed to update star in IndexedDB:', e))
+  }
+
+  function deleteHistoryEntry(id: string) {
+    const idx = history.value.findIndex(h => h.id === id)
+    if (idx !== -1) history.value.splice(idx, 1)
+    db.history.delete(id).catch(e => console.error('Failed to delete history entry from IndexedDB:', e))
+  }
+
+  function clearHistory() {
+    history.value = []
+    db.history.clear().catch(e => console.error('Failed to clear history in IndexedDB:', e))
   }
 
   function getEnvVariables(): Record<string, string> {
@@ -97,11 +141,21 @@ export const useAppStore = defineStore('app', () => {
     return vars
   }
 
+  async function saveGroupOrder(): Promise<void> {
+    await db.settings.put({ key: 'groupOrder', value: groupOrder.value })
+  }
+
+  async function saveSettings(): Promise<void> {
+    const entries = Object.entries(settings.value).map(([key, value]) => ({ key, value }))
+    await db.settings.bulkPut(entries)
+  }
+
   return {
     apis, groups, groupOrder, currentApiId, activeTab,
     response, loading, environments, currentEnvId,
-    history, settings, expandedFolders, scriptLogs,
-    getCurrentApi, updateApi, addApi, deleteApi,
-    addHistory, getEnvVariables,
+    history, settings, expandedFolders, scriptLogs, autoCarryCookies,
+    init, getCurrentApi, updateApi, addApi, deleteApi,
+    addHistory, toggleStar, deleteHistoryEntry, clearHistory,
+    getEnvVariables, saveGroupOrder, saveSettings,
   }
 })

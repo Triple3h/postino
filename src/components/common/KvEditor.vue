@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import type { KvPair } from '@/types'
+import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
+import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
 
 const props = defineProps<{
   modelValue: KvPair[]
@@ -38,6 +40,9 @@ function toggleRow(index: number) {
   rows.value[index].enabled = !rows.value[index].enabled
   update()
 }
+
+const activeValueRef = ref<HTMLInputElement | null>(null)
+const valueAutocomplete = useVariableAutocomplete(activeValueRef)
 </script>
 
 <template>
@@ -65,11 +70,13 @@ function toggleRow(index: number) {
         </div>
         <div class="kv-col kv-col-value">
           <input
+            ref="activeValueRef"
             type="text"
             v-model="row.value"
             :placeholder="valuePlaceholder || 'Value'"
             :disabled="readonly || !row.enabled"
-            @input="update"
+            @input="update; valueAutocomplete.handleInput()"
+            @keydown="valueAutocomplete.handleKeydown($event) ? null : null"
           />
         </div>
         <div v-if="showDescription" class="kv-col kv-col-desc">
@@ -88,6 +95,15 @@ function toggleRow(index: number) {
     </div>
     <button class="btn btn-sm add-row-btn" @click="addRow" :disabled="readonly">+ 添加行</button>
   </div>
+
+  <VariableAutocomplete
+    :visible="valueAutocomplete.showAutocomplete.value"
+    :position="valueAutocomplete.autocompletePosition.value"
+    :filter="valueAutocomplete.autocompleteFilter.value"
+    :items="valueAutocomplete.allItems.value"
+    @select="valueAutocomplete.insertVariable"
+    @close="valueAutocomplete.close"
+  />
 </template>
 
 <style scoped>

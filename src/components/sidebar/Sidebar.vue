@@ -48,6 +48,7 @@ function createNewApi() {
     url: '',
     headers: [],
     params: [],
+    cookies: [],
     body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
     auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' as const },
     preRequestScript: '',

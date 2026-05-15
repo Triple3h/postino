@@ -6,6 +6,8 @@ import { executePreRequestScript, executePostResponseScript } from '@/utils/pre-
 import type { PostResponseData } from '@/utils/pre-request'
 import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
+import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
+import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
 import type { HttpMethod, ResponseData } from '@/types'
 
 const store = useAppStore()
@@ -19,6 +21,9 @@ const showCodeGenPanel = ref(false)
 const showActionMenu = ref(false)
 
 const envVars = computed(() => store.getEnvVariables())
+
+const urlInputRef = ref<HTMLInputElement | null>(null)
+const urlAutocomplete = useVariableAutocomplete(urlInputRef)
 
 watch(currentApi, (api) => {
   if (api) {
@@ -98,6 +103,8 @@ async function send() {
       url: currentUrl.value,
       headers: api.headers,
       params: api.params,
+      cookies: api.cookies || [],
+      autoCarryCookies: store.autoCarryCookies,
       body: api.body,
       auth: api.auth,
       corsMode: store.settings.corsMode,
@@ -140,6 +147,7 @@ async function send() {
       requestHeaders: response.requestHeaders,
       requestBody: response.requestBody,
       responseSize: response.size,
+      starred: false,
     })
   } catch (err: any) {
     store.response = {
@@ -186,11 +194,14 @@ function closeActionMenu() {
       <option v-for="m in methods" :key="m" :value="m">{{ m }}</option>
     </select>
     <input
+      ref="urlInputRef"
       v-model="currentUrl"
       type="url"
       class="url-input"
       placeholder="输入请求 URL"
       @keydown.enter="send"
+      @input="urlAutocomplete.handleInput()"
+      @keydown="urlAutocomplete.handleKeydown($event) ? null : null"
     />
     <button class="btn btn-primary send-btn" @click="send" :disabled="store.loading">
       {{ store.loading ? '发送中...' : '发送' }}
@@ -216,6 +227,15 @@ function closeActionMenu() {
     :api="currentApi"
     :env-vars="envVars"
     @close="showCodeGenPanel = false"
+  />
+
+  <VariableAutocomplete
+    :visible="urlAutocomplete.showAutocomplete.value"
+    :position="urlAutocomplete.autocompletePosition.value"
+    :filter="urlAutocomplete.autocompleteFilter.value"
+    :items="urlAutocomplete.allItems.value"
+    @select="urlAutocomplete.insertVariable"
+    @close="urlAutocomplete.close"
   />
 </template>
 

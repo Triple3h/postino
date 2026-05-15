@@ -2,6 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { migrateLegacyData, hasLegacyData } from '@/utils/migration'
+import { db } from '@/db'
+import { STORAGE_KEYS, removeFromStorage } from '@/utils/storage'
 
 const store = useAppStore()
 const show = ref(false)
@@ -13,7 +15,7 @@ onMounted(() => {
   }
 })
 
-function doMigrate() {
+async function doMigrate() {
   migrationResult.value = migrateLegacyData()
   if (migrationResult.value.migrated) {
     store.apis = migrationResult.value.apis
@@ -21,6 +23,34 @@ function doMigrate() {
     store.groupOrder = migrationResult.value.groupOrder
     store.environments = migrationResult.value.environments
     store.history = migrationResult.value.history
+
+    try {
+      const apiEntries = Object.values(migrationResult.value.apis)
+      if (apiEntries.length > 0) {
+        await db.apis.bulkAdd(apiEntries)
+      }
+
+      const groupEntries = Object.entries(migrationResult.value.groups).map(([name, group]) => ({ name, group }))
+      if (groupEntries.length > 0) {
+        await db.groups.bulkAdd(groupEntries)
+      }
+
+      await db.settings.put({ key: 'groupOrder', value: migrationResult.value.groupOrder })
+
+      if (migrationResult.value.environments.length > 0) {
+        await db.environments.bulkAdd(migrationResult.value.environments)
+      }
+
+      if (migrationResult.value.history.length > 0) {
+        await db.history.bulkAdd(migrationResult.value.history)
+      }
+
+      removeFromStorage(STORAGE_KEYS.DATA)
+      removeFromStorage(STORAGE_KEYS.ENV)
+      removeFromStorage(STORAGE_KEYS.HISTORY)
+    } catch (e) {
+      console.error('Failed to write migrated data to IndexedDB:', e)
+    }
   }
 }
 

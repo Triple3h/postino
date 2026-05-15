@@ -1,10 +1,12 @@
-import type { HttpMethod, ResponseData, ApiConfig, AuthConfig, BodyConfig, KvPair } from '@/types'
+import type { HttpMethod, ResponseData, ApiConfig, AuthConfig, BodyConfig, KvPair, CookieItem } from '@/types'
 
 export interface RequestOptions {
   method: HttpMethod
   url: string
   headers: KvPair[]
   params: KvPair[]
+  cookies: CookieItem[]
+  autoCarryCookies: boolean
   body: BodyConfig
   auth: AuthConfig
   corsMode: 'cors' | 'proxy' | 'no-cors'
@@ -99,12 +101,44 @@ function resolveValue(value: string, envVars: Record<string, string>): string {
   return value.replace(/\{\{(\w+)\}\}/g, (_, key) => envVars[key] ?? `{{${key}}}`)
 }
 
+function buildCookieHeader(cookies: CookieItem[], autoCarryCookies: boolean, envVars: Record<string, string>): string {
+  const cookieMap: Record<string, string> = {}
+
+  if (autoCarryCookies) {
+    try {
+      const docCookies = document.cookie
+      if (docCookies) {
+        for (const pair of docCookies.split(';')) {
+          const trimmed = pair.trim()
+          const eqIdx = trimmed.indexOf('=')
+          if (eqIdx > 0) {
+            cookieMap[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1)
+          }
+        }
+      }
+    } catch {}
+  }
+
+  for (const c of cookies) {
+    if (c.enabled && c.key) {
+      cookieMap[resolveValue(c.key, envVars)] = resolveValue(c.value, envVars)
+    }
+  }
+
+  return Object.entries(cookieMap).map(([k, v]) => `${k}=${v}`).join('; ')
+}
+
 export async function sendRequest(options: RequestOptions): Promise<ResponseData> {
-  const { method, url, headers, params, body, auth, corsMode, proxyUrl, envVars } = options
+  const { method, url, headers, params, cookies, autoCarryCookies, body, auth, corsMode, proxyUrl, envVars } = options
 
   const finalUrl = buildUrl(url, params, auth, envVars)
   const finalHeaders = buildHeaders(headers, auth, envVars)
   const { body: reqBody, contentType } = buildBody(body, envVars)
+
+  const cookieHeader = buildCookieHeader(cookies, autoCarryCookies, envVars)
+  if (cookieHeader) {
+    finalHeaders['Cookie'] = cookieHeader
+  }
 
   if (contentType && !finalHeaders['Content-Type']) {
     finalHeaders['Content-Type'] = contentType

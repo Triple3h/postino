@@ -4,6 +4,7 @@ const STORAGE_KEYS = {
   HISTORY: 'apifix_history',
 } as const
 
+/** @deprecated Use Dexie (src/db) instead of localStorage */
 export function loadFromStorage<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key)
@@ -13,6 +14,7 @@ export function loadFromStorage<T>(key: string, fallback: T): T {
   }
 }
 
+/** @deprecated Use Dexie (src/db) instead of localStorage */
 export function saveToStorage(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value))

@@ -26,6 +26,13 @@ export interface AuthConfig {
   apiKeyIn: 'header' | 'query'
 }
 
+export interface CookieItem {
+  key: string
+  value: string
+  enabled: boolean
+  description?: string
+}
+
 export interface ApiConfig {
   id: string
   name: string
@@ -33,6 +40,7 @@ export interface ApiConfig {
   url: string
   headers: KvPair[]
   params: KvPair[]
+  cookies: CookieItem[]
   body: BodyConfig
   auth: AuthConfig
   preRequestScript: string
@@ -66,6 +74,7 @@ export interface HistoryEntry {
   requestHeaders: Record<string, string>
   requestBody: string | null
   responseSize: number
+  starred: boolean
 }
 
 export interface ResponseData {

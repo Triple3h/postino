@@ -4,8 +4,9 @@ import { useAppStore } from '@/stores/app'
 import KvEditor from '@/components/common/KvEditor.vue'
 import BodyEditor from '@/components/editor/BodyEditor.vue'
 import AuthConfig from '@/components/editor/AuthConfig.vue'
+import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
-import type { KvPair, BodyConfig, AuthConfig as AuthConfigType } from '@/types'
+import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem } from '@/types'
 
 const store = useAppStore()
 const activeTab = ref('params')
@@ -16,6 +17,7 @@ const tabs = [
   { key: 'params', label: 'Params' },
   { key: 'body', label: 'Body' },
   { key: 'headers', label: 'Headers' },
+  { key: 'cookies', label: 'Cookies' },
   { key: 'auth', label: 'Auth' },
   { key: 'pre-script', label: '前置脚本' },
   { key: 'post-script', label: '后置脚本' },
@@ -47,6 +49,14 @@ function updatePostScript(value: string) {
   if (currentApi.value) {
     store.updateApi(currentApi.value.id, { postRequestScript: value })
   }
+}
+
+function updateCookies(cookies: CookieItem[]) {
+  if (currentApi.value) store.updateApi(currentApi.value.id, { cookies })
+}
+
+function updateAutoCarryCookies(value: boolean) {
+  store.autoCarryCookies = value
 }
 </script>
 
@@ -86,6 +96,14 @@ function updatePostScript(value: string) {
           key-placeholder="Header 名"
           value-placeholder="值"
           show-description
+        />
+      </div>
+      <div v-if="activeTab === 'cookies'" class="tab-inner">
+        <CookieConfig
+          :model-value="currentApi?.cookies || []"
+          :auto-carry="store.autoCarryCookies"
+          @update:model-value="updateCookies"
+          @update:auto-carry="updateAutoCarryCookies"
         />
       </div>
       <div v-if="activeTab === 'auth'" class="tab-inner">
