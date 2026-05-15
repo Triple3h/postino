@@ -2,7 +2,10 @@
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { sendRequest as httpSendRequest } from '@/utils/http'
-import { executePreRequestScript } from '@/utils/pre-request'
+import { executePreRequestScript, executePostResponseScript } from '@/utils/pre-request'
+import type { PostResponseData } from '@/utils/pre-request'
+import ExportPanel from '@/components/common/ExportPanel.vue'
+import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import type { HttpMethod, ResponseData } from '@/types'
 
 const store = useAppStore()
@@ -11,6 +14,11 @@ const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 
 const currentApi = computed(() => store.getCurrentApi())
 const currentMethod = ref<HttpMethod>('GET')
 const currentUrl = ref('')
+const showExportPanel = ref(false)
+const showCodeGenPanel = ref(false)
+const showActionMenu = ref(false)
+
+const envVars = computed(() => store.getEnvVariables())
 
 watch(currentApi, (api) => {
   if (api) {
@@ -47,6 +55,9 @@ async function send() {
 
   store.loading = true
   store.response = null
+  store.scriptLogs = []
+
+  const allLogs: import('@/utils/pre-request').ScriptLog[] = []
 
   try {
     const api = currentApi.value
@@ -78,6 +89,7 @@ async function send() {
       body = scriptResult.body
       urlencoded = scriptResult.urlencoded
       formdata = scriptResult.formdata
+      allLogs.push(...scriptResult.logs)
     }
 
     // Send request
@@ -94,6 +106,26 @@ async function send() {
     })
 
     store.response = response
+
+    // Execute post-response script
+    if (api.postRequestScript) {
+      const postData: PostResponseData = {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+        body: response.body,
+        duration: response.duration,
+        responseSize: response.size,
+      }
+      const postResult = executePostResponseScript(
+        api.postRequestScript,
+        postData,
+        envVars,
+      )
+      allLogs.push(...postResult.logs)
+    }
+
+    store.scriptLogs = allLogs
 
     // Add to history
     store.addHistory({
@@ -123,14 +155,33 @@ async function send() {
       requestBody: null,
       timestamp: Date.now(),
     }
+    store.scriptLogs = allLogs
   } finally {
     store.loading = false
   }
 }
+
+function toggleActionMenu() {
+  showActionMenu.value = !showActionMenu.value
+}
+
+function openExport() {
+  showActionMenu.value = false
+  showExportPanel.value = true
+}
+
+function openCodeGen() {
+  showActionMenu.value = false
+  showCodeGenPanel.value = true
+}
+
+function closeActionMenu() {
+  showActionMenu.value = false
+}
 </script>
 
 <template>
-  <div class="request-bar">
+  <div class="request-bar" @click="closeActionMenu">
     <select v-model="currentMethod" class="method-select" :style="{ color: methodColor(currentMethod) }">
       <option v-for="m in methods" :key="m" :value="m">{{ m }}</option>
     </select>
@@ -144,7 +195,28 @@ async function send() {
     <button class="btn btn-primary send-btn" @click="send" :disabled="store.loading">
       {{ store.loading ? '发送中...' : '发送' }}
     </button>
+    <div class="action-menu-wrapper">
+      <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作">⋯</button>
+      <div v-if="showActionMenu" class="action-dropdown" @click.stop>
+        <button class="action-item" @click="openExport">导出请求</button>
+        <button class="action-item" @click="openCodeGen">代码生成</button>
+      </div>
+    </div>
   </div>
+
+  <ExportPanel
+    :visible="showExportPanel"
+    :api="currentApi"
+    :env-vars="envVars"
+    @close="showExportPanel = false"
+  />
+
+  <CodeGenPanel
+    :visible="showCodeGenPanel"
+    :api="currentApi"
+    :env-vars="envVars"
+    @close="showCodeGenPanel = false"
+  />
 </template>
 
 <style scoped>
@@ -177,5 +249,44 @@ async function send() {
 
 .send-btn {
   min-width: 60px;
+}
+
+.action-menu-wrapper {
+  position: relative;
+}
+
+.action-btn {
+  font-size: 16px;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+.action-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  min-width: 120px;
+}
+
+.action-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.action-item:hover {
+  background: var(--bg-hover);
 }
 </style>

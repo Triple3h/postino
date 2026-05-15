@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { BodyConfig, KvPair } from '@/types'
 import KvEditor from '@/components/common/KvEditor.vue'
+import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 
 const props = defineProps<{
   modelValue: BodyConfig
@@ -68,6 +69,15 @@ function updateRawContent() {
 }
 
 const isBodyDisabled = computed(() => props.method === 'GET' || props.method === 'HEAD')
+
+const rawLanguage = computed(() => {
+  const ct = props.modelValue.contentType
+  if (ct === 'application/json') return 'json'
+  if (ct === 'application/xml') return 'xml'
+  if (ct === 'text/html') return 'html'
+  if (ct === 'text/javascript') return 'javascript'
+  return 'text'
+})
 </script>
 
 <template>
@@ -92,13 +102,12 @@ const isBodyDisabled = computed(() => props.method === 'GET' || props.method ===
       </div>
 
       <div v-if="body.type === 'json'" class="body-raw">
-        <textarea
-          v-model="rawContent"
-          class="code-editor"
+        <CodeMirrorEditor
+          :model-value="rawContent"
+          language="json"
           placeholder='{"key": "value"}'
-          @input="updateRawContent"
-          spellcheck="false"
-        ></textarea>
+          @update:model-value="rawContent = $event; updateRawContent()"
+        />
       </div>
 
       <div v-if="body.type === 'raw'" class="body-raw">
@@ -107,13 +116,12 @@ const isBodyDisabled = computed(() => props.method === 'GET' || props.method ===
             <option v-for="rm in rawModes" :key="rm.value" :value="rm.value">{{ rm.label }}</option>
           </select>
         </div>
-        <textarea
-          v-model="rawContent"
-          class="code-editor"
+        <CodeMirrorEditor
+          :model-value="rawContent"
+          :language="rawLanguage"
           placeholder="输入请求体内容..."
-          @input="updateRawContent"
-          spellcheck="false"
-        ></textarea>
+          @update:model-value="rawContent = $event; updateRawContent()"
+        />
       </div>
 
       <div v-if="body.type === 'form'" class="body-form">
@@ -202,6 +210,7 @@ const isBodyDisabled = computed(() => props.method === 'GET' || props.method ===
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 150px;
 }
 
 .raw-mode-select {
@@ -214,26 +223,6 @@ const isBodyDisabled = computed(() => props.method === 'GET' || props.method ===
   border-radius: var(--radius-sm);
   font-size: var(--font-size-small);
   background: var(--bg-base);
-}
-
-.code-editor {
-  flex: 1;
-  width: 100%;
-  min-height: 150px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-code);
-  color: var(--text-primary);
-  font-family: var(--font-code);
-  font-size: var(--font-size-code);
-  resize: vertical;
-  outline: none;
-  line-height: 1.5;
-}
-
-.code-editor:focus {
-  border-color: var(--primary);
 }
 
 .body-form,

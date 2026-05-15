@@ -2,12 +2,13 @@
 import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { importCurl, importPostman } from '@/utils/import'
+import { importOpenApi } from '@/utils/openapi-import'
 import type { ApiConfig, HttpMethod } from '@/types'
 
 const store = useAppStore()
 const searchQuery = ref('')
 const showImportModal = ref(false)
-const importType = ref<'curl' | 'postman'>('curl')
+const importType = ref<'curl' | 'postman' | 'openapi'>('curl')
 const importText = ref('')
 const contextMenu = ref<{ x: number; y: number; apiId?: string; groupName?: string } | null>(null)
 
@@ -117,8 +118,16 @@ function doImport() {
       store.addApi(api)
       store.currentApiId = api.id
     }
-  } else {
+  } else if (importType.value === 'postman') {
     const apis = importPostman(importText.value)
+    for (const api of apis) {
+      store.addApi(api)
+    }
+    if (apis.length > 0) {
+      store.currentApiId = apis[0].id
+    }
+  } else if (importType.value === 'openapi') {
+    const apis = importOpenApi(importText.value)
     for (const api of apis) {
       store.addApi(api)
     }
@@ -191,11 +200,12 @@ function doImport() {
         <div class="import-type-select">
           <button :class="['btn btn-sm', { active: importType === 'curl' }]" @click="importType = 'curl'">cURL</button>
           <button :class="['btn btn-sm', { active: importType === 'postman' }]" @click="importType = 'postman'">Postman</button>
+          <button :class="['btn btn-sm', { active: importType === 'openapi' }]" @click="importType = 'openapi'">OpenAPI</button>
         </div>
         <textarea
           v-model="importText"
           class="import-textarea"
-          :placeholder="importType === 'curl' ? '粘贴 cURL 命令...' : '粘贴 Postman Collection JSON...'"
+          :placeholder="importType === 'curl' ? '粘贴 cURL 命令...' : importType === 'postman' ? '粘贴 Postman Collection JSON...' : '粘贴 OpenAPI / Swagger JSON...'"
           spellcheck="false"
         ></textarea>
         <div class="modal-actions">

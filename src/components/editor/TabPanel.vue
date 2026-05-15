@@ -4,6 +4,7 @@ import { useAppStore } from '@/stores/app'
 import KvEditor from '@/components/common/KvEditor.vue'
 import BodyEditor from '@/components/editor/BodyEditor.vue'
 import AuthConfig from '@/components/editor/AuthConfig.vue'
+import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 import type { KvPair, BodyConfig, AuthConfig as AuthConfigType } from '@/types'
 
 const store = useAppStore()
@@ -36,15 +37,15 @@ function updateAuth(auth: AuthConfigType) {
   if (currentApi.value) store.updateApi(currentApi.value.id, { auth })
 }
 
-function updatePreScript(e: Event) {
+function updatePreScript(value: string) {
   if (currentApi.value) {
-    store.updateApi(currentApi.value.id, { preRequestScript: (e.target as HTMLTextAreaElement).value })
+    store.updateApi(currentApi.value.id, { preRequestScript: value })
   }
 }
 
-function updatePostScript(e: Event) {
+function updatePostScript(value: string) {
   if (currentApi.value) {
-    store.updateApi(currentApi.value.id, { postRequestScript: (e.target as HTMLTextAreaElement).value })
+    store.updateApi(currentApi.value.id, { postRequestScript: value })
   }
 }
 </script>
@@ -93,23 +94,21 @@ function updatePostScript(e: Event) {
           @update:model-value="updateAuth"
         />
       </div>
-      <div v-if="activeTab === 'pre-script'" class="tab-inner">
-        <textarea
-          class="script-editor"
-          :value="currentApi?.preRequestScript || ''"
-          @input="updatePreScript"
+      <div v-if="activeTab === 'pre-script'" class="tab-inner script-tab-inner">
+        <CodeMirrorEditor
+          :model-value="currentApi?.preRequestScript || ''"
+          language="javascript"
           placeholder="// 前置脚本：在请求发送前执行"
-          spellcheck="false"
-        ></textarea>
+          @update:model-value="updatePreScript"
+        />
       </div>
-      <div v-if="activeTab === 'post-script'" class="tab-inner">
-        <textarea
-          class="script-editor"
-          :value="currentApi?.postRequestScript || ''"
-          @input="updatePostScript"
+      <div v-if="activeTab === 'post-script'" class="tab-inner script-tab-inner">
+        <CodeMirrorEditor
+          :model-value="currentApi?.postRequestScript || ''"
+          language="javascript"
           placeholder="// 后置脚本：在收到响应后执行"
-          spellcheck="false"
-        ></textarea>
+          @update:model-value="updatePostScript"
+        />
       </div>
     </div>
   </div>
@@ -158,22 +157,7 @@ function updatePostScript(e: Event) {
   height: 100%;
 }
 
-.script-editor {
-  width: 100%;
+.script-tab-inner {
   min-height: 200px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-code);
-  color: var(--text-primary);
-  font-family: var(--font-code);
-  font-size: var(--font-size-code);
-  resize: vertical;
-  outline: none;
-  line-height: 1.5;
-}
-
-.script-editor:focus {
-  border-color: var(--primary);
 }
 </style>

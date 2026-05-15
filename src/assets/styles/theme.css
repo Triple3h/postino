@@ -51,6 +51,13 @@
   --font-size-body: 13px;
   --font-size-code: 12px;
   --font-size-small: 11px;
+
+  /* JSON syntax colors */
+  --json-key: #7c3aed;
+  --json-string: #16a34a;
+  --json-number: #2563eb;
+  --json-boolean: #ea580c;
+  --json-null: #9ca3af;
 }
 
 [data-theme="dark"] {
@@ -81,4 +88,10 @@
   --method-put: #fbbf24;
   --method-delete: #f87171;
   --method-patch: #a78bfa;
+
+  --json-key: #c4b5fd;
+  --json-string: #86efac;
+  --json-number: #93c5fd;
+  --json-boolean: #fdba74;
+  --json-null: #718096;
 }

@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
+import JsonTreeViewer from '@/components/common/JsonTreeViewer.vue'
+import type { ScriptLog } from '@/utils/pre-request'
 
 const store = useAppStore()
 const activeTab = ref('body')
-const bodyMode = ref('pretty')
+const bodyMode = ref('tree')
+const searchQuery = ref('')
 
 const responseTabs = [
   { key: 'body', label: 'Body' },
@@ -31,6 +35,25 @@ const durationClass = computed(() => {
   return 'fast'
 })
 
+const isJsonResponse = computed(() => {
+  if (!store.response?.body) return false
+  try {
+    JSON.parse(store.response.body)
+    return true
+  } catch {
+    return false
+  }
+})
+
+const parsedJson = computed(() => {
+  if (!store.response?.body) return null
+  try {
+    return JSON.parse(store.response.body)
+  } catch {
+    return null
+  }
+})
+
 const formattedBody = computed(() => {
   if (!store.response?.body) return ''
   try {
@@ -53,6 +76,77 @@ const headerEntries = computed(() => {
   if (!store.response) return []
   return Object.entries(store.response.headers).map(([k, v]) => ({ key: k, value: v }))
 })
+
+const responseLanguage = computed(() => {
+  if (!store.response) return 'text'
+  const ct = store.response.headers['content-type'] || ''
+  if (ct.includes('json')) return 'json'
+  if (ct.includes('xml')) return 'xml'
+  if (ct.includes('html')) return 'html'
+  if (ct.includes('javascript')) return 'javascript'
+  if (ct.includes('yaml')) return 'yaml'
+  return 'text'
+})
+
+const consoleLogs = computed(() => store.scriptLogs)
+
+function formatTimestamp(ts: number): string {
+  const d = new Date(ts)
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map(n => String(n).padStart(2, '0'))
+    .join(':')
+}
+
+function levelClass(level: ScriptLog['level']): string {
+  return `log-${level}`
+}
+
+function levelLabel(level: ScriptLog['level']): string {
+  const labels: Record<ScriptLog['level'], string> = {
+    log: 'LOG',
+    info: 'INFO',
+    warn: 'WARN',
+    error: 'ERR',
+    table: 'TBL',
+  }
+  return labels[level]
+}
+
+function formatMessage(args: string[]): string {
+  return args.join(' ')
+}
+
+function isTableData(args: string[]): boolean {
+  if (args.length === 0) return false
+  try {
+    const parsed = JSON.parse(args[0])
+    return Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object'
+  } catch {
+    return false
+  }
+}
+
+interface TableRow {
+  cells: string[]
+}
+
+function parseTableData(args: string[]): { columns: string[]; rows: TableRow[] } | null {
+  try {
+    const parsed = JSON.parse(args[0])
+    if (!Array.isArray(parsed) || parsed.length === 0 || typeof parsed[0] !== 'object') return null
+    const columns = Object.keys(parsed[0])
+    const rows = parsed.map((item: any) => ({
+      cells: columns.map(col => String(item[col] ?? ''))
+    }))
+    return { columns, rows }
+  } catch {
+    return null
+  }
+}
+
+function clearConsole() {
+  store.scriptLogs = []
+}
 </script>
 
 <template>
@@ -81,10 +175,36 @@ const headerEntries = computed(() => {
       <div class="response-body-area">
         <div v-if="activeTab === 'body'" class="resp-body">
           <div class="body-mode-bar">
+            <button
+              v-if="isJsonResponse"
+              :class="['mode-btn', { active: bodyMode === 'tree' }]"
+              @click="bodyMode = 'tree'"
+            >Tree</button>
             <button :class="['mode-btn', { active: bodyMode === 'pretty' }]" @click="bodyMode = 'pretty'">Pretty</button>
             <button :class="['mode-btn', { active: bodyMode === 'raw' }]" @click="bodyMode = 'raw'">Raw</button>
+            <div v-if="bodyMode === 'tree' && isJsonResponse" class="search-bar">
+              <input
+                v-model="searchQuery"
+                type="text"
+                class="search-input"
+                placeholder="Search keys/values..."
+              />
+            </div>
           </div>
-          <pre v-if="bodyMode === 'pretty'" class="response-json">{{ formattedBody }}</pre>
+          <JsonTreeViewer
+            v-if="bodyMode === 'tree' && isJsonResponse && parsedJson"
+            :data="parsedJson"
+            :search-query="searchQuery"
+            root-name="response"
+            class="response-tree"
+          />
+          <CodeMirrorEditor
+            v-if="bodyMode === 'pretty'"
+            :model-value="formattedBody"
+            :language="responseLanguage"
+            :readonly="true"
+            class="response-cm-pretty"
+          />
           <pre v-if="bodyMode === 'raw'" class="response-raw">{{ store.response.body }}</pre>
         </div>
         <div v-if="activeTab === 'headers'" class="resp-headers">
@@ -101,7 +221,40 @@ const headerEntries = computed(() => {
           </table>
         </div>
         <div v-if="activeTab === 'console'" class="resp-console">
-          <div class="console-placeholder">脚本日志（待实现）</div>
+          <div class="console-toolbar">
+            <span class="console-count">{{ consoleLogs.length }} 条日志</span>
+            <button class="console-clear-btn" @click="clearConsole" :disabled="consoleLogs.length === 0">清空</button>
+          </div>
+          <div class="console-output">
+            <div v-if="consoleLogs.length === 0" class="console-empty">暂无脚本日志</div>
+            <div
+              v-for="(log, index) in consoleLogs"
+              :key="index"
+              :class="['console-line', levelClass(log.level)]"
+            >
+              <span class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</span>
+              <span :class="['log-level', levelClass(log.level)]">{{ levelLabel(log.level) }}</span>
+              <template v-if="log.level === 'table' && isTableData(log.args)">
+                <div class="log-table-wrap">
+                  <table class="log-table">
+                    <thead>
+                      <tr>
+                        <th v-for="col in parseTableData(log.args)!.columns" :key="col">{{ col }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, ri) in parseTableData(log.args)!.rows" :key="ri">
+                        <td v-for="(cell, ci) in row.cells" :key="ci">{{ cell }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+              <template v-else>
+                <span class="log-message">{{ formatMessage(log.args) }}</span>
+              </template>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -186,8 +339,10 @@ const headerEntries = computed(() => {
 
 .body-mode-bar {
   display: flex;
+  align-items: center;
   gap: 4px;
   padding: 4px 8px;
+  border-bottom: 1px solid var(--divider);
 }
 
 .mode-btn {
@@ -215,6 +370,38 @@ const headerEntries = computed(() => {
   word-break: break-all;
   overflow: auto;
   background: var(--bg-code);
+}
+
+.response-tree {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-code);
+}
+
+.search-bar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.search-input {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-ui);
+  outline: none;
+  width: 180px;
+}
+
+.search-input:focus {
+  border-color: var(--primary);
+}
+
+.search-input::placeholder {
+  color: var(--text-tertiary);
 }
 
 .headers-table {
@@ -247,9 +434,123 @@ const headerEntries = computed(() => {
   word-break: break-all;
 }
 
-.console-placeholder {
+/* Console styles */
+.resp-console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.console-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--divider);
+  flex-shrink: 0;
+}
+
+.console-count {
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+}
+
+.console-clear-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+}
+
+.console-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.console-output {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-code);
+  font-size: var(--font-size-code);
+  background: var(--bg-code);
+  padding: 4px 0;
+}
+
+.console-empty {
   padding: 20px;
   text-align: center;
   color: var(--text-tertiary);
+}
+
+.console-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 8px;
+  line-height: 1.5;
+}
+
+.console-line:hover {
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.log-timestamp {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.log-level {
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border-radius: 2px;
+  letter-spacing: 0.5px;
+}
+
+.log-level.log-log { color: #5c9eff; background: rgba(92, 158, 255, 0.1); }
+.log-level.log-info { color: #4caf50; background: rgba(76, 175, 80, 0.1); }
+.log-level.log-warn { color: #ff9800; background: rgba(255, 152, 0, 0.1); }
+.log-level.log-error { color: #f44336; background: rgba(244, 67, 54, 0.1); }
+.log-level.log-table { color: #00bcd4; background: rgba(0, 188, 212, 0.1); }
+
+.log-message {
+  color: var(--text-primary);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.console-line.log-error .log-message { color: #f44336; }
+.console-line.log-warn .log-message { color: #ff9800; }
+
+.log-table-wrap {
+  flex: 1;
+  overflow-x: auto;
+}
+
+.log-table {
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 2px 0;
+}
+
+.log-table th {
+  text-align: left;
+  padding: 2px 8px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--divider);
+  font-weight: 500;
+}
+
+.log-table td {
+  padding: 2px 8px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--divider);
 }
 </style>

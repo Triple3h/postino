@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import type { ApiConfig, Environment, HistoryEntry, ResponseData, AppSettings, Group, AppState } from '@/types'
+import type { ScriptLog } from '@/utils/pre-request'
 
 const STORAGE_KEY = 'apifix_bin_data'
 const ENV_KEY = 'apifix_env_vars'
@@ -37,6 +38,7 @@ export const useAppStore = defineStore('app', () => {
   const history = ref<HistoryEntry[]>(loadFromStorage(HISTORY_KEY, []))
   const settings = ref<AppSettings>(defaultSettings)
   const expandedFolders = ref<string[]>([])
+  const scriptLogs = ref<ScriptLog[]>([])
 
   // Persist to localStorage on changes
   watch([apis, groups, groupOrder], () => {
@@ -98,7 +100,7 @@ export const useAppStore = defineStore('app', () => {
   return {
     apis, groups, groupOrder, currentApiId, activeTab,
     response, loading, environments, currentEnvId,
-    history, settings, expandedFolders,
+    history, settings, expandedFolders, scriptLogs,
     getCurrentApi, updateApi, addApi, deleteApi,
     addHistory, getEnvVariables,
   }
