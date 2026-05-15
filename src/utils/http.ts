@@ -14,6 +14,55 @@ export interface RequestOptions {
   envVars: Record<string, string>
 }
 
+function isExtensionEnvironment(): boolean {
+  return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.sendMessage
+}
+
+function sendRequestViaExtension(data: {
+  method: HttpMethod
+  url: string
+  headers: Record<string, string>
+  body?: string
+  bodyType?: string
+  formdataFields?: KvPair[]
+}): Promise<ResponseData> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: 'API_REQUEST', data },
+      (result: any) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message))
+          return
+        }
+        if (!result || !result.success) {
+          reject(new Error(result?.error || 'Extension request failed'))
+          return
+        }
+        const d = result.data
+        const headers: Record<string, string> = {}
+        if (Array.isArray(d.headers)) {
+          for (const h of d.headers) {
+            headers[h.key] = h.value
+          }
+        }
+        resolve({
+          status: d.status,
+          statusText: d.statusText,
+          headers,
+          body: d.body,
+          duration: d.duration,
+          size: d.size,
+          url: data.url,
+          method: data.method,
+          requestHeaders: data.headers,
+          requestBody: data.body ?? null,
+          timestamp: Date.now(),
+        })
+      }
+    )
+  })
+}
+
 const PROXY_URLS = {
   'corsproxy.io': 'https://corsproxy.io/?',
   'allorigins': 'https://api.allorigins.win/raw?url=',
@@ -142,6 +191,22 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
 
   if (contentType && !finalHeaders['Content-Type']) {
     finalHeaders['Content-Type'] = contentType
+  }
+
+  // Extension environment: bypass CORS via background service worker
+  if (isExtensionEnvironment()) {
+    const extBody: any = { method, url: finalUrl, headers: finalHeaders }
+    if (body.type === 'form' && reqBody instanceof FormData) {
+      extBody.bodyType = 'formdata'
+      extBody.formdataFields = body.formData.filter(f => f.enabled && f.key)
+    } else if (body.type === 'urlencoded') {
+      extBody.bodyType = 'urlencoded'
+      extBody.body = reqBody as string
+    } else if (body.type === 'json' || body.type === 'raw') {
+      extBody.bodyType = body.type
+      extBody.body = reqBody as string
+    }
+    return sendRequestViaExtension(extBody)
   }
 
   let fetchUrl = finalUrl

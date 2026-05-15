@@ -62,6 +62,12 @@ input, textarea, select, button {
 .method-badge.head { color: var(--method-head); }
 .method-badge.options { color: var(--method-options); }
 
+html.popup-mode, html.popup-mode body, html.popup-mode #app {
+  height: auto;
+  overflow: visible;
+  min-height: 100%;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

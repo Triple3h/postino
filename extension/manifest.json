@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "description": "轻量级接口调试工具 — 无需登录，支持cURL/Postman导入，本地存储",
   "permissions": [
-    "storage"
+    "storage",
+    "sidePanel"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -24,6 +25,9 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   },
   "web_accessible_resources": [
     {
