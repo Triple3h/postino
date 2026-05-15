@@ -763,6 +763,8 @@ a { color: var(--accent); text-decoration: none; }
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
   transition: background var(--transition), border var(--transition);
+  position: relative;
+  z-index: 20;
 }
 
 .request-inspector {
@@ -1382,6 +1384,7 @@ a { color: var(--accent); text-decoration: none; }
 .send-dropdown-wrap {
   position: relative;
   display: inline-flex;
+  z-index: 30;
 }
 
 .send-dropdown-btn {
@@ -1418,7 +1421,7 @@ a { color: var(--accent); text-decoration: none; }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow);
-  z-index: 100;
+  z-index: 1000;
   min-width: 160px;
   display: none;
   overflow: hidden;
@@ -3326,7 +3329,7 @@ a { color: var(--accent); text-decoration: none; }
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 120px;
+  max-height: 320px;
   overflow-y: auto;
 }
 

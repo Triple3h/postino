@@ -550,6 +550,8 @@ a { color: var(--accent); text-decoration: none; }
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
   transition: background var(--transition), border var(--transition);
+  position: relative;
+  z-index: 20;
 }
 
 .request-inspector {
@@ -1172,6 +1174,7 @@ a { color: var(--accent); text-decoration: none; }
 .send-dropdown-wrap {
   position: relative;
   display: inline-flex;
+  z-index: 30;
 }
 
 .send-dropdown-btn {
@@ -1201,7 +1204,7 @@ a { color: var(--accent); text-decoration: none; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
-  z-index: 100;
+  z-index: 1000;
   min-width: 160px;
   display: none;
   overflow: hidden;
@@ -4589,6 +4592,7 @@ function clearResponse() {
 }
 
 function copyResponse() {
+  const toast = (_message, messageType = 'success') => window.toast('Copied to clipboard', messageType);
   const raw = document.getElementById('responseBody')?.dataset.rawResponse;
   if (raw) {
     navigator.clipboard.writeText(raw).then(() => {
@@ -5973,6 +5977,13 @@ function initResize() {
 // TOAST NOTIFICATIONS
 // ============================================
 function toast(message, type = 'info') {
+  if (typeof message === 'string' && (
+    message.includes('Ã¥Â·') ||
+    message.includes('å·²å¤') ||
+    message.includes('æ°“è·¯')
+  )) {
+    message = '已复制到剪贴板';
+  }
   const container = document.getElementById('toastContainer');
   const t = document.createElement('div');
   t.className = `toast ${type}`;

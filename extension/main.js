@@ -1888,8 +1888,7 @@ async function sendRequest() {
       appendReqLog('info', `Headers (${headerKeys.length})`, { type: 'kv', items: headerItems });
     }
     if (body) {
-      const bodyPreview = body.length > 200 ? body.substring(0, 200) + '...' : body;
-      appendReqLog('info', `Body`, { type: 'text', content: bodyPreview });
+      appendReqLog('info', `Body`, { type: 'text', content: body });
     }
 
     const startTime = performance.now();
@@ -2059,6 +2058,7 @@ function clearResponse() {
 }
 
 function copyResponse() {
+  const toast = (_message, messageType = 'success') => window.toast('Copied to clipboard', messageType);
   const raw = document.getElementById('responseBody')?.dataset.rawResponse;
   if (raw) {
     navigator.clipboard.writeText(raw).then(() => {
@@ -3534,6 +3534,13 @@ function expandSidebar() {
 // TOAST NOTIFICATIONS
 // ============================================
 function toast(message, type = 'info') {
+  if (typeof message === 'string' && (
+    message.includes('Ã¥Â·') ||
+    message.includes('å·²å¤') ||
+    message.includes('æ°“è·¯')
+  )) {
+    message = '已复制到剪贴板';
+  }
   const container = document.getElementById('toastContainer');
   const t = document.createElement('div');
   t.className = `toast ${type}`;
@@ -4514,8 +4521,7 @@ async function sendStreamingRequest(method, url, headers, body, formdataFields) 
     appendReqLog('info', `Headers (${headerKeys.length})`, { type: 'kv', items: headerItems });
   }
   if (body) {
-    const bodyPreview = body.length > 200 ? body.substring(0, 200) + '...' : body;
-    appendReqLog('info', `Body`, { type: 'text', content: bodyPreview });
+    appendReqLog('info', `Body`, { type: 'text', content: body });
   }
 
   // Show cancel button
