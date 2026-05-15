@@ -1,5 +1,6 @@
 # Dependencies
 desktop/node_modules/
+node_modules
 
 # Build output
 desktop/dist/
@@ -23,3 +24,6 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Worktrees
+.worktrees/
