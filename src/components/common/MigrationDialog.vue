@@ -97,7 +97,8 @@ function skip() {
 .migration-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(2, 6, 23, 0.52);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,10 +107,12 @@ function skip() {
 
 .migration-dialog {
   background: var(--bg-panel);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
   padding: 24px;
   width: 400px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  max-width: calc(100vw - 28px);
+  box-shadow: var(--shadow-lg);
 }
 
 .migration-dialog h2 {

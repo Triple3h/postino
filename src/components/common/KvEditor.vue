@@ -116,17 +116,17 @@ const valueAutocomplete = useVariableAutocomplete(activeValueRef)
 .kv-header {
   display: flex;
   align-items: center;
-  padding: 4px 0;
+  padding: 6px 0;
   border-bottom: 1px solid var(--divider);
   font-size: var(--font-size-small);
   color: var(--text-secondary);
-  font-weight: 500;
+  font-weight: 700;
 }
 
 .kv-row {
   display: flex;
   align-items: center;
-  padding: 2px 0;
+  padding: 4px 0;
   border-bottom: 1px solid var(--divider);
 }
 
@@ -167,17 +167,18 @@ const valueAutocomplete = useVariableAutocomplete(activeValueRef)
 
 .kv-col input[type="text"] {
   width: 100%;
-  height: 26px;
+  height: 30px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 0 6px;
+  border-radius: var(--radius-md);
+  padding: 0 8px;
   font-size: var(--font-size-body);
   background: transparent;
 }
 
 .kv-col input[type="text"]:focus {
   border-color: var(--primary);
-  background: var(--bg-base);
+  background: var(--bg-panel);
+  box-shadow: var(--focus-ring);
 }
 
 .kv-col input[type="text"]:disabled {

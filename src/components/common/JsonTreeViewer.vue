@@ -195,13 +195,14 @@ const parsedData = computed(() => {
 }
 
 .tree-action-btn {
-  padding: 2px 8px;
+  padding: 4px 10px;
   border: 1px solid var(--border);
-  background: var(--bg-base);
+  background: var(--bg-panel);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-small);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
+  font-weight: 700;
   font-family: var(--font-ui);
 }
 
@@ -221,17 +222,17 @@ const parsedData = computed(() => {
   z-index: 10000;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   padding: 4px 0;
   min-width: 140px;
+  overflow: hidden;
 }
 
 .context-menu-item {
   display: block;
   width: 100%;
   padding: 6px 12px;
-  border: none;
   background: transparent;
   color: var(--text-primary);
   font-size: var(--font-size-small);

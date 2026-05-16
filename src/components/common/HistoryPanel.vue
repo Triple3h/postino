@@ -3,10 +3,12 @@ import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { generateCurl } from '@/utils/export'
+import { useDialog } from '@/composables/useDialog'
 import type { ApiConfig, HistoryEntry, HttpMethod } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
+const dialog = useDialog()
 const searchQuery = ref('')
 const activeFilter = ref<'all' | 'starred' | 'success' | 'fail'>('all')
 const contextMenu = ref<{ x: number; y: number; entry: HistoryEntry } | null>(null)
@@ -198,8 +200,14 @@ async function copyCurl() {
   contextMenu.value = null
 }
 
-function handleClearHistory() {
-  if (confirm('确定要清空历史记录吗？')) {
+async function handleClearHistory() {
+  const confirmed = await dialog.confirm({
+    title: '清空历史记录',
+    message: `将删除当前 ${store.history.length} 条历史记录，此操作不可撤销。`,
+    confirmText: '清空',
+    danger: true,
+  })
+  if (confirmed) {
     store.clearHistory()
   }
 }
@@ -277,20 +285,24 @@ function showToast(msg: string) {
   flex-direction: column;
   height: 100%;
   position: relative;
+  background: var(--bg-panel);
 }
 
 .history-header {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
+  padding: 12px;
   border-bottom: 1px solid var(--divider);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary-light) 40%, var(--bg-panel)), var(--bg-panel));
 }
 
 .history-search {
   width: 100%;
-  height: 28px;
+  height: 32px;
   font-size: var(--font-size-small);
+  border-radius: 999px;
 }
 
 .filter-bar {
@@ -299,13 +311,14 @@ function showToast(msg: string) {
 }
 
 .filter-btn {
-  padding: 2px 8px;
+  padding: 4px 9px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
+  border-radius: 999px;
+  background: var(--bg-panel);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-small);
+  font-weight: 700;
   transition: all 0.15s;
 }
 
@@ -314,7 +327,7 @@ function showToast(msg: string) {
 }
 
 .filter-btn.active {
-  background: var(--primary-light);
+  background: var(--primary-soft);
   color: var(--primary);
   border-color: var(--primary);
 }
@@ -346,14 +359,16 @@ function showToast(msg: string) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 8px 12px;
   cursor: pointer;
   font-size: var(--font-size-body);
   border-bottom: 1px solid var(--divider);
+  transition: background 0.15s ease, transform 0.15s ease;
 }
 
 .history-item:hover {
   background: var(--bg-hover);
+  transform: translateX(1px);
 }
 
 .star-btn {
@@ -439,11 +454,12 @@ function showToast(msg: string) {
   position: fixed;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   z-index: 1000;
   min-width: 120px;
   padding: 4px 0;
+  overflow: hidden;
 }
 
 .ctx-item {

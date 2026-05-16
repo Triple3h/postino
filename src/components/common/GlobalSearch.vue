@@ -129,7 +129,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 .search-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(2, 6, 23, 0.5);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -139,11 +140,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
 .search-modal {
   background: var(--bg-panel);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
   width: 500px;
+  max-width: calc(100vw - 28px);
   max-height: 400px;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-lg);
 }
 
 .search-input {
@@ -153,8 +156,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   border: none;
   border-bottom: 1px solid var(--divider);
   font-size: 14px;
-  outline: none;
   background: transparent;
+  box-shadow: none;
 }
 
 .search-results {
@@ -168,10 +171,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   gap: 8px;
   padding: 8px 16px;
   cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .search-result:hover {
   background: var(--bg-hover);
+  border-left-color: var(--primary);
 }
 
 .result-type {

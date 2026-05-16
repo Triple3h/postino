@@ -128,7 +128,8 @@ function downloadFile() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(2, 6, 23, 0.52);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,13 +138,16 @@ function downloadFile() {
 
 .modal-content {
   background: var(--bg-panel);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
   padding: 20px;
   width: 600px;
+  max-width: calc(100vw - 28px);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-header {
@@ -161,12 +165,6 @@ function downloadFile() {
 .close-btn {
   font-size: 18px;
   line-height: 1;
-  padding: 2px 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
 }
 
 .close-btn:hover {
@@ -194,7 +192,7 @@ function downloadFile() {
   margin: 0;
   background: var(--bg-code);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   font-family: var(--font-code);
   font-size: var(--font-size-code);
   white-space: pre-wrap;

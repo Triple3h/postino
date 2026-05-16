@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useDialog } from '@/composables/useDialog'
 import type { Environment, EnvVariable } from '@/types'
 
 const store = useAppStore()
+const dialog = useDialog()
 const showEnvPanel = ref(false)
 
 const currentEnv = computed(() => {
@@ -18,12 +20,17 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
-function addEnvironment() {
-  const name = prompt('输入环境名称：')
+async function addEnvironment() {
+  const name = await dialog.prompt({
+    title: '新建环境',
+    message: '为环境变量集合命名，创建后可在当前请求中引用。',
+    placeholder: '例如：测试环境',
+    confirmText: '创建',
+  })
   if (!name?.trim()) return
   const env: Environment = {
     id: generateId(),
-    name,
+    name: name.trim(),
     variables: [],
   }
   store.environments.push(env)
@@ -106,20 +113,22 @@ function selectEnv(id: string) {
 }
 
 .env-toggle {
-  min-width: 80px;
+  min-width: 118px;
   justify-content: space-between;
+  border-radius: 999px;
 }
 
 .env-dropdown {
   position: absolute;
   top: 100%;
   left: 0;
+  margin-top: 8px;
   width: 400px;
   max-height: 500px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -134,8 +143,8 @@ function selectEnv(id: string) {
 .env-item {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
+  padding: 8px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   gap: 8px;
 }
@@ -145,7 +154,8 @@ function selectEnv(id: string) {
 }
 
 .env-item.active {
-  background: var(--primary-light);
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .env-name {
@@ -189,24 +199,21 @@ function selectEnv(id: string) {
 .env-var-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 3px 0;
 }
 
 .var-key,
 .var-value {
   flex: 1;
-  height: 26px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  height: 30px;
   font-size: var(--font-size-body);
-  background: var(--bg-base);
-  outline: none;
 }
 
 .var-key:focus,
 .var-value:focus {
   border-color: var(--primary);
+  box-shadow: var(--focus-ring);
 }
 
 .env-close {
