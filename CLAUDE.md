@@ -36,7 +36,7 @@ There are **two independent copies** of the UI logic — they are not shared at 
 - **`index.html`** (~6270 lines) — Self-contained HTML/CSS/JS for the Electron app and standalone browser use. Uses inline `<script>` and `onclick=""` handlers.
 - **`extension/main.html`** + **`extension/main.js`** (~8900 lines combined) — CSP-compliant version for the Chrome extension. `main.html` has the markup (no inline scripts); `main.js` has all logic with `addEventListener`-style binding (no inline event handlers). This version also has streaming support via `chrome.runtime.sendMessage`.
 
-When editing features, you typically need to update **both** copies unless the feature is extension-specific (streaming, sandbox) or Electron-specific (IPC prompt).
+When editing features, you typically need to update **both** copies unless the feature is extension-specific (streaming, sandbox) or Electron-specific (desktop shell).
 
 ### Single-File Application (index.html)
 
@@ -59,9 +59,8 @@ All UI logic resides in `index.html` — no framework, vanilla JS only. 112 func
 
 ### Electron Desktop App (`desktop/`)
 
-- `main.js` — Main process; creates BrowserWindow with `webSecurity: false` to bypass CORS. Also handles custom prompt dialogs via IPC.
-- `preload.js` — Exposes `window.electronAPI.isDesktop` and overrides `window.prompt` via IPC.
-- `prompt-preload.js` — Preload for prompt dialog windows.
+- `main.js` — Main process; creates BrowserWindow with `webSecurity: false` to bypass CORS.
+- `preload.js` — Exposes `window.electronAPI.isDesktop` and platform metadata.
 - `copy-html.js` — Pre-build script that copies `../index.html` into `desktop/` for packaging.
 - `package.json` — Electron Builder config for Windows (.exe) and macOS (.dmg) builds.
 
