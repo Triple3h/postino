@@ -15,7 +15,9 @@ import EditorView from '@/components/editor/EditorView.vue'
   display: flex;
   height: 100%;
   width: 100%;
-  background: var(--bg-base);
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-app);
 }
 
 @media (max-width: 400px) {

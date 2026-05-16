@@ -100,22 +100,30 @@ function openFullPage() {
 
 <style scoped>
 .popup-view {
-  padding: 12px;
+  padding: 14px;
   width: 420px;
   min-width: 360px;
   max-width: 500px;
+  background:
+    radial-gradient(circle at 0% 0%, var(--primary-soft), transparent 34%),
+    var(--bg-base);
 }
 
 .popup-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .popup-header h2 {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 850;
 }
 
 .btn-fullscreen {
@@ -125,8 +133,8 @@ function openFullPage() {
   width: 28px;
   height: 28px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s;
@@ -140,16 +148,21 @@ function openFullPage() {
 
 .popup-input {
   display: flex;
-  gap: 4px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .method-select {
-  padding: 4px 6px;
+  padding: 4px 28px 4px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
-  font-weight: 600;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-panel);
+  font-weight: 850;
   font-size: var(--font-size-body);
   min-width: 70px;
   outline: none;
@@ -157,7 +170,7 @@ function openFullPage() {
 
 .url-input {
   flex: 1;
-  height: 30px;
+  height: 32px;
   font-size: var(--font-size-body);
   font-family: var(--font-code);
 }
@@ -165,8 +178,10 @@ function openFullPage() {
 .popup-response {
   margin-bottom: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   overflow: hidden;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .response-status {
@@ -205,14 +220,16 @@ function openFullPage() {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
+  padding: 7px 8px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   font-size: var(--font-size-small);
+  border: 1px solid transparent;
 }
 
 .history-item:hover {
   background: var(--bg-hover);
+  border-color: var(--border);
 }
 
 .history-url {
