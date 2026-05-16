@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores/app'
 import RequestBar from './RequestBar.vue'
 import TabPanel from './TabPanel.vue'
 import ResponsePanel from '@/components/response/ResponsePanel.vue'
+import WorkspaceSettingsView from './WorkspaceSettingsView.vue'
 import EnvPanel from '@/components/common/EnvPanel.vue'
 
 const store = useAppStore()
@@ -13,11 +14,14 @@ const store = useAppStore()
     <div class="editor-toolbar">
       <EnvPanel />
     </div>
-    <div class="editor-main">
-      <RequestBar />
-      <TabPanel />
-    </div>
-    <ResponsePanel />
+    <template v-if="store.getCurrentApi()">
+      <div class="editor-main">
+        <RequestBar />
+        <TabPanel />
+      </div>
+      <ResponsePanel />
+    </template>
+    <WorkspaceSettingsView v-else />
   </div>
 </template>
 

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import type { ApiConfig, Environment, HistoryEntry, ResponseData, AppSettings, Group } from '@/types'
 import type { ScriptLog } from '@/utils/pre-request'
 import { db } from '@/db'
-import { derivePlannedWorkspaceModel } from '@/stores/workspace'
+import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -97,12 +97,14 @@ export const useAppStore = defineStore('app', () => {
       const merged = { ...updates, updatedAt: Date.now() }
       Object.assign(api, merged)
       db.apis.update(id, merged).catch(e => console.error('Failed to update API in IndexedDB:', e))
+      useWorkspaceStore().syncInterfaceFromApi(api).catch(e => console.error('Failed to sync interface in IndexedDB:', e))
     }
   }
 
-  function addApi(api: ApiConfig) {
+  function addApi(api: ApiConfig, moduleId?: string | null) {
     apis.value[api.id] = api
     db.apis.add(api).catch(e => console.error('Failed to add API to IndexedDB:', e))
+    useWorkspaceStore().addInterfaceForApi(api, moduleId ?? undefined).catch(e => console.error('Failed to add interface in IndexedDB:', e))
   }
 
   function deleteApi(id: string) {
@@ -111,6 +113,7 @@ export const useAppStore = defineStore('app', () => {
       currentApiId.value = null
     }
     db.apis.delete(id).catch(e => console.error('Failed to delete API from IndexedDB:', e))
+    useWorkspaceStore().removeInterfacesForApi(id).catch(e => console.error('Failed to delete interface from IndexedDB:', e))
   }
 
   function addHistory(entry: HistoryEntry) {

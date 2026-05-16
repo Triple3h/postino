@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const store = useAppStore()
+const workspace = useWorkspaceStore()
 const showSearch = ref(false)
 const searchQuery = ref('')
 
@@ -11,9 +13,38 @@ const results = computed(() => {
   const q = searchQuery.value.toLowerCase()
   const items: Array<{ type: string; name: string; id: string; extra: string }> = []
 
-  // Search APIs
+  const indexedApiIds = new Set<string>()
+
+  // Search planned interfaces first so results can show category/module context.
+  for (const interfaceNode of workspace.interfaces) {
+    const api = store.apis[interfaceNode.apiId]
+    const module = workspace.modules.find(item => item.id === interfaceNode.moduleId)
+    const category = module ? workspace.categories.find(item => item.id === module.categoryId) : null
+    const name = api?.name ?? interfaceNode.name
+    const url = api?.url ?? interfaceNode.url
+    const method = api?.method ?? interfaceNode.method
+    const path = [category?.name, module?.name].filter(Boolean).join(' / ')
+    indexedApiIds.add(interfaceNode.apiId)
+
+    if (
+      name.toLowerCase().includes(q) ||
+      url.toLowerCase().includes(q) ||
+      method.toLowerCase().includes(q) ||
+      path.toLowerCase().includes(q)
+    ) {
+      items.push({
+        type: '接口',
+        name,
+        id: interfaceNode.apiId,
+        extra: `${path ? `${path} · ` : ''}${method} ${url}`,
+      })
+    }
+  }
+
+  // Fallback for legacy APIs that have not been indexed yet.
   for (const [id, api] of Object.entries(store.apis)) {
-    if (api.name.toLowerCase().includes(q) || api.url.toLowerCase().includes(q)) {
+    if (indexedApiIds.has(id)) continue
+    if (api.name.toLowerCase().includes(q) || api.url.toLowerCase().includes(q) || api.method.toLowerCase().includes(q)) {
       items.push({ type: '接口', name: api.name, id, extra: `${api.method} ${api.url}` })
     }
   }
@@ -48,6 +79,8 @@ function closeSearch() {
 
 function selectResult(result: typeof results.value[0]) {
   if (result.type === '接口') {
+    const interfaceNode = workspace.interfaces.find(item => item.apiId === result.id)
+    workspace.selectInterface(interfaceNode?.id ?? result.id)
     store.currentApiId = result.id
   }
   closeSearch()

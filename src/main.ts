@@ -4,6 +4,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import App from './App.vue'
 import { routes } from './router'
 import { useAppStore } from './stores/app'
+import { useWorkspaceStore } from './stores/workspace'
 
 const pinia = createPinia()
 
@@ -18,6 +19,7 @@ app.use(router)
 
 const store = useAppStore()
 store.init().then(async () => {
+  await useWorkspaceStore().init()
   const basename = window.location.pathname.split('/').pop() || ''
   const routeMap: Record<string, string> = {
     'popup.html': '/popup',

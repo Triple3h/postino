@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
 import { migrateLegacyData, hasLegacyData } from '@/utils/migration'
 import { db } from '@/db'
 import { STORAGE_KEYS, removeFromStorage } from '@/utils/storage'
 
 const store = useAppStore()
+const workspace = useWorkspaceStore()
 const show = ref(false)
 const migrationResult = ref<ReturnType<typeof migrateLegacyData> | null>(null)
 
@@ -36,6 +38,13 @@ async function doMigrate() {
       }
 
       await db.settings.put({ key: 'groupOrder', value: migrationResult.value.groupOrder })
+
+      const plannedModel = derivePlannedWorkspaceModel(
+        migrationResult.value.apis,
+        migrationResult.value.groups,
+        migrationResult.value.groupOrder,
+      )
+      await workspace.replaceModel(plannedModel)
 
       if (migrationResult.value.environments.length > 0) {
         await db.environments.bulkAdd(migrationResult.value.environments)

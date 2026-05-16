@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { generateCurl } from '@/utils/export'
 import type { ApiConfig, HistoryEntry, HttpMethod } from '@/types'
 
 const store = useAppStore()
+const workspace = useWorkspaceStore()
 const searchQuery = ref('')
 const activeFilter = ref<'all' | 'starred' | 'success' | 'fail'>('all')
 const contextMenu = ref<{ x: number; y: number; entry: HistoryEntry } | null>(null)
@@ -23,11 +25,14 @@ const filteredHistory = computed(() => {
 
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.toLowerCase()
-    list = list.filter(h =>
-      h.url.toLowerCase().includes(q) ||
-      h.method.toLowerCase().includes(q) ||
-      h.status.toString().includes(q)
-    )
+    list = list.filter(h => {
+      const meta = getHistoryApiMeta(h)
+      return h.url.toLowerCase().includes(q) ||
+        h.method.toLowerCase().includes(q) ||
+        h.status.toString().includes(q) ||
+        meta.name.toLowerCase().includes(q) ||
+        meta.path.toLowerCase().includes(q)
+    })
   }
 
   return list
@@ -96,7 +101,20 @@ function relativeTime(ts: number): string {
   return d.toLocaleDateString()
 }
 
+function getHistoryApiMeta(entry: HistoryEntry): { name: string; path: string } {
+  const api = store.apis[entry.apiId]
+  const interfaceNode = workspace.interfaces.find(item => item.apiId === entry.apiId)
+  const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
+  const category = module ? workspace.categories.find(item => item.id === module.categoryId) : null
+  return {
+    name: api?.name ?? interfaceNode?.name ?? '',
+    path: [category?.name, module?.name].filter(Boolean).join(' / '),
+  }
+}
+
 function loadFromHistory(entry: HistoryEntry) {
+  const interfaceNode = workspace.interfaces.find(item => item.apiId === entry.apiId)
+  workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
   store.currentApiId = entry.apiId
 }
 
@@ -227,6 +245,11 @@ function showToast(msg: string) {
             title="收藏"
           >{{ entry.starred ? '★' : '☆' }}</button>
           <span :class="['method-badge', entry.method.toLowerCase()]">{{ entry.method }}</span>
+          <span
+            v-if="getHistoryApiMeta(entry).name"
+            class="history-api-name"
+            :title="getHistoryApiMeta(entry).path"
+          >{{ getHistoryApiMeta(entry).name }}</span>
           <span class="history-url" :title="entry.url">{{ entry.url }}</span>
           <span :class="['history-status', statusColor(entry.status)]">{{ entry.status }}</span>
           <span :class="['history-duration', durationColor(entry.duration)]">{{ formatDuration(entry.duration) }}</span>
@@ -351,6 +374,16 @@ function showToast(msg: string) {
 
 .star-btn.starred {
   color: var(--warning);
+}
+
+.history-api-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  min-width: 0;
 }
 
 .history-url {

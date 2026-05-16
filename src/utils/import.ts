@@ -189,9 +189,16 @@ interface PostmanItem {
   }
 }
 
+interface PostmanFolder {
+  name?: string
+  item: PostmanNode[]
+}
+
+type PostmanNode = PostmanItem | PostmanFolder
+
 interface PostmanCollection {
   info?: { name?: string }
-  item?: (PostmanItem | { item: PostmanItem[] })[]
+  item?: PostmanNode[]
 }
 
 function resolvePostmanUrl(url: string | { raw?: string; host?: string[]; path?: string[]; query?: Array<{ key: string; value: string }> } | undefined): string {
@@ -258,13 +265,13 @@ function parsePostmanItem(item: PostmanItem): ApiConfig | null {
   })
 }
 
-function flattenItems(items: (PostmanItem | { item: PostmanItem[] })[]): PostmanItem[] {
-  const result: PostmanItem[] = []
+function flattenItems(items: PostmanNode[], folder: string | null = null): Array<{ item: PostmanItem; folder: string | null }> {
+  const result: Array<{ item: PostmanItem; folder: string | null }> = []
   for (const item of items) {
     if ('item' in item && Array.isArray(item.item)) {
-      result.push(...flattenItems(item.item as (PostmanItem | { item: PostmanItem[] })[]))
+      result.push(...flattenItems(item.item, item.name || folder))
     } else if ('request' in item) {
-      result.push(item as PostmanItem)
+      result.push({ item: item as PostmanItem, folder })
     }
   }
   return result
@@ -276,7 +283,12 @@ export function importPostman(jsonStr: string): ApiConfig[] {
     if (!collection.item || !Array.isArray(collection.item)) return []
 
     const flatItems = flattenItems(collection.item)
-    return flatItems.map(parsePostmanItem).filter((a): a is ApiConfig => a !== null)
+    return flatItems
+      .map(({ item, folder }) => {
+        const api = parsePostmanItem(item)
+        return api ? { ...api, folder } : null
+      })
+      .filter((a): a is ApiConfig => a !== null)
   } catch {
     return []
   }

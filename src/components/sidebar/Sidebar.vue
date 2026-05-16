@@ -1,46 +1,145 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { importCurl, importPostman } from '@/utils/import'
 import { importOpenApi } from '@/utils/openapi-import'
-import type { ApiConfig, HttpMethod } from '@/types'
+import { db } from '@/db'
+import type { ApiConfig, Category, HttpMethod, InterfaceNode, Module as ApiModule } from '@/types'
 
 const store = useAppStore()
+const workspace = useWorkspaceStore()
 const searchQuery = ref('')
 const showImportModal = ref(false)
 const importType = ref<'curl' | 'postman' | 'openapi'>('curl')
 const importText = ref('')
-const contextMenu = ref<{ x: number; y: number; apiId?: string; groupName?: string } | null>(null)
+const selectedCategoryId = computed(() => {
+  if (workspace.activeSelectionType === 'category') return workspace.activeSelectionId
+  if (workspace.activeSelectionType === 'module') {
+    return workspace.modules.find(item => item.id === workspace.activeSelectionId)?.categoryId ?? null
+  }
+  if (workspace.activeSelectionType === 'interface') {
+    const interfaceNode = workspace.interfaces.find(item => item.id === workspace.activeSelectionId || item.apiId === workspace.activeSelectionId)
+    const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
+    return module?.categoryId ?? null
+  }
+  return null
+})
+const selectedModuleId = computed(() => {
+  if (workspace.activeSelectionType === 'module') return workspace.activeSelectionId
+  if (workspace.activeSelectionType === 'interface') {
+    return workspace.interfaces.find(item => item.id === workspace.activeSelectionId || item.apiId === workspace.activeSelectionId)?.moduleId ?? null
+  }
+  return null
+})
+const contextMenu = ref<{ x: number; y: number; apiId?: string; categoryId?: string; moduleId?: string } | null>(null)
 
-const filteredGroupOrder = computed(() => {
-  if (!searchQuery.value.trim()) return store.groupOrder
+interface SidebarModule extends ApiModule {
+  interfaces: InterfaceNode[]
+}
+
+interface SidebarCategory extends Category {
+  modules: SidebarModule[]
+}
+
+const sidebarTree = computed<SidebarCategory[]>(() => {
   const q = searchQuery.value.toLowerCase()
-  return store.groupOrder.filter(name => {
-    const group = store.groups[name]
-    if (!group) return false
-    return group.apiIds.some(id => {
-      const api = store.apis[id]
-      return api && (api.name.toLowerCase().includes(q) || api.url.toLowerCase().includes(q))
+  const searching = q.trim().length > 0
+
+  return [...workspace.categories]
+    .sort((a, b) => a.order - b.order)
+    .map(category => {
+      const modules = workspace.modules
+        .filter(module => module.categoryId === category.id)
+        .sort((a, b) => a.order - b.order)
+        .map(module => {
+          const interfaces = workspace.interfaces
+            .filter(item => item.moduleId === module.id)
+            .filter(item => {
+              if (!searching) return true
+              const api = store.apis[item.apiId]
+              const name = api?.name ?? item.name
+              const url = api?.url ?? item.url
+              const method = api?.method ?? item.method
+              return name.toLowerCase().includes(q) ||
+                url.toLowerCase().includes(q) ||
+                method.toLowerCase().includes(q) ||
+                module.name.toLowerCase().includes(q) ||
+                category.name.toLowerCase().includes(q)
+            })
+            .sort((a, b) => a.order - b.order)
+          return { ...module, interfaces }
+        })
+        .filter(module => !searching || module.interfaces.length > 0 || module.name.toLowerCase().includes(q))
+      return { ...category, modules }
     })
-  })
+    .filter(category => !searching || category.modules.length > 0 || category.name.toLowerCase().includes(q))
 })
 
-function getFilteredApiIds(groupName: string): string[] {
-  const group = store.groups[groupName]
-  if (!group) return []
-  if (!searchQuery.value.trim()) return group.apiIds
-  const q = searchQuery.value.toLowerCase()
-  return group.apiIds.filter(id => {
-    const api = store.apis[id]
-    return api && (api.name.toLowerCase().includes(q) || api.url.toLowerCase().includes(q))
-  })
+const hasVisibleItems = computed(() => sidebarTree.value.length > 0)
+
+function getInterfaceApi(interfaceNode: InterfaceNode): ApiConfig | null {
+  return store.apis[interfaceNode.apiId] ?? null
+}
+
+function getModuleStorageKey(moduleId: string): string {
+  return `module:${moduleId}`
+}
+
+function getCategoryStorageKey(categoryId: string): string {
+  return `category:${categoryId}`
+}
+
+function isExpanded(key: string): boolean {
+  if (key.startsWith('category:') || key.startsWith('module:')) {
+    return !store.expandedFolders.includes(`collapsed:${key}`)
+  }
+  return store.expandedFolders.includes(key)
+}
+
+function toggleExpanded(key: string) {
+  const storageKey = key.startsWith('category:') || key.startsWith('module:')
+    ? `collapsed:${key}`
+    : key
+  const idx = store.expandedFolders.indexOf(storageKey)
+  if (idx >= 0) {
+    store.expandedFolders.splice(idx, 1)
+  } else {
+    store.expandedFolders.push(storageKey)
+  }
 }
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
-function createNewApi() {
+async function addApiToLegacyGroup(apiId: string, groupName: string): Promise<void> {
+  const group = store.groups[groupName] ?? { name: groupName, apiIds: [] }
+  if (!group.apiIds.includes(apiId)) {
+    group.apiIds.push(apiId)
+  }
+  store.groups[groupName] = group
+  if (!store.groupOrder.includes(groupName)) {
+    store.groupOrder.push(groupName)
+  }
+  await Promise.all([
+    db.groups.put({ name: groupName, group }),
+    store.saveGroupOrder(),
+  ])
+}
+
+async function addApiToModule(api: ApiConfig, moduleName: string | null): Promise<void> {
+  if (!moduleName) {
+    store.addApi(api, selectedModuleId.value)
+    return
+  }
+
+  const module = await workspace.ensureModuleForLegacyGroup(moduleName)
+  store.addApi(api, module.id)
+  await addApiToLegacyGroup(api.id, moduleName)
+}
+
+async function createNewApi() {
   const api: ApiConfig = {
     id: generateId(),
     name: 'New Request',
@@ -57,11 +156,25 @@ function createNewApi() {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
-  store.addApi(api)
-  store.currentApiId = api.id
+  await addApiToModule(api, null)
+  selectApi(api.id)
+}
+
+function openCategory(categoryId: string) {
+  workspace.selectCategory(categoryId)
+  store.currentApiId = null
+  store.response = null
+}
+
+function openModule(moduleId: string) {
+  workspace.selectModule(moduleId)
+  store.currentApiId = null
+  store.response = null
 }
 
 function selectApi(id: string) {
+  const interfaceNode = workspace.interfaces.find(item => item.apiId === id)
+  workspace.selectInterface(interfaceNode?.id ?? id)
   store.currentApiId = id
 }
 
@@ -69,71 +182,123 @@ function deleteApi(id: string) {
   store.deleteApi(id)
 }
 
-function addGroup() {
+async function addGroup() {
   const name = prompt('输入分组名称：')
   if (!name?.trim()) return
-  if (store.groups[name]) return
-  store.groups[name] = { name, apiIds: [] }
-  store.groupOrder.push(name)
+  const category = await workspace.addCategory(name)
+  openCategory(category.id)
 }
 
-function deleteGroup(name: string) {
-  const group = store.groups[name]
-  if (group) {
-    for (const id of group.apiIds) {
-      deleteApi(id)
-    }
+async function addModule(categoryId?: string) {
+  let targetCategoryId = categoryId ?? selectedCategoryId.value ?? workspace.categories[0]?.id
+  if (!targetCategoryId) {
+    targetCategoryId = (await workspace.ensureDefaultCategory()).id
   }
-  delete store.groups[name]
-  store.groupOrder = store.groupOrder.filter(g => g !== name)
+
+  const name = prompt('输入模块名称：')
+  if (!name?.trim()) return
+  const module = await workspace.addModule(targetCategoryId, name)
+  openModule(module.id)
+  const key = getCategoryStorageKey(module.categoryId)
+  if (!isExpanded(key)) toggleExpanded(key)
 }
 
-function toggleFolder(name: string) {
-  const idx = store.expandedFolders.indexOf(name)
-  if (idx >= 0) {
-    store.expandedFolders.splice(idx, 1)
-  } else {
-    store.expandedFolders.push(name)
+async function deleteModule(moduleId: string) {
+  const module = workspace.modules.find(item => item.id === moduleId)
+  const apiIds = workspace.interfaces
+    .filter(item => item.moduleId === moduleId)
+    .map(item => item.apiId)
+
+  for (const id of apiIds) {
+    deleteApi(id)
+  }
+
+  if (module?.legacyGroupName) {
+    delete store.groups[module.legacyGroupName]
+    store.groupOrder = store.groupOrder.filter(name => name !== module.legacyGroupName)
+    await Promise.all([
+      db.groups.delete(module.legacyGroupName),
+      store.saveGroupOrder(),
+    ])
+  }
+
+  await workspace.deleteModule(moduleId)
+}
+
+async function deleteCategory(categoryId: string) {
+  const modules = workspace.modules.filter(item => item.categoryId === categoryId)
+  const moduleIds = modules.map(item => item.id)
+  const apiIds = workspace.interfaces
+    .filter(item => moduleIds.includes(item.moduleId))
+    .map(item => item.apiId)
+
+  for (const id of apiIds) {
+    deleteApi(id)
+  }
+
+  const legacyGroupNames = modules
+    .map(module => module.legacyGroupName)
+    .filter((name): name is string => Boolean(name))
+  for (const name of legacyGroupNames) {
+    delete store.groups[name]
+  }
+  if (legacyGroupNames.length > 0) {
+    store.groupOrder = store.groupOrder.filter(name => !legacyGroupNames.includes(name))
+    await Promise.all([
+      db.groups.bulkDelete(legacyGroupNames),
+      store.saveGroupOrder(),
+    ])
+  }
+
+  await workspace.deleteCategory(categoryId)
+  if (workspace.activeSelectionId === categoryId || (workspace.activeSelectionId && moduleIds.includes(workspace.activeSelectionId))) {
+    workspace.clearSelection()
   }
 }
 
-function isFolderExpanded(name: string): boolean {
-  return store.expandedFolders.includes(name)
-}
-
-function handleContextMenu(e: MouseEvent, apiId?: string, groupName?: string) {
+function handleCategoryContextMenu(e: MouseEvent, categoryId: string) {
   e.preventDefault()
-  contextMenu.value = { x: e.clientX, y: e.clientY, apiId, groupName }
+  contextMenu.value = { x: e.clientX, y: e.clientY, categoryId }
+}
+
+function handleModuleContextMenu(e: MouseEvent, moduleId: string) {
+  e.preventDefault()
+  contextMenu.value = { x: e.clientX, y: e.clientY, moduleId }
+}
+
+function handleApiContextMenu(e: MouseEvent, apiId: string) {
+  e.preventDefault()
+  contextMenu.value = { x: e.clientX, y: e.clientY, apiId }
 }
 
 function closeContextMenu() {
   contextMenu.value = null
 }
 
-function doImport() {
+async function doImport() {
   if (!importText.value.trim()) return
 
   if (importType.value === 'curl') {
     const api = importCurl(importText.value)
     if (api) {
-      store.addApi(api)
-      store.currentApiId = api.id
+      await addApiToModule(api, null)
+      selectApi(api.id)
     }
   } else if (importType.value === 'postman') {
     const apis = importPostman(importText.value)
     for (const api of apis) {
-      store.addApi(api)
+      await addApiToModule(api, api.folder)
     }
     if (apis.length > 0) {
-      store.currentApiId = apis[0].id
+      selectApi(apis[0].id)
     }
   } else if (importType.value === 'openapi') {
     const apis = importOpenApi(importText.value)
     for (const api of apis) {
-      store.addApi(api)
+      await addApiToModule(api, api.folder)
     }
     if (apis.length > 0) {
-      store.currentApiId = apis[0].id
+      selectApi(apis[0].id)
     }
   }
 
@@ -155,32 +320,49 @@ function doImport() {
     <div class="sidebar-actions">
       <button class="btn btn-sm" @click="createNewApi">+ 新建请求</button>
       <button class="btn btn-sm" @click="addGroup">+ 新建分组</button>
+      <button class="btn btn-sm" @click="addModule()">+ 新建模块</button>
       <button class="btn btn-sm" @click="showImportModal = true">导入</button>
     </div>
     <div class="sidebar-content">
-      <div v-for="groupName in filteredGroupOrder" :key="groupName" class="group-section">
-        <div class="group-header" @click="toggleFolder(groupName)" @contextmenu="handleContextMenu($event, undefined, groupName)">
-          <span class="expand-icon">{{ isFolderExpanded(groupName) ? '▼' : '▶' }}</span>
-          <span class="group-name">{{ groupName }}</span>
-          <span class="group-count">{{ store.groups[groupName]?.apiIds.length || 0 }}</span>
+      <div v-for="category in sidebarTree" :key="category.id" class="category-section">
+        <div
+          :class="['category-header', { selected: selectedCategoryId === category.id }]"
+          @click="openCategory(category.id)"
+          @contextmenu="handleCategoryContextMenu($event, category.id)"
+        >
+          <span class="expand-icon" @click.stop="toggleExpanded(getCategoryStorageKey(category.id))">{{ isExpanded(getCategoryStorageKey(category.id)) ? '▼' : '▶' }}</span>
+          <span class="category-name">{{ category.name }}</span>
         </div>
-        <template v-if="isFolderExpanded(groupName)">
-          <div
-            v-for="apiId in getFilteredApiIds(groupName)"
-            :key="apiId"
-            :class="['api-item', { active: store.currentApiId === apiId }]"
-            @click="selectApi(apiId)"
-            @contextmenu="handleContextMenu($event, apiId)"
-          >
-            <span :class="['method-badge', store.apis[apiId]?.method?.toLowerCase()]">
-              {{ store.apis[apiId]?.method }}
-            </span>
-            <span class="api-name">{{ store.apis[apiId]?.name }}</span>
+        <template v-if="isExpanded(getCategoryStorageKey(category.id))">
+          <div v-for="module in category.modules" :key="module.id" class="group-section">
+            <div
+              :class="['group-header', { selected: selectedModuleId === module.id }]"
+              @click="openModule(module.id)"
+              @contextmenu="handleModuleContextMenu($event, module.id)"
+            >
+              <span class="expand-icon" @click.stop="toggleExpanded(getModuleStorageKey(module.id))">{{ isExpanded(getModuleStorageKey(module.id)) ? '▼' : '▶' }}</span>
+              <span class="group-name">{{ module.name }}</span>
+              <span class="group-count">{{ module.interfaces.length }}</span>
+            </div>
+            <template v-if="isExpanded(getModuleStorageKey(module.id))">
+              <div
+                v-for="interfaceNode in module.interfaces"
+                :key="interfaceNode.id"
+                :class="['api-item', { active: store.currentApiId === interfaceNode.apiId }]"
+                @click="selectApi(interfaceNode.apiId)"
+                @contextmenu="handleApiContextMenu($event, interfaceNode.apiId)"
+              >
+                <span :class="['method-badge', (getInterfaceApi(interfaceNode)?.method ?? interfaceNode.method).toLowerCase()]">
+                  {{ getInterfaceApi(interfaceNode)?.method ?? interfaceNode.method }}
+                </span>
+                <span class="api-name">{{ getInterfaceApi(interfaceNode)?.name ?? interfaceNode.name }}</span>
+              </div>
+            </template>
           </div>
         </template>
       </div>
-      <div v-if="filteredGroupOrder.length === 0" class="sidebar-empty">
-        暂无接口，点击"新建请求"开始
+      <div v-if="!hasVisibleItems" class="sidebar-empty">
+        {{ searchQuery.trim() ? '无匹配接口' : '暂无接口，点击"新建请求"开始' }}
       </div>
     </div>
 
@@ -191,7 +373,9 @@ function doImport() {
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
       <button v-if="contextMenu.apiId" class="context-item" @click="deleteApi(contextMenu.apiId); closeContextMenu()">删除请求</button>
-      <button v-if="contextMenu.groupName" class="context-item" @click="deleteGroup(contextMenu.groupName); closeContextMenu()">删除分组</button>
+      <button v-if="contextMenu.categoryId" class="context-item" @click="addModule(contextMenu.categoryId); closeContextMenu()">新建模块</button>
+      <button v-if="contextMenu.categoryId" class="context-item" @click="deleteCategory(contextMenu.categoryId); closeContextMenu()">删除分组</button>
+      <button v-if="contextMenu.moduleId" class="context-item" @click="deleteModule(contextMenu.moduleId); closeContextMenu()">删除模块</button>
     </div>
 
     <!-- Import Modal -->
@@ -263,10 +447,33 @@ function doImport() {
   margin-bottom: 2px;
 }
 
+.category-section {
+  margin-bottom: 4px;
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  padding: 7px 8px;
+  font-size: var(--font-size-title);
+  font-weight: 700;
+  color: var(--text-primary);
+  cursor: pointer;
+  gap: 4px;
+}
+
+.category-header:hover {
+  background: var(--bg-hover);
+}
+
+.category-header.selected {
+  background: var(--primary-light);
+}
+
 .group-header {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
+  padding: 6px 8px 6px 18px;
   font-size: var(--font-size-title);
   font-weight: 600;
   color: var(--text-secondary);
@@ -278,12 +485,17 @@ function doImport() {
   background: var(--bg-hover);
 }
 
+.group-header.selected {
+  background: var(--bg-hover);
+}
+
 .expand-icon {
   font-size: 10px;
   width: 14px;
   text-align: center;
 }
 
+.category-name,
 .group-name {
   flex: 1;
   overflow: hidden;
@@ -298,7 +510,7 @@ function doImport() {
 }
 
 .api-item {
-  padding: 4px 8px 4px 22px;
+  padding: 4px 8px 4px 36px;
   display: flex;
   align-items: center;
   gap: 6px;
