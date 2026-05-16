@@ -3,22 +3,31 @@
   --primary: #6366f1;
   --primary-hover: #4f46e5;
   --primary-light: #e0e7ff;
+  --primary-soft: rgba(99, 102, 241, 0.12);
+  --primary-ring: rgba(99, 102, 241, 0.26);
+  --accent: #06b6d4;
+  --accent-soft: rgba(6, 182, 212, 0.12);
 
   /* Background */
-  --bg-base: #ffffff;
-  --bg-sidebar: #f8f9fa;
+  --bg-base: #f6f7fb;
+  --bg-app: #eef2ff;
+  --bg-sidebar: rgba(248, 250, 252, 0.86);
   --bg-panel: #ffffff;
-  --bg-code: #f4f5f7;
-  --bg-hover: #f3f4f6;
+  --bg-panel-elevated: rgba(255, 255, 255, 0.92);
+  --bg-code: #f8fafc;
+  --bg-hover: #f1f5f9;
+  --bg-selected: #eef2ff;
 
   /* Border */
-  --border: #e5e7eb;
-  --divider: #f3f4f6;
+  --border: #e2e8f0;
+  --divider: #edf2f7;
+  --border-strong: #cbd5e1;
 
   /* Text */
   --text-primary: #111827;
   --text-secondary: #6b7280;
   --text-tertiary: #9ca3af;
+  --text-inverse: #ffffff;
 
   /* Status */
   --success: #10b981;
@@ -43,6 +52,12 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 20px 50px rgba(15, 23, 42, 0.14);
+  --focus-ring: 0 0 0 3px var(--primary-ring);
 
   /* Font */
   --font-ui: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -64,19 +79,28 @@
   --primary: #818cf8;
   --primary-hover: #6366f1;
   --primary-light: #1e1b4b;
+  --primary-soft: rgba(129, 140, 248, 0.16);
+  --primary-ring: rgba(129, 140, 248, 0.32);
+  --accent: #22d3ee;
+  --accent-soft: rgba(34, 211, 238, 0.14);
 
-  --bg-base: #1a1a2e;
-  --bg-sidebar: #16213e;
-  --bg-panel: #1a1a2e;
-  --bg-code: #0f3460;
-  --bg-hover: #16213e;
+  --bg-base: #0f172a;
+  --bg-app: #020617;
+  --bg-sidebar: rgba(15, 23, 42, 0.9);
+  --bg-panel: #111827;
+  --bg-panel-elevated: rgba(17, 24, 39, 0.92);
+  --bg-code: #0b1220;
+  --bg-hover: #1e293b;
+  --bg-selected: #1e1b4b;
 
-  --border: #2d3748;
-  --divider: #1a202c;
+  --border: #263244;
+  --divider: #1e293b;
+  --border-strong: #475569;
 
   --text-primary: #e2e8f0;
   --text-secondary: #a0aec0;
   --text-tertiary: #718096;
+  --text-inverse: #020617;
 
   --success: #34d399;
   --warning: #fbbf24;
@@ -94,4 +118,8 @@
   --json-number: #93c5fd;
   --json-boolean: #fdba74;
   --json-null: #718096;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.45);
 }
