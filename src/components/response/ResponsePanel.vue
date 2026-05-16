@@ -151,8 +151,15 @@ function clearConsole() {
 
 <template>
   <div class="response-panel">
-    <div v-if="!store.response" class="response-empty">
-      发送请求后在此查看响应
+    <div v-if="store.loading && !store.response" class="response-empty response-loading">
+      <span class="response-spinner"></span>
+      <h3>请求发送中</h3>
+      <p>正在等待服务器响应，稍后会自动展示状态、耗时和响应体。</p>
+    </div>
+    <div v-else-if="!store.response" class="response-empty">
+      <div class="empty-orb">↯</div>
+      <h3>响应预览区</h3>
+      <p>发送请求后在此查看 Body、Headers 与脚本 Console。</p>
     </div>
     <div v-else class="response-content">
       <div class="response-status-bar">
@@ -263,19 +270,58 @@ function clearConsole() {
 
 <style scoped>
 .response-panel {
-  height: 300px;
+  height: 320px;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--bg-panel);
 }
 
 .response-empty {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
   align-items: center;
   justify-content: center;
   flex: 1;
+  text-align: center;
+  color: var(--text-secondary);
+  background:
+    radial-gradient(circle at 50% 35%, var(--primary-soft), transparent 36%),
+    var(--bg-code);
+}
+
+.response-empty h3 {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.response-empty p {
+  max-width: 360px;
   color: var(--text-tertiary);
+  line-height: 1.6;
+}
+
+.empty-orb,
+.response-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+  font-weight: 900;
+  box-shadow: 0 14px 26px rgba(79, 70, 229, 0.22);
+}
+
+.response-spinner {
+  border: 3px solid var(--primary-light);
+  border-top-color: var(--primary);
+  background: var(--bg-panel);
+  animation: spin 0.9s linear infinite;
 }
 
 .response-content {
@@ -289,11 +335,17 @@ function clearConsole() {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--divider);
+  background: linear-gradient(90deg, var(--bg-panel-elevated), var(--bg-panel));
 }
 
-.status-code { font-weight: 600; }
+.status-code {
+  font-weight: 850;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-code);
+}
 .status-code.success { color: var(--success); }
 .status-code.redirect { color: var(--info); }
 .status-code.client-error { color: var(--warning); }
@@ -308,22 +360,32 @@ function clearConsole() {
 .response-tabs {
   display: flex;
   border-bottom: 1px solid var(--divider);
-  padding: 0 8px;
+  padding: 6px 8px 0;
+  background: var(--bg-panel-elevated);
 }
 
 .resp-tab-btn {
-  padding: 4px 10px;
-  border: none;
+  padding: 6px 11px;
+  border: 1px solid transparent;
+  border-bottom: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-small);
-  border-bottom: 2px solid transparent;
+  font-weight: 700;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.resp-tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .resp-tab-btn.active {
   color: var(--primary);
-  border-bottom-color: var(--primary);
+  background: var(--bg-panel);
+  border-color: var(--border);
+  box-shadow: 0 -2px 0 var(--primary) inset;
 }
 
 .response-body-area {
@@ -341,23 +403,25 @@ function clearConsole() {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
+  padding: 7px 8px;
   border-bottom: 1px solid var(--divider);
 }
 
 .mode-btn {
-  padding: 2px 8px;
-  border: none;
-  background: transparent;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  background: var(--bg-panel);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-small);
-  border-radius: var(--radius-sm);
+  font-weight: 700;
+  border-radius: 999px;
 }
 
 .mode-btn.active {
-  background: var(--primary-light);
+  background: var(--primary-soft);
   color: var(--primary);
+  border-color: var(--primary);
 }
 
 .response-json,
@@ -552,5 +616,9 @@ function clearConsole() {
   padding: 2px 8px;
   color: var(--text-primary);
   border-bottom: 1px solid var(--divider);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

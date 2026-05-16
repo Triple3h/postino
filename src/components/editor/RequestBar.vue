@@ -206,28 +206,39 @@ function closeActionMenu() {
 </script>
 
 <template>
-  <div class="request-bar" @click="closeActionMenu">
-    <select v-model="currentMethod" class="method-select" :style="{ color: methodColor(currentMethod) }">
-      <option v-for="m in methods" :key="m" :value="m">{{ m }}</option>
-    </select>
-    <input
-      ref="urlInputRef"
-      v-model="currentUrl"
-      type="url"
-      class="url-input"
-      placeholder="输入请求 URL"
-      @keydown.enter="send"
-      @input="urlAutocomplete.handleInput()"
-      @keydown="urlAutocomplete.handleKeydown($event) ? null : null"
-    />
-    <button class="btn btn-primary send-btn" @click="send" :disabled="store.loading">
-      {{ store.loading ? '发送中...' : '发送' }}
-    </button>
-    <div class="action-menu-wrapper">
-      <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作">⋯</button>
-      <div v-if="showActionMenu" class="action-dropdown" @click.stop>
-        <button class="action-item" @click="openExport">导出请求</button>
-        <button class="action-item" @click="openCodeGen">代码生成</button>
+  <div class="request-shell" @click="closeActionMenu">
+    <div class="request-context">
+      <span class="request-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
+      <span>{{ currentApi?.name || '未命名请求' }}</span>
+      <small>Enter 发送 · 支持 &#123;&#123;变量&#125;&#125;</small>
+    </div>
+    <div class="request-bar">
+      <select v-model="currentMethod" class="method-select" :style="{ color: methodColor(currentMethod) }">
+        <option v-for="m in methods" :key="m" :value="m">{{ m }}</option>
+      </select>
+      <div class="url-field">
+        <span class="url-prefix">URL</span>
+        <input
+          ref="urlInputRef"
+          v-model="currentUrl"
+          type="url"
+          class="url-input"
+          placeholder="https://api.example.com/users/{{id}}"
+          @keydown.enter="send"
+          @input="urlAutocomplete.handleInput()"
+          @keydown="urlAutocomplete.handleKeydown($event) ? null : null"
+        />
+      </div>
+      <button class="btn btn-primary send-btn" @click="send" :disabled="store.loading || !currentUrl.trim()">
+        <span v-if="store.loading" class="send-spinner"></span>
+        {{ store.loading ? '发送中' : '发送' }}
+      </button>
+      <div class="action-menu-wrapper">
+        <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作">⋯</button>
+        <div v-if="showActionMenu" class="action-dropdown" @click.stop>
+          <button class="action-item" @click="openExport">导出请求</button>
+          <button class="action-item" @click="openCodeGen">代码生成</button>
+        </div>
       </div>
     </div>
   </div>
@@ -257,35 +268,105 @@ function closeActionMenu() {
 </template>
 
 <style scoped>
+.request-shell {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background:
+    linear-gradient(135deg, var(--bg-panel), color-mix(in srgb, var(--primary-light) 30%, var(--bg-panel)));
+}
+
+.request-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.request-context small {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.request-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent);
+}
+
 .request-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
+  gap: 8px;
 }
 
 .method-select {
-  padding: 4px 8px;
+  height: 38px;
+  padding: 0 30px 0 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
-  font-weight: 600;
+  border-radius: var(--radius-xl);
+  background-color: var(--bg-panel);
+  font-weight: 850;
   font-size: var(--font-size-body);
   cursor: pointer;
-  min-width: 80px;
+  min-width: 92px;
   outline: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.url-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.url-field:focus-within {
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+}
+
+.url-prefix {
+  padding: 0 10px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-small);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  border-right: 1px solid var(--divider);
 }
 
 .url-input {
   flex: 1;
-  height: 30px;
+  height: 36px;
   font-size: var(--font-size-body);
   font-family: var(--font-code);
+  border: none;
+  background: transparent;
+  box-shadow: none !important;
 }
 
 .send-btn {
-  min-width: 60px;
+  min-width: 84px;
+  height: 38px;
+  border-radius: var(--radius-xl);
+}
+
+.send-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 .action-menu-wrapper {
@@ -294,8 +375,11 @@ function closeActionMenu() {
 
 .action-btn {
   font-size: 16px;
-  padding: 4px 8px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
   line-height: 1;
+  border-radius: var(--radius-xl);
 }
 
 .action-dropdown {
@@ -305,10 +389,11 @@ function closeActionMenu() {
   margin-top: 4px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   z-index: 100;
-  min-width: 120px;
+  min-width: 136px;
+  overflow: hidden;
 }
 
 .action-item {
@@ -320,10 +405,14 @@ function closeActionMenu() {
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-small);
 }
 
 .action-item:hover {
   background: var(--bg-hover);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

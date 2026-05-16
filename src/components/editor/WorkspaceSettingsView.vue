@@ -497,7 +497,9 @@ function openInterface(apiId: string) {
   flex: 1;
   overflow: auto;
   padding: 24px;
-  background: var(--bg-base);
+  background:
+    radial-gradient(circle at 18% 0%, var(--primary-soft), transparent 30%),
+    var(--bg-base);
   position: relative;
 }
 
@@ -513,7 +515,8 @@ function openInterface(apiId: string) {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: var(--bg-base);
+  background: color-mix(in srgb, var(--bg-base) 88%, transparent);
+  backdrop-filter: blur(14px);
   padding-bottom: 10px;
   border-bottom: 1px solid var(--divider);
 }
@@ -558,26 +561,36 @@ function openInterface(apiId: string) {
 }
 
 .settings-tabs button {
-  border: none;
+  border: 1px solid transparent;
+  border-bottom: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   padding: 8px 12px;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  font-weight: 700;
+}
+
+.settings-tabs button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .settings-tabs button.active {
   color: var(--primary);
-  border-bottom-color: var(--primary);
+  background: var(--bg-panel);
+  border-color: var(--border);
+  box-shadow: 0 -2px 0 var(--primary) inset;
   font-weight: 700;
 }
 
 .settings-card {
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--bg-panel);
   padding: 16px;
   margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
 }
 
 .settings-card h3 {
@@ -610,12 +623,6 @@ function openInterface(apiId: string) {
 .variable-row input {
   width: 100%;
   min-height: 32px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
-  color: var(--text-primary);
-  padding: 4px 8px;
-  outline: none;
 }
 
 .field-row textarea {
@@ -627,6 +634,7 @@ function openInterface(apiId: string) {
 .field-row textarea:focus,
 .variable-row input:focus {
   border-color: var(--primary);
+  box-shadow: var(--focus-ring);
 }
 
 .color-field {
@@ -659,8 +667,9 @@ function openInterface(apiId: string) {
 
 .meta-grid div,
 .stat-grid div {
-  background: var(--bg-sidebar);
-  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, var(--bg-code), var(--bg-panel));
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-lg);
   padding: 12px;
   min-width: 0;
 }
@@ -697,8 +706,8 @@ function openInterface(apiId: string) {
   gap: 10px;
   align-items: flex-start;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-base);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
   color: var(--text-primary);
   padding: 12px;
   cursor: pointer;
@@ -707,7 +716,8 @@ function openInterface(apiId: string) {
 
 .type-card.active {
   border-color: var(--primary);
-  background: var(--primary-light);
+  background: var(--primary-soft);
+  box-shadow: inset 0 0 0 1px var(--primary-ring);
 }
 
 .type-card small {
@@ -740,8 +750,8 @@ function openInterface(apiId: string) {
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-base);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
   color: var(--text-primary);
   padding: 8px 10px;
   cursor: pointer;
@@ -751,6 +761,7 @@ function openInterface(apiId: string) {
 .module-link:hover,
 .interface-link:hover {
   background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .module-link span,

@@ -12,6 +12,10 @@ const store = useAppStore()
 <template>
   <div class="editor-view">
     <div class="editor-toolbar">
+      <div class="editor-toolbar-title">
+        <span>🌐</span>
+        <strong>环境与变量</strong>
+      </div>
       <EnvPanel />
     </div>
     <template v-if="store.getCurrentApi()">
@@ -32,14 +36,25 @@ const store = useAppStore()
   flex-direction: column;
   overflow: hidden;
   min-width: 600px;
+  background: var(--bg-panel);
 }
 
 .editor-toolbar {
   display: flex;
   align-items: center;
-  padding: 4px 8px;
+  justify-content: space-between;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--divider);
   gap: 8px;
+  background: var(--bg-panel-elevated);
+}
+
+.editor-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
 }
 
 .editor-main {

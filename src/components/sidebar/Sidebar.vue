@@ -5,10 +5,12 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { importCurl, importPostman } from '@/utils/import'
 import { importOpenApi } from '@/utils/openapi-import'
 import { db } from '@/db'
+import { useDialog } from '@/composables/useDialog'
 import type { ApiConfig, Category, HttpMethod, InterfaceNode, Module as ApiModule } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
+const dialog = useDialog()
 const searchQuery = ref('')
 const showImportModal = ref(false)
 const importType = ref<'curl' | 'postman' | 'openapi'>('curl')
@@ -183,9 +185,14 @@ function deleteApi(id: string) {
 }
 
 async function addGroup() {
-  const name = prompt('输入分组名称：')
+  const name = await dialog.prompt({
+    title: '新建分组',
+    message: '分组用于组织多个模块与接口。',
+    placeholder: '例如：用户中心',
+    confirmText: '创建',
+  })
   if (!name?.trim()) return
-  const category = await workspace.addCategory(name)
+  const category = await workspace.addCategory(name.trim())
   openCategory(category.id)
 }
 
@@ -195,9 +202,14 @@ async function addModule(categoryId?: string) {
     targetCategoryId = (await workspace.ensureDefaultCategory()).id
   }
 
-  const name = prompt('输入模块名称：')
+  const name = await dialog.prompt({
+    title: '新建模块',
+    message: '模块用于承载同一业务域下的接口。',
+    placeholder: '例如：登录鉴权',
+    confirmText: '创建',
+  })
   if (!name?.trim()) return
-  const module = await workspace.addModule(targetCategoryId, name)
+  const module = await workspace.addModule(targetCategoryId, name.trim())
   openModule(module.id)
   const key = getCategoryStorageKey(module.categoryId)
   if (!isExpanded(key)) toggleExpanded(key)
@@ -310,17 +322,27 @@ async function doImport() {
 <template>
   <div class="sidebar" @click="closeContextMenu">
     <div class="sidebar-header">
-      <input
-        v-model="searchQuery"
-        type="text"
-        placeholder="搜索接口..."
-        class="sidebar-search"
-      />
+      <div class="sidebar-title">
+        <span class="sidebar-logo">⚡</span>
+        <div>
+          <strong>接口目录</strong>
+          <small>{{ workspace.categories.length }} 分组 · {{ workspace.modules.length }} 模块</small>
+        </div>
+      </div>
+      <label class="search-shell">
+        <span>⌕</span>
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="搜索接口 / URL / 方法"
+          class="sidebar-search"
+        />
+      </label>
     </div>
     <div class="sidebar-actions">
-      <button class="btn btn-sm" @click="createNewApi">+ 新建请求</button>
-      <button class="btn btn-sm" @click="addGroup">+ 新建分组</button>
-      <button class="btn btn-sm" @click="addModule()">+ 新建模块</button>
+      <button class="btn btn-sm btn-primary" @click="createNewApi">+ 请求</button>
+      <button class="btn btn-sm" @click="addGroup">分组</button>
+      <button class="btn btn-sm" @click="addModule()">模块</button>
       <button class="btn btn-sm" @click="showImportModal = true">导入</button>
     </div>
     <div class="sidebar-content">
@@ -356,7 +378,10 @@ async function doImport() {
                 <span :class="['method-badge', (getInterfaceApi(interfaceNode)?.method ?? interfaceNode.method).toLowerCase()]">
                   {{ getInterfaceApi(interfaceNode)?.method ?? interfaceNode.method }}
                 </span>
-                <span class="api-name">{{ getInterfaceApi(interfaceNode)?.name ?? interfaceNode.name }}</span>
+                <span class="api-copy">
+                  <span class="api-name">{{ getInterfaceApi(interfaceNode)?.name ?? interfaceNode.name }}</span>
+                  <span class="api-url">{{ getInterfaceApi(interfaceNode)?.url ?? interfaceNode.url }}</span>
+                </span>
               </div>
             </template>
           </div>
@@ -410,29 +435,86 @@ async function doImport() {
   width: var(--sidebar-width);
   height: 100%;
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(16px);
 }
 
 .sidebar-header {
-  padding: 8px;
+  padding: 12px;
   border-bottom: 1px solid var(--divider);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary-light) 52%, transparent), transparent);
+}
+
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.sidebar-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+  box-shadow: 0 8px 16px rgba(79, 70, 229, 0.22);
+}
+
+.sidebar-title strong,
+.sidebar-title small {
+  display: block;
+}
+
+.sidebar-title strong {
+  line-height: 1.2;
+}
+
+.sidebar-title small {
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  margin-top: 2px;
+}
+
+.search-shell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text-tertiary);
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar-search {
   width: 100%;
-  height: 28px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
   font-size: var(--font-size-small);
+  box-shadow: none !important;
 }
 
 .sidebar-actions {
   display: flex;
   gap: 4px;
-  padding: 6px 8px;
+  padding: 8px;
   border-bottom: 1px solid var(--divider);
+  background: var(--bg-panel-elevated);
 }
 
 .sidebar-actions .btn {
@@ -443,7 +525,7 @@ async function doImport() {
 .sidebar-content {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 8px;
 }
 
 .group-section {
@@ -457,39 +539,47 @@ async function doImport() {
 .category-header {
   display: flex;
   align-items: center;
-  padding: 7px 8px;
+  padding: 8px;
   font-size: var(--font-size-title);
   font-weight: 700;
   color: var(--text-primary);
   cursor: pointer;
   gap: 4px;
+  border-radius: var(--radius-lg);
+  transition: background 0.15s ease, transform 0.15s ease;
 }
 
 .category-header:hover {
   background: var(--bg-hover);
+  transform: translateX(1px);
 }
 
 .category-header.selected {
-  background: var(--primary-light);
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .group-header {
   display: flex;
   align-items: center;
-  padding: 6px 8px 6px 18px;
+  padding: 7px 8px 7px 18px;
   font-size: var(--font-size-title);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
   gap: 4px;
+  border-radius: var(--radius-lg);
+  transition: background 0.15s ease, transform 0.15s ease;
 }
 
 .group-header:hover {
   background: var(--bg-hover);
+  transform: translateX(1px);
 }
 
 .group-header.selected {
-  background: var(--bg-hover);
+  background: var(--bg-selected);
+  color: var(--text-primary);
 }
 
 .expand-icon {
@@ -516,32 +606,56 @@ async function doImport() {
 
 .group-count {
   font-size: var(--font-size-small);
-  color: var(--text-tertiary);
-  font-weight: 400;
+  color: var(--primary);
+  font-weight: 700;
+  background: var(--primary-soft);
+  border-radius: 999px;
+  min-width: 22px;
+  padding: 1px 6px;
+  text-align: center;
 }
 
 .api-item {
-  padding: 4px 8px 4px 36px;
+  padding: 7px 8px 7px 36px;
   display: flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
   font-size: var(--font-size-body);
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .api-item:hover {
   background: var(--bg-hover);
+  transform: translateX(1px);
 }
 
 .api-item.active {
-  background: var(--primary-light);
+  background: var(--bg-panel);
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary), var(--shadow-sm);
 }
 
-.api-name {
+.api-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.api-name,
+.api-url {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+}
+
+.api-url {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-family: var(--font-code);
+  font-size: 10px;
 }
 
 .sidebar-empty {
@@ -555,18 +669,18 @@ async function doImport() {
   position: fixed;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   padding: 4px 0;
   z-index: 1000;
-  min-width: 120px;
+  min-width: 132px;
+  overflow: hidden;
 }
 
 .context-item {
   display: block;
   width: 100%;
-  padding: 6px 12px;
-  border: none;
+  padding: 7px 12px;
   background: transparent;
   color: var(--text-primary);
   text-align: left;
@@ -581,7 +695,8 @@ async function doImport() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(2, 6, 23, 0.52);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -590,13 +705,16 @@ async function doImport() {
 
 .modal-content {
   background: var(--bg-panel);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
   padding: 20px;
   width: 500px;
+  max-width: calc(100vw - 28px);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-content h3 {
@@ -618,15 +736,11 @@ async function doImport() {
 .import-textarea {
   width: 100%;
   min-height: 200px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
   background: var(--bg-code);
   color: var(--text-primary);
   font-family: var(--font-code);
   font-size: var(--font-size-code);
   resize: vertical;
-  outline: none;
 }
 
 .import-textarea:focus {

@@ -96,11 +96,8 @@ function update(partial: Partial<AuthConfig>) {
 }
 
 .auth-type-select select {
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
   font-size: var(--font-size-body);
+  min-height: 34px;
 }
 
 .auth-fields {
@@ -124,17 +121,13 @@ function update(partial: Partial<AuthConfig>) {
 .field input,
 .field select {
   flex: 1;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  min-height: 34px;
   font-size: var(--font-size-body);
 }
 
 .field input:focus,
 .field select:focus {
   border-color: var(--primary);
-  outline: none;
 }
 
 .field-hint {

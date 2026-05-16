@@ -172,20 +172,21 @@ const rawLanguage = computed(() => {
 
 .body-type-bar {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   margin-bottom: 8px;
   border-bottom: 1px solid var(--divider);
   padding-bottom: 4px;
 }
 
 .body-type-btn {
-  padding: 2px 10px;
-  border: none;
+  padding: 5px 12px;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-small);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
+  font-weight: 700;
   transition: all 0.15s;
 }
 
@@ -195,9 +196,9 @@ const rawLanguage = computed(() => {
 }
 
 .body-type-btn.active {
-  background: var(--primary-light);
+  background: var(--primary-soft);
+  border-color: var(--primary);
   color: var(--primary);
-  font-weight: 500;
 }
 
 .body-empty {
@@ -218,11 +219,8 @@ const rawLanguage = computed(() => {
 }
 
 .raw-mode-select select {
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
   font-size: var(--font-size-small);
-  background: var(--bg-base);
+  min-height: 30px;
 }
 
 .body-form,
@@ -239,6 +237,10 @@ const rawLanguage = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
 }
 
 .binary-filename {

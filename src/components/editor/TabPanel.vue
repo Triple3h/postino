@@ -137,32 +137,41 @@ function updateAutoCarryCookies(value: boolean) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--bg-panel);
 }
 
 .tab-header {
   display: flex;
+  gap: 4px;
   border-bottom: 1px solid var(--border);
-  padding: 0 8px;
+  padding: 8px 12px 0;
+  background: var(--bg-panel-elevated);
 }
 
 .tab-btn {
-  padding: 6px 12px;
+  padding: 8px 12px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-body);
-  border-bottom: 2px solid transparent;
+  font-weight: 650;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   transition: all 0.15s;
 }
 
 .tab-btn:hover {
   color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .tab-btn.active {
   color: var(--primary);
-  border-bottom-color: var(--primary);
+  background: var(--bg-panel);
+  border-color: var(--border);
+  box-shadow: 0 -2px 0 var(--primary) inset;
 }
 
 .tab-content {
@@ -171,7 +180,7 @@ function updateAutoCarryCookies(value: boolean) {
 }
 
 .tab-inner {
-  padding: 8px 12px;
+  padding: 12px;
   height: 100%;
 }
 
