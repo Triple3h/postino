@@ -171,10 +171,47 @@ export function executePreRequestScript(
   const headerStore: Record<string, string> = { ...currentHeaders }
   const envStore: Record<string, string> = { ...envVars }
 
+  function normalizeKvInput(input: unknown, value?: unknown): KvPair[] {
+    if (Array.isArray(input)) {
+      return input.flatMap(item => normalizeKvInput(item))
+    }
+    if (input && typeof input === 'object') {
+      const item = input as { key?: unknown; name?: unknown; value?: unknown; disabled?: unknown; description?: unknown }
+      const key = String(item.key ?? item.name ?? '')
+      if (!key) return []
+      return [{
+        key,
+        value: String(item.value ?? ''),
+        enabled: item.disabled === undefined ? true : !item.disabled,
+        description: item.description == null ? undefined : String(item.description),
+      }]
+    }
+    if (typeof input === 'string') {
+      return [{ key: input, value: String(value ?? ''), enabled: true }]
+    }
+    return []
+  }
+
+  function upsertField(fields: KvPair[], field: KvPair) {
+    const existing = fields.find(item => item.key === field.key)
+    if (existing) {
+      existing.value = field.value
+      existing.enabled = field.enabled
+      existing.description = field.description
+    } else {
+      fields.push(field)
+    }
+  }
+
   const pm = {
     request: {
       headers: {
         _store: headerStore,
+        add(input: unknown, value?: unknown) {
+          for (const item of normalizeKvInput(input, value)) {
+            headerStore[item.key] = item.value
+          }
+        },
         set(key: string, value: string) { headerStore[key] = value },
         get(key: string) { return headerStore[key] },
         remove(key: string) { delete headerStore[key] },
@@ -192,14 +229,31 @@ export function executePreRequestScript(
           else this._fields.push({ key, value, enabled: true })
         },
         get(key: string) { return this._fields.find(f => f.key === key)?.value },
+        urlencoded: {
+          add: (input: unknown, value?: unknown) => {
+            for (const item of normalizeKvInput(input, value)) {
+              upsertField(pm.request.body._fields, item)
+            }
+          },
+        },
+        formdata: {
+          add: (input: unknown, value?: unknown) => {
+            for (const item of normalizeKvInput(input, value)) {
+              upsertField(pm.request.body._formdata, item)
+            }
+          },
+        },
       },
       url: {
         _url: currentUrl,
         set(val: string) { this._url = val },
         get() { return this._url },
-        addQueryParams(key: string, value: string) {
-          const sep = this._url.includes('?') ? '&' : '?'
-          this._url += sep + encodeURIComponent(key) + '=' + encodeURIComponent(value)
+        addQueryParams(input: unknown, value?: unknown) {
+          const fields = normalizeKvInput(input, value).filter(item => item.enabled)
+          for (const field of fields) {
+            const sep = this._url.includes('?') ? '&' : '?'
+            this._url += sep + encodeURIComponent(field.key) + '=' + encodeURIComponent(field.value)
+          }
         },
       },
     },
@@ -314,6 +368,28 @@ export function executePostResponseScript(
       match(pattern: string | RegExp) {
         const regex = typeof pattern === 'string' ? new RegExp(pattern) : pattern
         return regex.test(responseData.body)
+      },
+      to: {
+        have: {
+          status(expected: number) {
+            if (responseData.status !== expected) {
+              throw new Error(`expected status ${expected} but got ${responseData.status}`)
+            }
+          },
+          header(key: string) {
+            if (!(key.toLowerCase() in responseData.headers)) {
+              throw new Error(`expected response to have header ${key}`)
+            }
+          },
+          body(expected: string | RegExp) {
+            const matched = typeof expected === 'string'
+              ? responseData.body.includes(expected)
+              : expected.test(responseData.body)
+            if (!matched) {
+              throw new Error('expected response body to match')
+            }
+          },
+        },
       },
     },
     environment: {

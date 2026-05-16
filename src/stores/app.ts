@@ -145,6 +145,25 @@ export const useAppStore = defineStore('app', () => {
     db.history.clear().catch(e => console.error('Failed to clear history in IndexedDB:', e))
   }
 
+  async function upsertEnvironment(env: Environment): Promise<void> {
+    const idx = environments.value.findIndex(e => e.id === env.id)
+    if (idx === -1) {
+      environments.value.push(env)
+    } else {
+      environments.value[idx] = env
+    }
+    currentEnvId.value = env.id
+    await db.environments.put(env)
+  }
+
+  async function deleteEnvironment(id: string): Promise<void> {
+    environments.value = environments.value.filter(e => e.id !== id)
+    if (currentEnvId.value === id) {
+      currentEnvId.value = environments.value[0]?.id ?? null
+    }
+    await db.environments.delete(id)
+  }
+
   function getEnvVariables(): Record<string, string> {
     const env = environments.value.find(e => e.id === currentEnvId.value)
     const vars: Record<string, string> = {}
@@ -160,7 +179,18 @@ export const useAppStore = defineStore('app', () => {
     const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
     for (const [key, value] of Object.entries(module?.variables ?? {})) {
       if (value.remote) vars[key] = value.remote
+      if (currentEnvId.value && value.environmentValues?.[currentEnvId.value]) {
+        vars[key] = value.environmentValues[currentEnvId.value]
+      }
       if (value.local) vars[key] = value.local
+    }
+    for (const item of workspace.modules) {
+      for (const [key, value] of Object.entries(item.variables ?? {})) {
+        const scopedValue = (currentEnvId.value && value.environmentValues?.[currentEnvId.value])
+          || value.local
+          || value.remote
+        if (scopedValue) vars[`${item.name}.${key}`] = scopedValue
+      }
     }
     return vars
   }
@@ -180,6 +210,7 @@ export const useAppStore = defineStore('app', () => {
     history, settings, expandedFolders, scriptLogs, autoCarryCookies,
     init, getCurrentApi, updateApi, addApi, deleteApi,
     addHistory, toggleStar, deleteHistoryEntry, clearHistory,
+    upsertEnvironment, deleteEnvironment,
     getEnvVariables, saveGroupOrder, saveSettings,
   }
 })

@@ -65,6 +65,10 @@ export function resolveTemplateVars(
         const v = env.variables.find(v => v.key === varName && v.enabled)
         if (v) return v.value
       }
+      if (scopes.requestVars && expr in scopes.requestVars) return scopes.requestVars[expr]
+      if (scopes.localVars && expr in scopes.localVars) return scopes.localVars[expr]
+      if (scopes.remoteVars && expr in scopes.remoteVars) return scopes.remoteVars[expr]
+      if (scopes.globalVars && expr in scopes.globalVars) return scopes.globalVars[expr]
       return match
     }
 

@@ -121,9 +121,18 @@ export interface ModuleVariableValue {
   remote: string
   local: string
   description?: string
+  environmentValues?: Record<string, string>
 }
 
 export type ModuleVariables = Record<string, ModuleVariableValue>
+
+export interface ModuleDataSource {
+  type: 'swagger' | 'openapi' | 'custom'
+  url: string
+  syncStrategy: 'manual' | 'auto' | 'webhook'
+  fieldMapping: Record<string, string>
+  lastSyncAt?: number
+}
 
 export interface Module {
   id: string
@@ -132,6 +141,7 @@ export interface Module {
   type?: ModuleType
   description?: string
   variables?: ModuleVariables
+  dataSource?: ModuleDataSource | null
   order: number
   legacyGroupName?: string
   createdAt: number

@@ -1,5 +1,20 @@
-# Vue 3 + TypeScript + Vite
+# ApiFix Bin Pro
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+轻量 API 调试工作台。支持请求编辑、环境变量、cURL/Postman/OpenAPI 导入、响应查看、历史记录、代码生成、Chrome 扩展与 Electron 桌面端打包。
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## 常用命令
+
+```bash
+npm run typecheck
+npm run build
+npm run build:ext
+npm run build:desktop
+```
+
+桌面端本地运行：
+
+```bash
+cd desktop
+npm install
+npm start
+```

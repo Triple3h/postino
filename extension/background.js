@@ -1,10 +1,30 @@
 /**
  * ApiFix Bin - Background Service Worker
- * 通过 chrome.runtime.sendMessage 处理来自popup的跨域请求
+ * 通过 chrome.runtime.sendMessage 处理来自popup的跨域请求，并协调浏览器原生入口。
  */
 
 // Active stream controllers for cancellation
 const _activeStreams = new Map();
+const _recentWebRequests = new Map();
+
+const PENDING_IMPORT_KEY = 'apifix_pending_import';
+const RECENT_WEB_REQUESTS_KEY = 'apifix_recent_web_requests';
+const MAX_RECENT_WEB_REQUESTS = 50;
+
+const CONTEXT_MENU_IDS = {
+  sendSelectionToSidePanel: 'apifix-send-selection-sidepanel',
+  sendPageToSidePanel: 'apifix-send-page-sidepanel',
+  openSidePanel: 'apifix-open-sidepanel',
+  openFullPage: 'apifix-open-full-page',
+};
+
+chrome.runtime.onInstalled.addListener(() => {
+  createContextMenus();
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  createContextMenus();
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'API_REQUEST') {
@@ -39,6 +59,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'STORE_PENDING_IMPORT') {
+    storePendingImport(message.data, sender)
+      .then(result => sendResponse({ success: true, data: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'GET_PENDING_IMPORT') {
+    getPendingImport()
+      .then(result => sendResponse({ success: true, data: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'CLEAR_PENDING_IMPORT') {
+    chrome.storage.local.remove(PENDING_IMPORT_KEY, () => sendResponse({ success: true }));
+    return true;
+  }
+
+  if (message.type === 'OPEN_SIDE_PANEL') {
+    openSidePanelForSender(sender)
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'OPEN_FULL_PAGE') {
+    openFullPage(message.importId)
+      .then(tab => sendResponse({ success: true, data: { tabId: tab?.id } }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'GET_RECENT_WEB_REQUESTS') {
+    getRecentWebRequests()
+      .then(result => sendResponse({ success: true, data: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (message.type === 'CANCEL_REQUEST') {
     // 预留：取消请求
     sendResponse({ success: true });
@@ -46,17 +106,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === CONTEXT_MENU_IDS.openFullPage) {
+    await openFullPage();
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_IDS.openSidePanel) {
+    await openSidePanelForTab(tab);
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_IDS.sendSelectionToSidePanel) {
+    const context = await collectPageContext(tab, info.selectionText || '', 'selection');
+    await storePendingImport({ source: 'context-menu-selection', context }, { tab });
+    await openSidePanelForTab(tab);
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_IDS.sendPageToSidePanel) {
+    const context = await collectPageContext(tab, '', 'page');
+    await storePendingImport({ source: 'context-menu-page', context }, { tab });
+    await openSidePanelForTab(tab);
+  }
+});
+
 chrome.commands?.onCommand.addListener(async (command) => {
   if (command === 'open-full-page') {
-    await chrome.tabs.create({ url: chrome.runtime.getURL('main.html') });
+    await openFullPage();
     return;
   }
 
   if (command === 'open-side-panel') {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.windowId != null) {
-      await chrome.sidePanel.open({ windowId: tab.windowId });
-    }
+    await openSidePanelForTab(tab);
     return;
   }
 
@@ -64,6 +147,183 @@ chrome.commands?.onCommand.addListener(async (command) => {
     await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
   }
 });
+
+chrome.webRequest?.onBeforeRequest.addListener(
+  details => {
+    if (details.type === 'main_frame' || details.url.startsWith('chrome-extension://')) return;
+    upsertRecentWebRequest(details.requestId, {
+      requestId: details.requestId,
+      tabId: details.tabId,
+      method: details.method,
+      url: details.url,
+      type: details.type,
+      startedAt: Date.now(),
+    });
+  },
+  { urls: ['<all_urls>'] },
+  ['requestBody']
+);
+
+chrome.webRequest?.onBeforeSendHeaders.addListener(
+  details => {
+    upsertRecentWebRequest(details.requestId, {
+      requestHeaders: normalizeChromeHeaders(details.requestHeaders || []),
+    });
+  },
+  { urls: ['<all_urls>'] },
+  ['requestHeaders', 'extraHeaders']
+);
+
+chrome.webRequest?.onCompleted.addListener(
+  details => {
+    upsertRecentWebRequest(details.requestId, {
+      statusCode: details.statusCode,
+      statusLine: details.statusLine,
+      completedAt: Date.now(),
+      fromCache: details.fromCache,
+      responseHeaders: normalizeChromeHeaders(details.responseHeaders || []),
+    });
+  },
+  { urls: ['<all_urls>'] },
+  ['responseHeaders', 'extraHeaders']
+);
+
+chrome.webRequest?.onErrorOccurred.addListener(
+  details => {
+    upsertRecentWebRequest(details.requestId, {
+      error: details.error,
+      completedAt: Date.now(),
+    });
+  },
+  { urls: ['<all_urls>'] }
+);
+
+function createContextMenus() {
+  if (!chrome.contextMenus) return;
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.sendSelectionToSidePanel,
+      title: '发送选中文本到 ApiFix 侧边栏',
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.sendPageToSidePanel,
+      title: '发送当前页面上下文到 ApiFix',
+      contexts: ['page'],
+    });
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.openSidePanel,
+      title: '打开 ApiFix 侧边栏',
+      contexts: ['action', 'page'],
+    });
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.openFullPage,
+      title: '打开 ApiFix 全屏页',
+      contexts: ['action', 'page'],
+    });
+  });
+}
+
+async function collectPageContext(tab, fallbackSelection, mode) {
+  const base = {
+    mode,
+    selectionText: fallbackSelection || '',
+    pageUrl: tab?.url || '',
+    pageTitle: tab?.title || '',
+    capturedAt: Date.now(),
+  };
+
+  if (!tab?.id) return base;
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'APIFIX_COLLECT_PAGE_CONTEXT',
+      mode,
+      selectionText: fallbackSelection || '',
+    });
+    return { ...base, ...(response?.data || response || {}) };
+  } catch (err) {
+    return base;
+  }
+}
+
+async function storePendingImport(data, sender = {}) {
+  const pendingImport = normalizePendingImport(data, sender);
+  await chrome.storage.local.set({ [PENDING_IMPORT_KEY]: pendingImport });
+  chrome.runtime.sendMessage({ type: 'PENDING_IMPORT_UPDATED', data: pendingImport }).catch(() => {});
+  return pendingImport;
+}
+
+async function getPendingImport() {
+  const result = await chrome.storage.local.get(PENDING_IMPORT_KEY);
+  return result[PENDING_IMPORT_KEY] || null;
+}
+
+function normalizePendingImport(data = {}, sender = {}) {
+  const tab = sender.tab || data.tab || null;
+  return {
+    id: data.id || `import_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    source: data.source || 'extension',
+    createdAt: Date.now(),
+    tab: tab ? {
+      id: tab.id,
+      url: tab.url,
+      title: tab.title,
+      windowId: tab.windowId,
+    } : undefined,
+    request: data.request || null,
+    context: data.context || null,
+    raw: data.raw || null,
+  };
+}
+
+async function openSidePanelForSender(sender) {
+  if (sender?.tab) return openSidePanelForTab(sender.tab);
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return openSidePanelForTab(tab);
+}
+
+async function openSidePanelForTab(tab) {
+  if (!tab?.windowId) throw new Error('未找到可打开侧边栏的窗口');
+  await chrome.sidePanel.open({ windowId: tab.windowId });
+}
+
+async function openFullPage(importId) {
+  const suffix = importId ? `?pendingImport=${encodeURIComponent(importId)}` : '';
+  return chrome.tabs.create({ url: chrome.runtime.getURL(`main.html${suffix}`) });
+}
+
+function normalizeChromeHeaders(headers) {
+  return headers.map(header => ({
+    key: header.name || header.key || '',
+    value: header.value || '',
+  })).filter(header => header.key);
+}
+
+function upsertRecentWebRequest(requestId, patch) {
+  if (!requestId) return;
+  const previous = _recentWebRequests.get(requestId) || { requestId };
+  const next = { ...previous, ...patch, updatedAt: Date.now() };
+  _recentWebRequests.set(requestId, next);
+
+  const sorted = [..._recentWebRequests.values()]
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  if (sorted.length > MAX_RECENT_WEB_REQUESTS) {
+    for (const item of sorted.slice(MAX_RECENT_WEB_REQUESTS)) {
+      _recentWebRequests.delete(item.requestId);
+    }
+  }
+
+  chrome.storage.local.set({ [RECENT_WEB_REQUESTS_KEY]: sorted.slice(0, MAX_RECENT_WEB_REQUESTS) }).catch(() => {});
+}
+
+async function getRecentWebRequests() {
+  const memoryItems = [..._recentWebRequests.values()]
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  if (memoryItems.length) return memoryItems;
+  const stored = await chrome.storage.local.get(RECENT_WEB_REQUESTS_KEY);
+  return stored[RECENT_WEB_REQUESTS_KEY] || [];
+}
 
 async function handleApiRequest(data) {
   const { method, url, headers, body, bodyType } = data;

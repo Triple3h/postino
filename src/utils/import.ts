@@ -126,7 +126,11 @@ function tokenizeCurl(input: string): string[] {
     }
 
     if (ch === '\\') {
-      if (inDouble) {
+      if (!inSingle && !inDouble && input[i + 1] === '\r' && input[i + 2] === '\n') {
+        i += 2
+      } else if (!inSingle && !inDouble && input[i + 1] === '\n') {
+        i++
+      } else if (inDouble) {
         escaped = true
       } else {
         current += ch
@@ -289,6 +293,132 @@ export function importPostman(jsonStr: string): ApiConfig[] {
         return api ? { ...api, folder } : null
       })
       .filter((a): a is ApiConfig => a !== null)
+  } catch {
+    return []
+  }
+}
+
+// ── HAR Parser ──
+
+interface HarHeader {
+  name?: string
+  key?: string
+  value?: string
+}
+
+interface HarPostDataParam {
+  name?: string
+  value?: string
+}
+
+interface HarPostData {
+  mimeType?: string
+  text?: string
+  params?: HarPostDataParam[]
+}
+
+interface HarRequest {
+  method?: string
+  url?: string
+  headers?: HarHeader[]
+  queryString?: HarHeader[]
+  postData?: HarPostData
+}
+
+interface HarEntry {
+  request?: HarRequest
+  startedDateTime?: string
+}
+
+interface HarArchive {
+  log?: {
+    entries?: HarEntry[]
+  }
+}
+
+function headerName(header: HarHeader): string {
+  return header.name ?? header.key ?? ''
+}
+
+function convertHarBody(postData?: HarPostData): BodyConfig {
+  if (!postData) {
+    return { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' }
+  }
+
+  const mimeType = postData.mimeType || ''
+  if (mimeType.includes('application/x-www-form-urlencoded')) {
+    return {
+      type: 'urlencoded',
+      raw: '',
+      formData: [],
+      urlEncoded: (postData.params || []).map(param => ({
+        key: param.name || '',
+        value: param.value || '',
+        enabled: true,
+      })),
+      binaryFile: null,
+      contentType: 'application/x-www-form-urlencoded',
+    }
+  }
+
+  if (mimeType.includes('multipart/form-data')) {
+    return {
+      type: 'form',
+      raw: '',
+      formData: (postData.params || []).map(param => ({
+        key: param.name || '',
+        value: param.value || '',
+        enabled: true,
+      })),
+      urlEncoded: [],
+      binaryFile: null,
+      contentType: '',
+    }
+  }
+
+  return {
+    type: mimeType.includes('json') ? 'json' : 'raw',
+    raw: postData.text || '',
+    formData: [],
+    urlEncoded: [],
+    binaryFile: null,
+    contentType: mimeType || (postData.text ? 'text/plain' : ''),
+  }
+}
+
+export function importHar(jsonStr: string): ApiConfig[] {
+  try {
+    const archive: HarArchive = JSON.parse(jsonStr)
+    const entries = archive.log?.entries
+    if (!Array.isArray(entries)) return []
+
+    return entries
+      .map((entry, index) => {
+        const req = entry.request
+        if (!req?.url) return null
+        const method = (req.method || 'GET').toUpperCase() as HttpMethod
+        const url = req.url
+        const urlWithoutQuery = url.split('?')[0] || url
+
+        const headers: KvPair[] = (req.headers || [])
+          .filter(h => headerName(h) && headerName(h).toLowerCase() !== 'cookie')
+          .map(h => ({ key: headerName(h), value: h.value || '', enabled: true }))
+
+        const params: KvPair[] = (req.queryString || [])
+          .filter(p => headerName(p))
+          .map(p => ({ key: headerName(p), value: p.value || '', enabled: true }))
+
+        return createDefaultApi({
+          name: `${method} ${new URL(url, 'http://localhost').pathname || `HAR Request ${index + 1}`}`,
+          method,
+          url: urlWithoutQuery,
+          headers,
+          params,
+          body: convertHarBody(req.postData),
+          folder: entry.startedDateTime ? new Date(entry.startedDateTime).toLocaleDateString() : 'HAR 导入',
+        })
+      })
+      .filter((api): api is ApiConfig => api !== null)
   } catch {
     return []
   }

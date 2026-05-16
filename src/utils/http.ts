@@ -101,8 +101,18 @@ function buildHeaders(headers: KvPair[], auth: AuthConfig, envVars: Record<strin
   return result
 }
 
+function joinRequestPrefix(prefix: string, path: string): string {
+  const cleanPrefix = prefix.replace(/\/+$/, '')
+  const cleanPath = path.startsWith('/') ? path : `/${path}`
+  return `${cleanPrefix}${cleanPath}`
+}
+
 function buildUrl(baseUrl: string, params: KvPair[], auth: AuthConfig, envVars: Record<string, string>): string {
   let url = resolveValue(baseUrl, envVars)
+  const requestPrefix = envVars.requestPrefix || envVars.baseUrl
+  if (requestPrefix && url.startsWith('/')) {
+    url = joinRequestPrefix(resolveValue(requestPrefix, envVars), url)
+  }
 
   const queryParts: string[] = []
   const urlObj = new URL(url.startsWith('http') ? url : `http://${url}`)

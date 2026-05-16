@@ -94,7 +94,16 @@ function buildExtension() {
 
   // 复制扩展专用文件
   const extDir = join(ROOT, 'extension')
-  const extFiles = ['manifest.json', 'background.js', 'sandbox.html']
+  const extFiles = [
+    'manifest.json',
+    'background.js',
+    'content.js',
+    'devtools.html',
+    'devtools.js',
+    'devtools-panel.html',
+    'devtools-panel.js',
+    'sandbox.html',
+  ]
   for (const f of extFiles) {
     const src = join(extDir, f)
     if (existsSync(src)) {

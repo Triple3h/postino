@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { importCurl, importPostman } from '@/utils/import'
+import { importCurl, importHar, importPostman } from '@/utils/import'
 import { importOpenApi } from '@/utils/openapi-import'
 import { db } from '@/db'
 import { useDialog } from '@/composables/useDialog'
@@ -13,7 +13,7 @@ const workspace = useWorkspaceStore()
 const dialog = useDialog()
 const searchQuery = ref('')
 const showImportModal = ref(false)
-const importType = ref<'curl' | 'postman' | 'openapi'>('curl')
+const importType = ref<'curl' | 'postman' | 'openapi' | 'har'>('curl')
 const importText = ref('')
 const selectedCategoryId = computed(() => {
   if (workspace.activeSelectionType === 'category') return workspace.activeSelectionId
@@ -312,6 +312,14 @@ async function doImport() {
     if (apis.length > 0) {
       selectApi(apis[0].id)
     }
+  } else if (importType.value === 'har') {
+    const apis = importHar(importText.value)
+    for (const api of apis) {
+      await addApiToModule(api, api.folder)
+    }
+    if (apis.length > 0) {
+      selectApi(apis[0].id)
+    }
   }
 
   showImportModal.value = false
@@ -414,11 +422,12 @@ async function doImport() {
           <button :class="['btn btn-sm', { active: importType === 'curl' }]" @click="importType = 'curl'">cURL</button>
           <button :class="['btn btn-sm', { active: importType === 'postman' }]" @click="importType = 'postman'">Postman</button>
           <button :class="['btn btn-sm', { active: importType === 'openapi' }]" @click="importType = 'openapi'">OpenAPI</button>
+          <button :class="['btn btn-sm', { active: importType === 'har' }]" @click="importType = 'har'">HAR</button>
         </div>
         <textarea
           v-model="importText"
           class="import-textarea"
-          :placeholder="importType === 'curl' ? '粘贴 cURL 命令...' : importType === 'postman' ? '粘贴 Postman Collection JSON...' : '粘贴 OpenAPI / Swagger JSON...'"
+          :placeholder="importType === 'curl' ? '粘贴 cURL 命令...' : importType === 'postman' ? '粘贴 Postman Collection JSON...' : importType === 'openapi' ? '粘贴 OpenAPI / Swagger JSON...' : '粘贴浏览器导出的 HAR JSON...'"
           spellcheck="false"
         ></textarea>
         <div class="modal-actions">

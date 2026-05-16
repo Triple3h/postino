@@ -7,7 +7,10 @@
     "storage",
     "activeTab",
     "cookies",
-    "sidePanel"
+    "sidePanel",
+    "webRequest",
+    "contextMenus",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -31,6 +34,14 @@
   "side_panel": {
     "default_path": "sidepanel.html"
   },
+  "devtools_page": "devtools.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "commands": {
     "open-popup": {
       "suggested_key": {

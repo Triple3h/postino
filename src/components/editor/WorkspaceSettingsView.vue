@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { generateMarkdownDoc, generateOpenApiSpec } from '@/utils/export'
-import type { ApiConfig, ModuleType, ModuleVariables } from '@/types'
+import type { ApiConfig, ModuleDataSource, ModuleType, ModuleVariables } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -15,6 +15,10 @@ const moduleName = ref('')
 const moduleCategoryId = ref('')
 const moduleDescription = ref('')
 const moduleType = ref<ModuleType>('generic')
+const dataSourceType = ref<ModuleDataSource['type']>('openapi')
+const dataSourceUrl = ref('')
+const dataSourceSyncStrategy = ref<ModuleDataSource['syncStrategy']>('manual')
+const dataSourceMappingText = ref('operationId=接口名称\nsummary=接口描述\ntags[0]=文件夹分类')
 const activeModuleTab = ref<'overview' | 'variables' | 'settings'>('overview')
 const saveMessage = ref('')
 let messageTimer: ReturnType<typeof setTimeout> | null = null
@@ -24,6 +28,7 @@ interface VariableRow {
   remote: string
   local: string
   description: string
+  environmentValues: Record<string, string>
 }
 
 const variableRows = ref<VariableRow[]>([])
@@ -100,6 +105,12 @@ watch(activeModule, (module) => {
   moduleCategoryId.value = module?.categoryId ?? ''
   moduleDescription.value = module?.description ?? ''
   moduleType.value = module?.type ?? 'generic'
+  dataSourceType.value = module?.dataSource?.type ?? 'openapi'
+  dataSourceUrl.value = module?.dataSource?.url ?? ''
+  dataSourceSyncStrategy.value = module?.dataSource?.syncStrategy ?? 'manual'
+  dataSourceMappingText.value = module?.dataSource?.fieldMapping
+    ? Object.entries(module.dataSource.fieldMapping).map(([source, target]) => `${source}=${target}`).join('\n')
+    : 'operationId=接口名称\nsummary=接口描述\ntags[0]=文件夹分类'
   variableRows.value = moduleVariablesToRows(module?.variables)
   activeModuleTab.value = 'overview'
   clearMessage()
@@ -133,6 +144,7 @@ function moduleVariablesToRows(variables?: ModuleVariables): VariableRow[] {
     remote: value.remote ?? '',
     local: value.local ?? '',
     description: value.description ?? '',
+    environmentValues: { ...(value.environmentValues ?? {}) },
   }))
 }
 
@@ -145,9 +157,43 @@ function rowsToModuleVariables(): ModuleVariables {
       remote: row.remote,
       local: row.local,
       description: row.description,
+      environmentValues: { ...row.environmentValues },
     }
   }
   return variables
+}
+
+function parseFieldMapping(text: string): Record<string, string> {
+  const mapping: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const idx = trimmed.indexOf('=')
+    if (idx <= 0) continue
+    mapping[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim()
+  }
+  return mapping
+}
+
+function buildDataSource(existing?: ModuleDataSource | null): ModuleDataSource | null {
+  const url = dataSourceUrl.value.trim()
+  if (!url) return null
+  return {
+    type: dataSourceType.value,
+    url,
+    syncStrategy: dataSourceSyncStrategy.value,
+    fieldMapping: parseFieldMapping(dataSourceMappingText.value),
+    lastSyncAt: existing?.lastSyncAt,
+  }
+}
+
+function setModuleType(nextType: ModuleType) {
+  if (nextType === moduleType.value) return
+  const needsConfirm = moduleType.value === 'readonly' || nextType === 'readonly' || nextType === 'openapi-yaml'
+  if (needsConfirm && !window.confirm('切换模块类型后，部分编辑能力或展示方式可能变化。确认切换？')) {
+    return
+  }
+  moduleType.value = nextType
 }
 
 async function saveCategory() {
@@ -174,12 +220,34 @@ async function saveModuleSettings(message = '模块设置已保存') {
     categoryId: moduleCategoryId.value,
     type: moduleType.value,
     description: moduleDescription.value.trim(),
+    dataSource: buildDataSource(module.dataSource),
     order: moved
       ? workspace.modules.filter(item => item.categoryId === moduleCategoryId.value && item.id !== module.id).length
       : module.order,
   })
   workspace.selectModule(module.id)
   showSaved(message)
+}
+
+async function disconnectDataSource() {
+  const module = activeModule.value
+  if (!module) return
+  dataSourceUrl.value = ''
+  await workspace.updateModule(module.id, { dataSource: null })
+  showSaved('已断开数据源')
+}
+
+async function syncDataSourceNow() {
+  const module = activeModule.value
+  if (!module) return
+  const dataSource = buildDataSource(module.dataSource)
+  if (!dataSource) {
+    showSaved('请先填写数据源 URL')
+    return
+  }
+  dataSource.lastSyncAt = Date.now()
+  await workspace.updateModule(module.id, { dataSource })
+  showSaved('已记录同步时间')
 }
 
 async function saveModuleVariables() {
@@ -190,7 +258,7 @@ async function saveModuleVariables() {
 }
 
 function addVariableRow() {
-  variableRows.value.push({ key: '', remote: '', local: '', description: '' })
+  variableRows.value.push({ key: '', remote: '', local: '', description: '', environmentValues: {} })
 }
 
 function deleteVariableRow(index: number) {
@@ -264,6 +332,57 @@ function openInterface(apiId: string) {
   workspace.selectInterface(interfaceNode?.id ?? apiId)
   store.currentApiId = apiId
 }
+
+function getModuleRequestPrefix(moduleId: string, envId: string): string {
+  const module = workspace.modules.find(item => item.id === moduleId)
+  return module?.variables?.baseUrl?.environmentValues?.[envId] ?? ''
+}
+
+async function saveCategoryModulePrefixes() {
+  try {
+    const inputs = Array.from(document.querySelectorAll('.module-prefix-table .prefix-input')) as HTMLInputElement[]
+    const grouped = new Map<string, Record<string, string>>()
+
+    for (const input of inputs) {
+      const moduleId = input.dataset.moduleId
+      const envId = input.dataset.envId
+      if (!moduleId || !envId) continue
+      const values = grouped.get(moduleId) ?? {}
+      values[envId] = input.value.trim()
+      grouped.set(moduleId, values)
+    }
+
+    for (const [moduleId, envValues] of grouped.entries()) {
+      const module = workspace.modules.find(item => item.id === moduleId)
+      if (!module) continue
+      const variables: ModuleVariables = { ...(module.variables ?? {}) }
+      const baseUrl = variables.baseUrl ?? {
+        remote: '',
+        local: '',
+        description: '该模块在不同环境下的请求前缀',
+        environmentValues: {},
+      }
+      const environmentValues = { ...(baseUrl.environmentValues ?? {}) }
+      for (const [envId, value] of Object.entries(envValues)) {
+        if (value) {
+          environmentValues[envId] = value
+        } else {
+          delete environmentValues[envId]
+        }
+      }
+      variables.baseUrl = {
+        ...baseUrl,
+        description: baseUrl.description || '该模块在不同环境下的请求前缀',
+        environmentValues,
+      }
+      await workspace.updateModule(moduleId, { variables })
+    }
+
+    showSaved('模块请求前缀已保存')
+  } catch (err: any) {
+    showSaved('模块请求前缀保存失败')
+  }
+}
 </script>
 
 <template>
@@ -315,6 +434,58 @@ function openInterface(apiId: string) {
             <small>{{ workspace.interfaces.filter(item => item.moduleId === module.id).length }} 个接口 · {{ moduleTypes.find(item => item.value === (module.type ?? 'generic'))?.title }}</small>
           </button>
           <div v-if="selectedCategoryModuleCount === 0" class="empty-hint">该分组下暂无模块。</div>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <div class="section-heading-row">
+          <div>
+            <h3>子模块环境请求前缀</h3>
+            <p>为该分组下每个模块配置不同环境的 baseUrl。接口 URL 可写成 <code>/path</code> 自动拼接前缀，也可显式使用 <code>&#123;&#123;baseUrl&#125;&#125;/path</code>。</p>
+          </div>
+          <button
+            v-if="store.environments.length > 0 && categoryModules.length > 0"
+            class="btn btn-sm btn-primary"
+            @click="saveCategoryModulePrefixes"
+          >
+            保存请求前缀
+          </button>
+        </div>
+
+        <div v-if="store.environments.length === 0" class="empty-hint prefix-empty">
+          还没有环境。请先在右上角“环境设置”中新建测试、预发或生产环境。
+        </div>
+
+        <div v-else-if="categoryModules.length === 0" class="empty-hint prefix-empty">
+          该分组下暂无模块，创建模块后即可配置请求前缀。
+        </div>
+
+        <div v-else class="module-prefix-table">
+          <div class="module-prefix-head" :style="{ gridTemplateColumns: `180px repeat(${store.environments.length}, minmax(190px, 1fr))` }">
+            <span>子模块</span>
+            <span v-for="env in store.environments" :key="env.id">{{ env.name }}</span>
+          </div>
+          <div
+            v-for="module in categoryModules"
+            :key="module.id"
+            class="module-prefix-row"
+            :style="{ gridTemplateColumns: `180px repeat(${store.environments.length}, minmax(190px, 1fr))` }"
+          >
+            <div class="module-prefix-name">
+              <strong>{{ module.name }}</strong>
+              <small>{{ workspace.interfaces.filter(item => item.moduleId === module.id).length }} 个接口</small>
+            </div>
+            <input
+              v-for="env in store.environments"
+              :key="env.id"
+              type="url"
+              :data-module-id="module.id"
+              :data-env-id="env.id"
+              :value="getModuleRequestPrefix(module.id, env.id)"
+              class="prefix-input"
+              :placeholder="env.name.includes('生产') ? 'https://api.example.com' : 'https://test-api.example.com'"
+            />
+          </div>
         </div>
       </section>
     </template>
@@ -376,7 +547,7 @@ function openInterface(apiId: string) {
               v-for="item in moduleTypes"
               :key="item.value"
               :class="['type-card', { active: moduleType === item.value }]"
-              @click="moduleType = item.value"
+              @click="setModuleType(item.value)"
             >
               <span class="type-icon">{{ item.icon }}</span>
               <span><strong>{{ item.title }}</strong><small>{{ item.desc }}</small></span>
@@ -385,10 +556,41 @@ function openInterface(apiId: string) {
         </section>
 
         <div class="overview-grid">
-          <section class="settings-card muted-card">
+          <section class="settings-card">
             <h3>🔗 绑定数据源</h3>
-            <p>暂无数据源。可先通过导入 OpenAPI/Swagger 创建接口树，后续可扩展自动同步。</p>
-            <button class="btn btn-sm" disabled>+ 添加数据源</button>
+            <p>绑定 Swagger/OpenAPI/自定义接口来源，记录同步策略与字段映射。手动同步会保存最后同步时间。</p>
+            <label class="field-row">
+              <span>来源类型</span>
+              <select v-model="dataSourceType">
+                <option value="swagger">Swagger</option>
+                <option value="openapi">OpenAPI</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <label class="field-row">
+              <span>URL</span>
+              <input v-model="dataSourceUrl" type="url" placeholder="https://api.example.com/openapi.json" />
+            </label>
+            <label class="field-row">
+              <span>同步策略</span>
+              <select v-model="dataSourceSyncStrategy">
+                <option value="manual">手动同步</option>
+                <option value="auto">自动同步（每小时）</option>
+                <option value="webhook">Webhook 推送</option>
+              </select>
+            </label>
+            <label class="field-row field-row-top">
+              <span>字段映射</span>
+              <textarea v-model="dataSourceMappingText" rows="3" placeholder="operationId=接口名称"></textarea>
+            </label>
+            <p v-if="activeModule.dataSource?.lastSyncAt" class="help-text">
+              最后同步：{{ formatTime(activeModule.dataSource.lastSyncAt) }}
+            </p>
+            <div class="quick-actions">
+              <button class="btn btn-sm btn-primary" @click="saveModuleSettings('数据源已保存')">保存数据源</button>
+              <button class="btn btn-sm" @click="syncDataSourceNow">立即同步</button>
+              <button class="btn btn-sm" @click="disconnectDataSource">断开连接</button>
+            </div>
           </section>
           <section class="settings-card muted-card">
             <h3>📦 导出/备份 API 规格</h3>
@@ -737,6 +939,30 @@ function openInterface(apiId: string) {
   gap: 6px;
 }
 
+.section-heading-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-heading-row h3 {
+  margin-bottom: 4px;
+}
+
+.section-heading-row p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.section-heading-row code {
+  background: var(--bg-code);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+  padding: 1px 4px;
+}
+
 .module-list,
 .interface-list {
   display: flex;
@@ -785,6 +1011,72 @@ function openInterface(apiId: string) {
 .interface-link small {
   flex: 1.4;
   font-family: var(--font-code);
+}
+
+.prefix-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-elevated);
+}
+
+.module-prefix-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: auto;
+}
+
+.module-prefix-head,
+.module-prefix-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  min-width: max-content;
+  padding: 8px;
+}
+
+.module-prefix-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-sidebar);
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  border-bottom: 1px solid var(--divider);
+}
+
+.module-prefix-row {
+  border-bottom: 1px solid var(--divider);
+}
+
+.module-prefix-row:last-child {
+  border-bottom: none;
+}
+
+.module-prefix-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.module-prefix-name strong,
+.module-prefix-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.module-prefix-name small {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-small);
+}
+
+.prefix-input {
+  width: 100%;
+  min-height: 34px;
+  font-family: var(--font-code);
+  font-size: var(--font-size-small);
 }
 
 .variable-table {

@@ -33,30 +33,49 @@ async function addEnvironment() {
     name: name.trim(),
     variables: [],
   }
-  store.environments.push(env)
-  store.currentEnvId = env.id
+  await store.upsertEnvironment(env)
 }
 
-function deleteEnvironment(id: string) {
-  store.environments = store.environments.filter(e => e.id !== id)
-  if (store.currentEnvId === id) {
-    store.currentEnvId = store.environments[0]?.id ?? null
-  }
+async function deleteEnvironment(id: string) {
+  await store.deleteEnvironment(id)
 }
 
-function addVariable() {
+async function saveCurrentEnvironment() {
+  if (!currentEnv.value) return
+  await store.upsertEnvironment({
+    ...currentEnv.value,
+    variables: currentEnv.value.variables.map(variable => ({ ...variable })),
+  })
+}
+
+async function addVariable() {
   if (!currentEnv.value) return
   currentEnv.value.variables.push({ key: '', value: '', enabled: true })
+  await saveCurrentEnvironment()
 }
 
-function removeVariable(index: number) {
+async function removeVariable(index: number) {
   if (!currentEnv.value) return
   currentEnv.value.variables.splice(index, 1)
+  await saveCurrentEnvironment()
 }
 
-function toggleVariable(index: number) {
+async function toggleVariable(index: number) {
   if (!currentEnv.value) return
   currentEnv.value.variables[index].enabled = !currentEnv.value.variables[index].enabled
+  await saveCurrentEnvironment()
+}
+
+async function updateVariable(index: number, field: keyof EnvVariable, value: string) {
+  if (!currentEnv.value) return
+  const variable = currentEnv.value.variables[index]
+  if (!variable) return
+  if (field === 'enabled') {
+    variable.enabled = value === 'true'
+  } else {
+    variable[field] = value
+  }
+  await saveCurrentEnvironment()
 }
 
 function selectEnv(id: string) {
@@ -71,7 +90,19 @@ function selectEnv(id: string) {
     </button>
 
     <div v-if="showEnvPanel" class="env-dropdown">
-      <div class="env-list">
+      <div class="env-dropdown-header">
+        <strong>环境设置</strong>
+        <small>管理当前请求可引用的变量</small>
+      </div>
+
+      <div v-if="store.environments.length === 0" class="env-empty-state">
+        <div class="empty-icon">🌱</div>
+        <strong>还没有环境</strong>
+        <p>创建测试、预发或生产环境后，就可以在 URL、Header、Body 中使用 <code>&#123;&#123;变量名&#125;&#125;</code>。</p>
+        <button class="btn btn-sm btn-primary" @click="addEnvironment">+ 新建环境</button>
+      </div>
+
+      <div v-else class="env-list">
         <div
           v-for="env in store.environments"
           :key="env.id"
@@ -93,8 +124,20 @@ function selectEnv(id: string) {
         <div class="env-var-list">
           <div v-for="(v, i) in envVars" :key="i" class="env-var-row">
             <input type="checkbox" :checked="v.enabled" @change="toggleVariable(i)" />
-            <input type="text" v-model="v.key" placeholder="变量名" class="var-key" />
-            <input type="text" v-model="v.value" placeholder="值" class="var-value" />
+            <input
+              type="text"
+              :value="v.key"
+              placeholder="变量名"
+              class="var-key"
+              @input="updateVariable(i, 'key', ($event.target as HTMLInputElement).value)"
+            />
+            <input
+              type="text"
+              :value="v.value"
+              placeholder="值"
+              class="var-value"
+              @input="updateVariable(i, 'value', ($event.target as HTMLInputElement).value)"
+            />
             <button class="btn-icon" @click="removeVariable(i)" title="删除">×</button>
           </div>
         </div>
@@ -110,6 +153,7 @@ function selectEnv(id: string) {
 <style scoped>
 .env-panel {
   position: relative;
+  display: inline-flex;
 }
 
 .env-toggle {
@@ -121,9 +165,10 @@ function selectEnv(id: string) {
 .env-dropdown {
   position: absolute;
   top: 100%;
-  left: 0;
+  right: 0;
   margin-top: 8px;
-  width: 400px;
+  width: min(430px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   max-height: 500px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -133,6 +178,56 @@ function selectEnv(id: string) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.env-dropdown-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg-panel-elevated);
+}
+
+.env-dropdown-header strong {
+  font-size: var(--font-size-title);
+}
+
+.env-dropdown-header small {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-small);
+}
+
+.env-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.env-empty-state .empty-icon {
+  font-size: 24px;
+}
+
+.env-empty-state strong {
+  color: var(--text-primary);
+}
+
+.env-empty-state p {
+  max-width: 340px;
+  line-height: 1.6;
+  font-size: var(--font-size-small);
+}
+
+.env-empty-state code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-code);
+  color: var(--primary);
 }
 
 .env-list {

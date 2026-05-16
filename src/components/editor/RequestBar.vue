@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { sendRequest as httpSendRequest } from '@/utils/http'
 import { executePreRequestScript, executePostResponseScript } from '@/utils/pre-request'
 import type { PostResponseData } from '@/utils/pre-request'
@@ -11,9 +12,15 @@ import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
 import type { BodyConfig, HttpMethod, KvPair, ResponseData } from '@/types'
 
 const store = useAppStore()
+const workspace = useWorkspaceStore()
 const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
 
 const currentApi = computed(() => store.getCurrentApi())
+const currentModule = computed(() => {
+  const interfaceNode = workspace.interfaces.find(item => item.apiId === store.currentApiId)
+  return interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) ?? null : null
+})
+const isReadonlyModule = computed(() => currentModule.value?.type === 'readonly')
 const currentMethod = ref<HttpMethod>('GET')
 const currentUrl = ref('')
 const showExportPanel = ref(false)
@@ -33,7 +40,7 @@ watch(currentApi, (api) => {
 }, { immediate: true })
 
 watch([currentMethod, currentUrl], () => {
-  if (currentApi.value) {
+  if (currentApi.value && !isReadonlyModule.value) {
     store.updateApi(currentApi.value.id, {
       method: currentMethod.value,
       url: currentUrl.value,
@@ -227,6 +234,7 @@ function closeActionMenu() {
           @keydown.enter="send"
           @input="urlAutocomplete.handleInput()"
           @keydown="urlAutocomplete.handleKeydown($event) ? null : null"
+          :disabled="isReadonlyModule"
         />
       </div>
       <button class="btn btn-primary send-btn" @click="send" :disabled="store.loading || !currentUrl.trim()">
@@ -241,6 +249,7 @@ function closeActionMenu() {
         </div>
       </div>
     </div>
+    <div v-if="isReadonlyModule" class="readonly-hint">🔒 当前模块为只读模式：可发送请求，但接口定义只能通过导入/同步更新。</div>
   </div>
 
   <ExportPanel
