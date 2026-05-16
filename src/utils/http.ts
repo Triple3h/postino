@@ -1,4 +1,5 @@
 import type { HttpMethod, ResponseData, ApiConfig, AuthConfig, BodyConfig, KvPair, CookieItem } from '@/types'
+import { resolveTemplateVars } from '@/utils/template'
 
 export interface RequestOptions {
   method: HttpMethod
@@ -18,6 +19,10 @@ function isExtensionEnvironment(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.sendMessage
 }
 
+function getChromeRuntime() {
+  return typeof chrome !== 'undefined' ? chrome.runtime : undefined
+}
+
 function sendRequestViaExtension(data: {
   method: HttpMethod
   url: string
@@ -27,11 +32,17 @@ function sendRequestViaExtension(data: {
   formdataFields?: KvPair[]
 }): Promise<ResponseData> {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
+    const runtime = getChromeRuntime()
+    if (!runtime?.sendMessage) {
+      reject(new Error('Chrome extension runtime is unavailable'))
+      return
+    }
+
+    runtime.sendMessage(
       { type: 'API_REQUEST', data },
       (result: any) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message))
+        if (runtime.lastError) {
+          reject(new Error(runtime.lastError.message))
           return
         }
         if (!result || !result.success) {
@@ -147,7 +158,7 @@ function buildBody(body: BodyConfig, envVars: Record<string, string>): { body: B
 }
 
 function resolveValue(value: string, envVars: Record<string, string>): string {
-  return value.replace(/\{\{(\w+)\}\}/g, (_, key) => envVars[key] ?? `{{${key}}}`)
+  return resolveTemplateVars(value, { globalVars: envVars })
 }
 
 function buildCookieHeader(cookies: CookieItem[], autoCarryCookies: boolean, envVars: Record<string, string>): string {

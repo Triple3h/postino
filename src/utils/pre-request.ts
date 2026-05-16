@@ -421,7 +421,6 @@ function createExpectChain(value: unknown) {
     to: {
       get be() { return this },
       get have() { return this },
-      get equal() { return this },
       eql(expected: unknown) {
         assert(JSON.stringify(value) === JSON.stringify(expected),
           `Expected ${JSON.stringify(value)} to ${negation.value ? 'not ' : ''}deep equal ${JSON.stringify(expected)}`)

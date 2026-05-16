@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { ApiConfig, Environment, HistoryEntry, ResponseData, AppSettings, Group } from '@/types'
 import type { ScriptLog } from '@/utils/pre-request'
 import { db } from '@/db'
+import { derivePlannedWorkspaceModel } from '@/stores/workspace'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -69,6 +70,16 @@ export const useAppStore = defineStore('app', () => {
       const go = settingsList.find(s => s.key === 'groupOrder')
       if (go) {
         groupOrder.value = go.value
+      }
+
+      const plannedCount = await db.categories.count()
+      if (plannedCount === 0 && Object.keys(apiMap).length > 0) {
+        const plannedModel = derivePlannedWorkspaceModel(apiMap, groupMap, groupOrder.value)
+        await db.transaction('rw', db.categories, db.modules, db.interfaces, async () => {
+          await db.categories.bulkPut(plannedModel.categories)
+          await db.modules.bulkPut(plannedModel.modules)
+          await db.interfaces.bulkPut(plannedModel.interfaces)
+        })
       }
     } catch (e) {
       console.error('Failed to load from IndexedDB:', e)

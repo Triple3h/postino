@@ -42,7 +42,7 @@ function update(partial: Partial<AuthConfig>) {
         <input type="text" :value="auth.bearerToken" @input="update({ bearerToken: ($event.target as HTMLInputElement).value })" placeholder="输入 Bearer Token" />
       </div>
       <div class="field-hint">
-        将发送 <code>Authorization: Bearer {'{{token}}'}</code>
+        将发送 <code>Authorization: Bearer {{ auth.bearerToken || 'token' }}</code>
       </div>
     </div>
 

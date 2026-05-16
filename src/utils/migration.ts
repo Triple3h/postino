@@ -211,6 +211,7 @@ export function migrateLegacyData(): MigrationResult {
       requestHeaders: {},
       requestBody: null,
       responseSize: 0,
+      starred: false,
     }))
     result.counts.historyEntries = result.history.length
   }

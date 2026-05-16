@@ -32,6 +32,8 @@ async function send() {
       url: url.value,
       headers: [],
       params: [],
+      cookies: [],
+      autoCarryCookies: store.autoCarryCookies,
       body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
       auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
       corsMode: store.settings.corsMode,

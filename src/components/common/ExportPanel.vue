@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { ApiConfig } from '@/types'
-import { generateCurl, generatePostmanCollection, generateMarkdownDoc } from '@/utils/export'
+import { generateCurl, generatePostmanCollection, generateMarkdownDoc, generateOpenApiSpec, generateHtmlDoc } from '@/utils/export'
 
 const props = defineProps<{
   visible: boolean
@@ -13,7 +13,7 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const activeTab = ref<'curl' | 'postman' | 'markdown'>('curl')
+const activeTab = ref<'curl' | 'postman' | 'openapi' | 'markdown' | 'html'>('curl')
 const copied = ref(false)
 
 const generatedContent = computed(() => {
@@ -23,8 +23,12 @@ const generatedContent = computed(() => {
       return generateCurl(props.api, props.envVars)
     case 'postman':
       return generatePostmanCollection([props.api], props.api.name)
+    case 'openapi':
+      return generateOpenApiSpec([props.api], props.api.name)
     case 'markdown':
       return generateMarkdownDoc(props.api)
+    case 'html':
+      return generateHtmlDoc(props.api, props.envVars)
     default:
       return ''
   }
@@ -71,8 +75,16 @@ function downloadFile() {
       filename = `${props.api.name || 'collection'}.json`
       mimeType = 'application/json'
       break
+    case 'openapi':
+      filename = `${props.api.name || 'openapi'}.openapi.json`
+      mimeType = 'application/json'
+      break
     case 'markdown':
       filename = `${props.api.name || 'api'}.md`
+      break
+    case 'html':
+      filename = `${props.api.name || 'api'}.html`
+      mimeType = 'text/html'
       break
   }
 
@@ -96,7 +108,9 @@ function downloadFile() {
       <div class="export-tabs">
         <button :class="['btn btn-sm', { active: activeTab === 'curl' }]" @click="activeTab = 'curl'">cURL</button>
         <button :class="['btn btn-sm', { active: activeTab === 'postman' }]" @click="activeTab = 'postman'">Postman</button>
+        <button :class="['btn btn-sm', { active: activeTab === 'openapi' }]" @click="activeTab = 'openapi'">OpenAPI 3.0</button>
         <button :class="['btn btn-sm', { active: activeTab === 'markdown' }]" @click="activeTab = 'markdown'">Markdown</button>
+        <button :class="['btn btn-sm', { active: activeTab === 'html' }]" @click="activeTab = 'html'">HTML</button>
       </div>
       <pre class="export-content">{{ generatedContent }}</pre>
       <div class="modal-actions">

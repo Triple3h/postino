@@ -8,7 +8,7 @@ import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
-import type { HttpMethod, ResponseData } from '@/types'
+import type { BodyConfig, HttpMethod, KvPair, ResponseData } from '@/types'
 
 const store = useAppStore()
 const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
@@ -54,6 +54,14 @@ function methodColor(method: HttpMethod): string {
   return colors[method] || 'var(--text-secondary)'
 }
 
+function headerRecordToPairs(headers: Record<string, string>): KvPair[] {
+  return Object.entries(headers).map(([key, value]) => ({
+    key,
+    value,
+    enabled: true,
+  }))
+}
+
 async function send() {
   if (!currentUrl.value.trim()) return
   if (!currentApi.value) return
@@ -78,6 +86,7 @@ async function send() {
     let body = api.body.raw || ''
     let urlencoded = [...api.body.urlEncoded]
     let formdata = [...api.body.formData]
+    let effectiveEnvVars = envVars
 
     if (api.preRequestScript) {
       const scriptResult = executePreRequestScript(
@@ -94,22 +103,30 @@ async function send() {
       body = scriptResult.body
       urlencoded = scriptResult.urlencoded
       formdata = scriptResult.formdata
+      effectiveEnvVars = scriptResult.envVars
       allLogs.push(...scriptResult.logs)
+    }
+
+    const effectiveBody: BodyConfig = {
+      ...api.body,
+      raw: body,
+      urlEncoded: urlencoded,
+      formData: formdata,
     }
 
     // Send request
     const response = await httpSendRequest({
       method: api.method,
-      url: currentUrl.value,
-      headers: api.headers,
+      url,
+      headers: headerRecordToPairs(headers),
       params: api.params,
       cookies: api.cookies || [],
       autoCarryCookies: store.autoCarryCookies,
-      body: api.body,
+      body: effectiveBody,
       auth: api.auth,
       corsMode: store.settings.corsMode,
       proxyUrl: store.settings.proxyUrl,
-      envVars,
+      envVars: effectiveEnvVars,
     })
 
     store.response = response
@@ -137,9 +154,9 @@ async function send() {
     // Add to history
     store.addHistory({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-      apiId: api.id,
-      method: api.method,
-      url: currentUrl.value,
+        apiId: api.id,
+        method: api.method,
+        url,
       status: response.status,
       statusText: response.statusText,
       duration: response.duration,

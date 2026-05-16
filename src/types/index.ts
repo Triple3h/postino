@@ -105,6 +105,42 @@ export interface Group {
   apiIds: string[]
 }
 
+export interface Category {
+  id: string
+  name: string
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Module {
+  id: string
+  categoryId: string
+  name: string
+  order: number
+  legacyGroupName?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface InterfaceNode {
+  id: string
+  moduleId: string
+  apiId: string
+  name: string
+  method: HttpMethod
+  url: string
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface PlannedWorkspaceModel {
+  categories: Category[]
+  modules: Module[]
+  interfaces: InterfaceNode[]
+}
+
 export interface AppState {
   apis: Record<string, ApiConfig>
   groups: Record<string, Group>

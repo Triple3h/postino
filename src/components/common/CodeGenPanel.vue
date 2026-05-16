@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { ApiConfig } from '@/types'
-import { generatePythonRequests, generateJavaScriptFetch, generateJavaScriptAxios } from '@/utils/export'
+import { generatePythonRequests, generateJavaScriptFetch, generateJavaScriptAxios, generateJavaHttpClient } from '@/utils/export'
 
 const props = defineProps<{
   visible: boolean
@@ -13,12 +13,13 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-type CodeLang = 'python-requests' | 'js-fetch' | 'js-axios'
+type CodeLang = 'python-requests' | 'js-fetch' | 'js-axios' | 'java-httpclient'
 
 const langOptions: { value: CodeLang; label: string }[] = [
   { value: 'python-requests', label: 'Python (requests)' },
   { value: 'js-fetch', label: 'JavaScript (fetch)' },
   { value: 'js-axios', label: 'JavaScript (axios)' },
+  { value: 'java-httpclient', label: 'Java (HttpClient)' },
 ]
 
 const selectedLang = ref<CodeLang>('python-requests')
@@ -33,6 +34,8 @@ const generatedCode = computed(() => {
       return generateJavaScriptFetch(props.api, props.envVars)
     case 'js-axios':
       return generateJavaScriptAxios(props.api, props.envVars)
+    case 'java-httpclient':
+      return generateJavaHttpClient(props.api, props.envVars)
     default:
       return ''
   }

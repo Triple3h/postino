@@ -5,6 +5,8 @@
   "description": "轻量级接口调试工具 — 无需登录，支持cURL/Postman导入，本地存储",
   "permissions": [
     "storage",
+    "activeTab",
+    "cookies",
     "sidePanel"
   ],
   "host_permissions": [
@@ -28,6 +30,29 @@
   },
   "side_panel": {
     "default_path": "sidepanel.html"
+  },
+  "commands": {
+    "open-popup": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+A",
+        "mac": "Command+Shift+A"
+      },
+      "description": "打开 ApiFix Bin 浮窗"
+    },
+    "open-side-panel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "打开 ApiFix Bin 侧边栏"
+    },
+    "open-full-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "打开 ApiFix Bin 全屏页"
+    }
   },
   "web_accessible_resources": [
     {

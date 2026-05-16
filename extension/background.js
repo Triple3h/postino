@@ -21,7 +21,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === 'CANCEL_STREAMING') {
+  if (message.type === 'CANCEL_STREAMING' || message.type === 'CANCEL_STREAM') {
     const streamId = message.streamId;
     if (streamId && _activeStreams.has(streamId)) {
       const controller = _activeStreams.get(streamId);
@@ -43,6 +43,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // 预留：取消请求
     sendResponse({ success: true });
     return false;
+  }
+});
+
+chrome.commands?.onCommand.addListener(async (command) => {
+  if (command === 'open-full-page') {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('main.html') });
+    return;
+  }
+
+  if (command === 'open-side-panel') {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.windowId != null) {
+      await chrome.sidePanel.open({ windowId: tab.windowId });
+    }
+    return;
+  }
+
+  if (command === 'open-popup') {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
   }
 });
 
