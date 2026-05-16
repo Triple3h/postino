@@ -147,10 +147,20 @@ export const useAppStore = defineStore('app', () => {
 
   function getEnvVariables(): Record<string, string> {
     const env = environments.value.find(e => e.id === currentEnvId.value)
-    if (!env) return {}
     const vars: Record<string, string> = {}
-    for (const v of env.variables) {
-      if (v.enabled) vars[v.key] = v.value
+
+    if (env) {
+      for (const v of env.variables) {
+        if (v.enabled) vars[v.key] = v.value
+      }
+    }
+
+    const workspace = useWorkspaceStore()
+    const interfaceNode = workspace.interfaces.find(item => item.apiId === currentApiId.value)
+    const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
+    for (const [key, value] of Object.entries(module?.variables ?? {})) {
+      if (value.remote) vars[key] = value.remote
+      if (value.local) vars[key] = value.local
     }
     return vars
   }

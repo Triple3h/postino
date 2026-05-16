@@ -22,6 +22,8 @@ export const useCategoryStore = defineStore('category', () => {
     const category: Category = {
       id: input.id ?? createId(),
       name: input.name,
+      color: input.color,
+      description: input.description,
       order: input.order,
       createdAt: input.createdAt ?? now,
       updatedAt: input.updatedAt ?? now,

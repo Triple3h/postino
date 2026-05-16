@@ -49,12 +49,25 @@ function loadFromHistory(entry: typeof store.history[0]) {
   url.value = entry.url
   method.value = entry.method
 }
+
+function openFullPage() {
+  if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+    window.open(chrome.runtime.getURL('main.html'), '_blank')
+  } else {
+    window.open('/', '_blank')
+  }
+}
 </script>
 
 <template>
   <div class="popup-view">
     <div class="popup-header">
       <h2>API Fox Lite</h2>
+      <button class="btn-fullscreen" title="打开全屏页" @click="openFullPage">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 6V3a1 1 0 0 1 1-1h3M10 2h3a1 1 0 0 1 1 1v3M14 10v3a1 1 0 0 1-1 1h-3M6 14H3a1 1 0 0 1-1-1v-3"/>
+        </svg>
+      </button>
     </div>
     <div class="popup-input">
       <select v-model="method" class="method-select" :style="{ color: methodColor(method) }">
@@ -94,12 +107,35 @@ function loadFromHistory(entry: typeof store.history[0]) {
 }
 
 .popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
 .popup-header h2 {
   font-size: 16px;
   font-weight: 600;
+}
+
+.btn-fullscreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-fullscreen:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
 
 .popup-input {

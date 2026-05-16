@@ -5,6 +5,7 @@ import type { ApiConfig, Category, Group, InterfaceNode, Module as ApiModule, Pl
 
 export const DEFAULT_CATEGORY_ID = 'category:default'
 export const DEFAULT_CATEGORY_NAME = '默认分组'
+export const DEFAULT_CATEGORY_COLOR = '#6366f1'
 export const UNGROUPED_MODULE_ID = 'module:ungrouped'
 export const UNGROUPED_MODULE_NAME = '未分模块'
 
@@ -50,6 +51,7 @@ export function derivePlannedWorkspaceModel(
     categories.push({
       id: categoryId,
       name: group.name,
+      color: DEFAULT_CATEGORY_COLOR,
       order: categoryOrder,
       createdAt: now,
       updatedAt: now,
@@ -58,6 +60,8 @@ export function derivePlannedWorkspaceModel(
       id: moduleId,
       categoryId,
       name: UNGROUPED_MODULE_NAME,
+      type: 'generic',
+      variables: {},
       order: 0,
       legacyGroupName: groupName,
       createdAt: now,
@@ -90,6 +94,7 @@ export function derivePlannedWorkspaceModel(
     categories.push({
       id: DEFAULT_CATEGORY_ID,
       name: DEFAULT_CATEGORY_NAME,
+      color: DEFAULT_CATEGORY_COLOR,
       order: categories.length,
       createdAt: now,
       updatedAt: now,
@@ -99,6 +104,8 @@ export function derivePlannedWorkspaceModel(
       id: moduleId,
       categoryId: DEFAULT_CATEGORY_ID,
       name: UNGROUPED_MODULE_NAME,
+      type: 'generic',
+      variables: {},
       order: 0,
       createdAt: now,
       updatedAt: now,
@@ -123,11 +130,12 @@ export function derivePlannedWorkspaceModel(
     categories: categories.length > 0
       ? categories
       : [{
-          id: DEFAULT_CATEGORY_ID,
-          name: DEFAULT_CATEGORY_NAME,
-          order: 0,
-          createdAt: now,
-          updatedAt: now,
+        id: DEFAULT_CATEGORY_ID,
+        name: DEFAULT_CATEGORY_NAME,
+        color: DEFAULT_CATEGORY_COLOR,
+        order: 0,
+        createdAt: now,
+        updatedAt: now,
         }],
     modules,
     interfaces,
@@ -213,6 +221,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const category: Category = {
       id: DEFAULT_CATEGORY_ID,
       name: DEFAULT_CATEGORY_NAME,
+      color: DEFAULT_CATEGORY_COLOR,
       order: 0,
       createdAt: now,
       updatedAt: now,
@@ -231,6 +240,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const category: Category = {
       id: stableId('category', trimmedName),
       name: trimmedName,
+      color: DEFAULT_CATEGORY_COLOR,
       order: nextOrder(categories.value),
       createdAt: now,
       updatedAt: now,
@@ -260,6 +270,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       id: moduleId,
       categoryId: category.id,
       name: trimmedName,
+      type: 'generic',
+      variables: {},
       order: nextOrder(modules.value.filter(item => item.categoryId === category.id)),
       createdAt: now,
       updatedAt: now,
@@ -289,6 +301,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       id: moduleId,
       categoryId: DEFAULT_CATEGORY_ID,
       name: groupName,
+      type: 'generic',
+      variables: {},
       order: nextOrder(modules.value.filter(item => item.categoryId === DEFAULT_CATEGORY_ID)),
       legacyGroupName: groupName,
       createdAt: now,
@@ -310,6 +324,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       id: UNGROUPED_MODULE_ID,
       categoryId: DEFAULT_CATEGORY_ID,
       name: UNGROUPED_MODULE_NAME,
+      type: 'generic',
+      variables: {},
       order: nextOrder(modules.value.filter(item => item.categoryId === DEFAULT_CATEGORY_ID)),
       createdAt: now,
       updatedAt: now,

@@ -331,6 +331,7 @@ async function doImport() {
           @contextmenu="handleCategoryContextMenu($event, category.id)"
         >
           <span class="expand-icon" @click.stop="toggleExpanded(getCategoryStorageKey(category.id))">{{ isExpanded(getCategoryStorageKey(category.id)) ? '▼' : '▶' }}</span>
+          <span class="category-color" :style="{ backgroundColor: category.color || '#6366f1' }"></span>
           <span class="category-name">{{ category.name }}</span>
         </div>
         <template v-if="isExpanded(getCategoryStorageKey(category.id))">
@@ -373,8 +374,10 @@ async function doImport() {
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
       <button v-if="contextMenu.apiId" class="context-item" @click="deleteApi(contextMenu.apiId); closeContextMenu()">删除请求</button>
+      <button v-if="contextMenu.categoryId" class="context-item" @click="openCategory(contextMenu.categoryId); closeContextMenu()">分组设置</button>
       <button v-if="contextMenu.categoryId" class="context-item" @click="addModule(contextMenu.categoryId); closeContextMenu()">新建模块</button>
       <button v-if="contextMenu.categoryId" class="context-item" @click="deleteCategory(contextMenu.categoryId); closeContextMenu()">删除分组</button>
+      <button v-if="contextMenu.moduleId" class="context-item" @click="openModule(contextMenu.moduleId); closeContextMenu()">模块设置</button>
       <button v-if="contextMenu.moduleId" class="context-item" @click="deleteModule(contextMenu.moduleId); closeContextMenu()">删除模块</button>
     </div>
 
@@ -493,6 +496,14 @@ async function doImport() {
   font-size: 10px;
   width: 14px;
   text-align: center;
+}
+
+.category-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--bg-sidebar);
 }
 
 .category-name,

@@ -108,15 +108,30 @@ export interface Group {
 export interface Category {
   id: string
   name: string
+  color?: string
+  description?: string
   order: number
   createdAt: number
   updatedAt: number
 }
 
+export type ModuleType = 'generic' | 'openapi-yaml' | 'readonly'
+
+export interface ModuleVariableValue {
+  remote: string
+  local: string
+  description?: string
+}
+
+export type ModuleVariables = Record<string, ModuleVariableValue>
+
 export interface Module {
   id: string
   categoryId: string
   name: string
+  type?: ModuleType
+  description?: string
+  variables?: ModuleVariables
   order: number
   legacyGroupName?: string
   createdAt: number
