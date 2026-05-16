@@ -6,6 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "build:all": "node build.js --no-typecheck",
+    "build:ext": "node build.js --ext-only --no-typecheck",
+    "build:desktop": "node build.js --desktop-only --no-typecheck",
+    "build:desktop:win": "node build.js --desktop-only --win --no-typecheck",
+    "build:desktop:mac": "node build.js --desktop-only --mac --no-typecheck",
+    "build:desktop:all": "node build.js --desktop-only --all --no-typecheck",
+    "typecheck": "vue-tsc -b",
     "preview": "vite preview"
   },
   "dependencies": {

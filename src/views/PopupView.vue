@@ -86,6 +86,7 @@ function loadFromHistory(entry: typeof store.history[0]) {
 <style scoped>
 .popup-view {
   padding: 12px;
+  width: 420px;
   min-width: 360px;
   max-width: 500px;
 }

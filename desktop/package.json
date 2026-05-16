@@ -30,7 +30,8 @@
       "main.js",
       "preload.js",
       "prompt-preload.js",
-      "index.html"
+      "index.html",
+      "assets/**/*"
     ],
     "publish": {
       "provider": "github",
