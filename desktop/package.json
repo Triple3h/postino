@@ -29,7 +29,6 @@
     "files": [
       "main.js",
       "preload.js",
-      "prompt-preload.js",
       "index.html",
       "assets/**/*"
     ],
