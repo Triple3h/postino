@@ -79,8 +79,27 @@ function stableId(prefix: string, value: string): string {
   return `${prefix}:${encodeURIComponent(value)}`
 }
 
+function uniqueStableId(prefix: string, value: string, usedIds: Set<string>): string {
+  const baseId = stableId(prefix, value)
+  if (!usedIds.has(baseId)) return baseId
+
+  let index = 2
+  let candidate = stableId(prefix, `${value}-${index}`)
+  while (usedIds.has(candidate)) {
+    index += 1
+    candidate = stableId(prefix, `${value}-${index}`)
+  }
+  return candidate
+}
+
 function sortByOrder<T extends { order: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => a.order - b.order)
+}
+
+function uniqueById<T extends { id: string }>(items: T[]): T[] {
+  const byId = new Map<string, T>()
+  for (const item of items) byId.set(item.id, item)
+  return Array.from(byId.values())
 }
 
 function nextOrder<T extends { order: number }>(items: T[]): number {
@@ -259,8 +278,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       db.interfaces.orderBy('order').toArray(),
     ])
 
-    categories.value = categoryList
-    modules.value = moduleList.map(normalizeModule)
+    categories.value = uniqueById(categoryList)
+    modules.value = uniqueById(moduleList.map(normalizeModule))
     interfaces.value = interfaceList.map(normalizeInterfaceNode)
   }
 
@@ -317,7 +336,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       updatedAt: now,
     }
     await db.categories.put(category)
-    categories.value = sortByOrder([...categories.value, category])
+    categories.value = sortByOrder([...uniqueById(categories.value).filter(item => item.id !== category.id), category])
     return category
   }
 
@@ -328,7 +347,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     const now = Date.now()
     const category: Category = {
-      id: stableId('category', trimmedName),
+      id: uniqueStableId('category', trimmedName, new Set(categories.value.map(item => item.id))),
       name: trimmedName,
       color: DEFAULT_CATEGORY_COLOR,
       order: nextOrder(categories.value),
@@ -343,18 +362,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function updateCategory(id: string, updates: Partial<Omit<Category, 'id' | 'createdAt'>>): Promise<void> {
     const updatedAt = Date.now()
     await db.categories.update(id, { ...updates, updatedAt })
-    categories.value = sortByOrder(categories.value.map(category => category.id === id
+    categories.value = sortByOrder(uniqueById(categories.value.map(category => category.id === id
       ? { ...category, ...updates, updatedAt }
-      : category))
+      : category)))
   }
 
   async function addModule(categoryId: string, name: string): Promise<ApiModule> {
     const trimmedName = name.trim()
-    const moduleId = stableId('module', `${categoryId}/${trimmedName}`)
-    const existing = modules.value.find(module => module.id === moduleId)
-    if (existing) return existing
+    const existingByName = modules.value.find(module => module.categoryId === categoryId && module.name === trimmedName)
+    if (existingByName) return existingByName
 
     const category = categories.value.find(item => item.id === categoryId) ?? await ensureDefaultCategory()
+    const moduleId = uniqueStableId('module', `${category.id}/${trimmedName}`, new Set(modules.value.map(item => item.id)))
     const now = Date.now()
     const module: ApiModule = {
       id: moduleId,
@@ -373,7 +392,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     const normalized = normalizeModule(module)
     await db.modules.put(normalized)
-    modules.value = sortByOrder([...modules.value, normalized])
+    modules.value = sortByOrder([...uniqueById(modules.value).filter(item => item.id !== normalized.id), normalized])
     return normalized
   }
 
@@ -390,9 +409,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       },
     }
     await db.modules.update(id, nextUpdates)
-    modules.value = sortByOrder(modules.value.map(module => module.id === id
+    modules.value = sortByOrder(uniqueById(modules.value.map(module => module.id === id
       ? normalizeModule({ ...module, ...nextUpdates })
-      : module))
+      : module)))
   }
 
   async function ensureModuleForLegacyGroup(groupName: string): Promise<ApiModule> {

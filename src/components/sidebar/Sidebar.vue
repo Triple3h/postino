@@ -15,6 +15,10 @@ const store = useAppStore()
 const workspace = useWorkspaceStore()
 const dialog = useDialog()
 const searchQuery = ref('')
+const collapsedMoreOpen = ref(false)
+const collapsedCreateOpen = ref(false)
+const collapsedModulePreview = ref<{ moduleId: string; x: number; y: number } | null>(null)
+let collapsedPreviewTimer: ReturnType<typeof setTimeout> | null = null
 const showImportModal = ref(false)
 const importType = ref<'curl' | 'postman' | 'openapi' | 'har'>('curl')
 const importText = ref('')
@@ -105,6 +109,8 @@ function stopSidebarResize() {
 
 function toggleSidebarCollapsed() {
   sidebarCollapsed.value = !sidebarCollapsed.value
+  closeCollapsedMenus()
+  hideCollapsedModulePreview()
   if (!sidebarCollapsed.value) sidebarWidth.value = clampSidebarWidth(sidebarWidth.value || 260)
 }
 
@@ -116,6 +122,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mousemove', handleSidebarResize)
   window.removeEventListener('mouseup', stopSidebarResize)
+  if (collapsedPreviewTimer) clearTimeout(collapsedPreviewTimer)
 })
 
 interface SidebarModule extends ApiModule {
@@ -893,6 +900,164 @@ function closeContextMenu() {
   contextMenu.value = null
 }
 
+
+function closeCollapsedMenus() {
+  collapsedMoreOpen.value = false
+  collapsedCreateOpen.value = false
+}
+
+function handleSidebarRootClick() {
+  closeContextMenu()
+  closeCollapsedMenus()
+}
+
+function toggleCollapsedMore() {
+  collapsedMoreOpen.value = !collapsedMoreOpen.value
+  collapsedCreateOpen.value = false
+  hideCollapsedModulePreview()
+}
+
+function toggleCollapsedCreate() {
+  collapsedCreateOpen.value = !collapsedCreateOpen.value
+  collapsedMoreOpen.value = false
+  hideCollapsedModulePreview()
+}
+
+function openGlobalSearch() {
+  closeCollapsedMenus()
+  window.dispatchEvent(new CustomEvent('apifix:open-global-search'))
+}
+
+function openWorkspaceSettings() {
+  closeCollapsedMenus()
+  window.dispatchEvent(new CustomEvent('apifix:open-workspace-settings'))
+}
+
+function openImportModalFromCollapsed() {
+  closeCollapsedMenus()
+  showImportModal.value = true
+}
+
+function exportWorkspaceData() {
+  closeCollapsedMenus()
+  const payload = {
+    version: 'apifix-bin-pro-workspace-v1',
+    exportedAt: new Date().toISOString(),
+    apis: store.apis,
+    groups: store.groups,
+    groupOrder: store.groupOrder,
+    environments: store.environments,
+    workspace: workspace.getModel(),
+    settings: store.settings,
+  }
+  const stamp = formatBatchTimestamp().replace(/[-: ]/g, '')
+  downloadTextFile(`apifix-workspace-${stamp}.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8')
+  showToast('已导出工作区 JSON')
+}
+
+function sanitizeNavIcon(value?: string): string {
+  return Array.from((value ?? '').trim()).slice(0, 2).join('')
+}
+
+function getNameInitial(name: string): string {
+  const chars = Array.from(name.trim())
+  if (chars.length === 0) return '?'
+  const first = chars[0]
+  return /[a-z0-9]/i.test(first) ? first.toUpperCase() : chars.slice(0, Math.min(2, chars.length)).join('')
+}
+
+function getCategoryNavIcon(category: SidebarCategory | Category): string {
+  return sanitizeNavIcon(category.icon) || getNameInitial(category.name)
+}
+
+function getModuleNavIcon(module: SidebarModule | ApiModule): string {
+  return sanitizeNavIcon(module.icon) || getNameInitial(module.name)
+}
+
+function navIconStyle(icon: string | undefined, fallbackColor: string): Record<string, string> {
+  return sanitizeNavIcon(icon)
+    ? { backgroundColor: 'transparent', color: 'var(--text-primary)', boxShadow: 'none', fontSize: '17px' }
+    : { backgroundColor: fallbackColor }
+}
+
+async function setCategoryIconFromContext(categoryId: string) {
+  const category = workspace.categories.find(item => item.id === categoryId)
+  closeContextMenu()
+  if (!category) return
+  const icon = await dialog.prompt({
+    title: '设置分组图标',
+    message: '输入 1 个 Emoji 或 1-2 个字符；留空则恢复自动首字图标。',
+    placeholder: '例如：🚀',
+    defaultValue: category.icon ?? '',
+    confirmText: '保存',
+  })
+  if (icon == null) return
+  await workspace.updateCategory(categoryId, { icon: sanitizeNavIcon(icon) || undefined })
+}
+
+async function setModuleIconFromContext(moduleId: string) {
+  const module = workspace.modules.find(item => item.id === moduleId)
+  closeContextMenu()
+  if (!module) return
+  const icon = await dialog.prompt({
+    title: '设置模块图标',
+    message: '输入 1 个 Emoji 或 1-2 个字符；留空则恢复自动首字图标。',
+    placeholder: '例如：📦',
+    defaultValue: module.icon ?? '',
+    confirmText: '保存',
+  })
+  if (icon == null) return
+  await workspace.updateModule(moduleId, { icon: sanitizeNavIcon(icon) || undefined })
+}
+
+function showCollapsedModulePreview(event: MouseEvent, moduleId: string) {
+  if (!sidebarCollapsed.value) return
+  if (collapsedPreviewTimer) clearTimeout(collapsedPreviewTimer)
+  const target = event.currentTarget as HTMLElement | null
+  const rect = target?.getBoundingClientRect()
+  if (!rect) return
+  collapsedModulePreview.value = {
+    moduleId,
+    x: rect.right + 10,
+    y: Math.max(10, Math.min(rect.top - 6, window.innerHeight - 240)),
+  }
+}
+
+function hideCollapsedModulePreview() {
+  if (collapsedPreviewTimer) clearTimeout(collapsedPreviewTimer)
+  collapsedModulePreview.value = null
+}
+
+function scheduleHideCollapsedModulePreview() {
+  if (collapsedPreviewTimer) clearTimeout(collapsedPreviewTimer)
+  collapsedPreviewTimer = setTimeout(() => {
+    collapsedModulePreview.value = null
+    collapsedPreviewTimer = null
+  }, 120)
+}
+
+function keepCollapsedModulePreview() {
+  if (collapsedPreviewTimer) {
+    clearTimeout(collapsedPreviewTimer)
+    collapsedPreviewTimer = null
+  }
+}
+
+function getPreviewModule(moduleId: string): SidebarModule | null {
+  for (const category of sidebarTree.value) {
+    const module = category.modules.find(item => item.id === moduleId)
+    if (module) return module
+  }
+  return null
+}
+
+function getModulePreviewItems(moduleId: string): InterfaceNode[] {
+  return workspace.interfaces
+    .filter(item => item.moduleId === moduleId && !isFolderNode(item) && item.apiId)
+    .sort((a, b) => a.order - b.order)
+    .slice(0, 5)
+}
+
 // --- Category rename ---
 function startRenameCategory(categoryId: string) {
   const category = workspace.categories.find(item => item.id === categoryId)
@@ -1064,8 +1229,21 @@ function expandAndFocusSearch() {
 }
 
 // --- Bottom bar actions ---
+function getUniqueCategoryDraftName(baseName = '新分组'): string {
+  const usedNames = new Set(workspace.categories.map(item => item.name))
+  if (!usedNames.has(baseName)) return baseName
+
+  let index = 2
+  let candidate = `${baseName}${index}`
+  while (usedNames.has(candidate)) {
+    index += 1
+    candidate = `${baseName}${index}`
+  }
+  return candidate
+}
+
 async function handleNewCategory() {
-  const category = await workspace.addCategory('新分组')
+  const category = await workspace.addCategory(getUniqueCategoryDraftName())
   openCategory(category.id)
   startRenameCategory(category.id)
 }
@@ -1321,7 +1499,7 @@ async function doImport() {
 </script>
 
 <template>
-  <div class="sidebar" :class="{ collapsed: sidebarCollapsed, resizing: resizingSidebar }" :style="{ width: sidebarCollapsed ? undefined : sidebarWidth + 'px' }" @click="closeContextMenu">
+  <div class="sidebar" :class="{ collapsed: sidebarCollapsed, resizing: resizingSidebar }" :style="{ width: sidebarCollapsed ? undefined : sidebarWidth + 'px' }" @click="handleSidebarRootClick">
     <div class="sidebar-header">
       <div class="sidebar-title">
         <span class="sidebar-logo">⚡</span>
@@ -1345,10 +1523,7 @@ async function doImport() {
     </div>
     <div class="sidebar-actions">
       <button class="btn btn-sm btn-primary" @click="createNewApi()">+ 请求</button>
-      <button class="btn btn-sm" @click="addGroup">分组</button>
-      <button class="btn btn-sm" @click="addModule()">模块</button>
-      <button class="btn btn-sm" @click="addFolder()">文件夹</button>
-      <button class="btn btn-sm" @click="showImportModal = true">导入</button>
+      <button class="btn btn-sm" title="新建顶层分组" @click="addGroup">新增大类</button>
     </div>
     <div class="sidebar-content">
       <div v-for="category in sidebarTree" :key="category.id" class="category-section">
@@ -1364,7 +1539,8 @@ async function doImport() {
         >
           <span class="expand-icon" @click.stop="toggleExpanded(getCategoryStorageKey(category.id))">{{ isExpanded(getCategoryStorageKey(category.id)) ? '▼' : '▶' }}</span>
           <span class="category-color" :style="{ backgroundColor: category.color || '#6366f1' }"></span>
-          <span class="collapsed-badge category-collapsed-badge" :style="{ backgroundColor: category.color || '#6366f1' }">{{ category.name.charAt(0) }}</span>
+          <span class="node-kind category-kind">分组</span>
+          <span class="collapsed-badge category-collapsed-badge" :style="navIconStyle(category.icon, category.color || '#6366f1')">{{ getCategoryNavIcon(category) }}</span>
           <template v-if="renamingCategoryId === category.id">
             <input
               class="rename-input"
@@ -1379,7 +1555,7 @@ async function doImport() {
           <template v-else>
             <span class="category-name">{{ category.name }}</span>
           </template>
-          <span v-if="getCategoryModuleCount(category.id) > 0" class="count-badge category-count-badge">{{ getCategoryModuleCount(category.id) }}</span>
+
         </div>
         <template v-if="isExpanded(getCategoryStorageKey(category.id))">
           <div v-for="module in category.modules" :key="module.id" class="group-section">
@@ -1395,9 +1571,12 @@ async function doImport() {
               @dragover.prevent="markDropTarget('module-root', module.id)"
               @dragleave="clearDropTarget"
               @drop="dropNodeToModuleRoot($event, module.id)"
+              @mouseenter="showCollapsedModulePreview($event, module.id)"
+              @mouseleave="scheduleHideCollapsedModulePreview"
             >
               <span class="expand-icon" @click.stop="toggleExpanded(getModuleStorageKey(module.id))">{{ isExpanded(getModuleStorageKey(module.id)) ? '▼' : '▶' }}</span>
-              <span class="collapsed-badge module-collapsed-badge" :style="{ backgroundColor: getCategoryColorForModule(module.id) }">{{ module.name.charAt(0) }}</span>
+              <span class="node-kind module-kind">模块</span>
+              <span class="collapsed-badge module-collapsed-badge" :style="navIconStyle(module.icon, getCategoryColorForModule(module.id))">{{ getModuleNavIcon(module) }}</span>
               <template v-if="renamingModuleId === module.id">
                 <input
                   class="rename-input"
@@ -1412,13 +1591,8 @@ async function doImport() {
               <template v-else>
                 <span class="group-name">{{ module.name }}</span>
               </template>
-              <span class="group-count">· {{ module.requestCount }}</span>
-              <span v-if="module.interfaces.length > 0" class="count-badge module-count-badge">{{ module.interfaces.length }}</span>
-              <span class="module-actions">
-                <button title="发送模块全部请求" :disabled="batchSendingModuleId === module.id" @click="quickSendModule($event, module.id)">▶</button>
-                <button title="复制模块 cURL" @click="copyModuleCurl($event, module.id)">cURL</button>
-                <button title="模块设置" @click.stop="openModule(module.id)">⚙</button>
-              </span>
+
+
             </div>
             <template v-if="isExpanded(getModuleStorageKey(module.id))">
               <div
@@ -1446,7 +1620,7 @@ async function doImport() {
               >
                 <template v-if="isFolderNode(row.node)">
                   <span class="expand-icon">{{ isExpanded(getNodeStorageKey(row.node.id)) ? '▼' : '▶' }}</span>
-                  <span class="folder-icon">📁</span>
+                  <span class="node-kind folder-kind">文件夹</span>
                   <span class="folder-name">{{ row.node.name }}</span>
                   <span v-if="row.node.preRequestScript || row.node.preScript" class="script-dot" title="有文件夹前置脚本">●</span>
                 </template>
@@ -1459,10 +1633,7 @@ async function doImport() {
                     <span class="api-url api-path">{{ getApiDisplayPath(row.node) }}</span>
                     <span class="api-name">{{ getInterfaceApi(row.node)?.name ?? row.node.name }}</span>
                   </span>
-                  <span class="api-actions">
-                    <button title="快速发送" @click="quickSendApi($event, row.node.apiId)">▶</button>
-                    <button title="复制 cURL" @click="copyApiCurl($event, row.node.apiId)">cURL</button>
-                  </span>
+
                 </template>
               </div>
             </template>
@@ -1475,11 +1646,13 @@ async function doImport() {
     </div>
 
     <!-- Context Menu -->
-    <div
-      v-if="contextMenu"
-      class="context-menu"
-      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-    >
+    <Teleport to="body">
+      <div
+        v-if="contextMenu"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+      >
       <!-- API / Interface context items -->
       <template v-if="contextMenu.apiId">
         <button class="context-item" @click="sendInterfaceRequest(contextMenu.apiId)">发送请求</button>
@@ -1509,6 +1682,7 @@ async function doImport() {
       <template v-if="contextMenu.categoryId">
         <button class="context-item" @click="startRenameCategory(contextMenu.categoryId)">重命名</button>
         <button class="context-item" @click="colorPickerCategoryId = contextMenu.categoryId">修改颜色</button>
+        <button class="context-item" @click="setCategoryIconFromContext(contextMenu.categoryId)">设置 Emoji 图标</button>
         <div v-if="colorPickerCategoryId === contextMenu.categoryId" class="color-picker-row">
           <button
             v-for="color in PRESET_COLORS"
@@ -1529,12 +1703,8 @@ async function doImport() {
       <template v-if="contextMenu.moduleId">
         <button class="context-item" @click="startRenameModule(contextMenu.moduleId)">重命名</button>
         <button class="context-item" @click="duplicateModuleFromContext(contextMenu.moduleId)">复制模块</button>
+        <button class="context-item" @click="setModuleIconFromContext(contextMenu.moduleId)">设置 Emoji 图标</button>
         <button class="context-item" @click="openModule(contextMenu.moduleId); closeContextMenu()">模块设置</button>
-        <div class="context-divider"></div>
-        <button class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'serial')">发送全部（串行）</button>
-        <button class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'parallel')">发送全部（并行）</button>
-        <button class="context-item" @click="copyModuleCurlFromContext(contextMenu.moduleId)">复制模块 cURL</button>
-        <button class="context-item" @click="moveModuleToCategoryFromContext(contextMenu.moduleId)">移动到大类</button>
         <div class="context-divider"></div>
         <button class="context-item" @click="addFolder(contextMenu.moduleId); closeContextMenu()">新建文件夹</button>
         <div class="context-divider"></div>
@@ -1553,7 +1723,8 @@ async function doImport() {
         <div class="context-divider"></div>
         <button class="context-item" @click="deleteFolder(contextMenu.folderId); closeContextMenu()">删除文件夹</button>
       </template>
-    </div>
+      </div>
+    </Teleport>
 
     <!-- Folder Settings Modal -->
     <div v-if="folderSettings" class="modal-overlay" @click.self="folderSettings = null">
@@ -1652,32 +1823,67 @@ async function doImport() {
         <span></span><span></span><span></span>
       </div>
     </div>
-    <!-- Collapsed mode vertical toolbar -->
-    <div v-if="sidebarCollapsed" class="collapsed-toolbar">
-      <button class="collapsed-toolbar-btn" title="新建请求" @click="createNewApi()">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <div
+      v-if="sidebarCollapsed && collapsedModulePreview"
+      class="module-hover-preview"
+      :style="{ left: collapsedModulePreview.x + 'px', top: collapsedModulePreview.y + 'px' }"
+      @mouseenter="keepCollapsedModulePreview"
+      @mouseleave="scheduleHideCollapsedModulePreview"
+      @click.stop
+    >
+      <div class="preview-title">
+        <span>{{ getModuleNavIcon(getPreviewModule(collapsedModulePreview.moduleId) || { name: '', id: '', categoryId: '', order: 0, createdAt: 0, updatedAt: 0 }) }}</span>
+        <strong>{{ getPreviewModule(collapsedModulePreview.moduleId)?.name }}</strong>
+      </div>
+      <button
+        v-for="node in getModulePreviewItems(collapsedModulePreview.moduleId)"
+        :key="node.id"
+        class="preview-api-row"
+        @click="quickSendApi($event, node.apiId); hideCollapsedModulePreview()"
+      >
+        <span :class="['preview-method', (getInterfaceApi(node)?.method ?? node.method).toLowerCase()]">{{ getInterfaceApi(node)?.method ?? node.method }}</span>
+        <span>{{ getInterfaceApi(node)?.name ?? node.name }}</span>
       </button>
-      <button class="collapsed-toolbar-btn" title="新建文件夹" @click="addFolder()">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h4l1.5 1.5H14v8H2V4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
-      </button>
-      <button class="collapsed-toolbar-btn" title="搜索 (Ctrl+K)" @click="expandAndFocusSearch">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-      </button>
+      <div v-if="getModulePreviewItems(collapsedModulePreview.moduleId).length === 0" class="preview-empty">暂无接口</div>
     </div>
+
     <!-- Sidebar Bottom Bar -->
-    <div class="sidebar-bottom-bar">
-      <button class="bottom-bar-btn" @click="handleNewCategory" title="新建大类">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <span v-if="!sidebarCollapsed">新建大类</span>
-      </button>
-      <button class="bottom-bar-btn" @click="handleOpenEnvVars" title="环境变量">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2l-4 6 4 6h4l4-6-4-6H6z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
-        <span v-if="!sidebarCollapsed">环境变量</span>
-      </button>
-      <button class="bottom-bar-btn" @click="handleRecycleBin" title="回收站">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v4M10 7v4M4 4l.7 8.5a1 1 0 001 .9h4.6a1 1 0 001-.9L12 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span v-if="!sidebarCollapsed">回收站</span>
-      </button>
+    <div class="sidebar-bottom-bar" :class="{ collapsed: sidebarCollapsed }">
+      <template v-if="!sidebarCollapsed">
+        <button class="bottom-bar-btn" @click="handleOpenEnvVars" title="环境变量">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2l-4 6 4 6h4l4-6-4-6H6z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
+          <span>环境变量</span>
+        </button>
+        <button class="bottom-bar-btn" @click="handleRecycleBin" title="回收站">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v4M10 7v4M4 4l.7 8.5a1 1 0 001 .9h4.6a1 1 0 001-.9L12 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>回收站</span>
+        </button>
+      </template>
+      <template v-else>
+        <div class="collapsed-menu-wrap">
+          <button class="collapsed-more-btn" title="更多操作" @click.stop="toggleCollapsedMore">⋮</button>
+          <div v-if="collapsedMoreOpen" class="collapsed-popover more-popover" @click.stop>
+            <button @click="openGlobalSearch">🔍 全局搜索 <kbd>Ctrl K</kbd></button>
+            <div class="collapsed-menu-divider"></div>
+            <button @click="handleOpenEnvVars(); closeCollapsedMenus()">🌍 环境变量</button>
+            <button @click="openWorkspaceSettings">⚙️ 工作台设置</button>
+            <button @click="handleRecycleBin(); closeCollapsedMenus()">🗑️ 回收站</button>
+            <div class="collapsed-menu-divider"></div>
+            <button @click="openImportModalFromCollapsed">📥 导入数据</button>
+            <button @click="exportWorkspaceData">📤 导出数据</button>
+          </div>
+        </div>
+        <div class="collapsed-menu-wrap">
+          <button class="collapsed-fab" title="新建" @click.stop="toggleCollapsedCreate">＋</button>
+          <div v-if="collapsedCreateOpen" class="collapsed-popover create-popover" @click.stop>
+            <button @click="createNewApi(); closeCollapsedMenus()">📄 新建请求</button>
+            <button @click="addModule(); closeCollapsedMenus()">📦 新建模块</button>
+            <button @click="addFolder(); closeCollapsedMenus()">📁 新建文件夹</button>
+            <button @click="handleNewCategory(); closeCollapsedMenus()">🗂️ 新建分组</button>
+            <button @click="openImportModalFromCollapsed">📥 导入</button>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- Toast notification -->
@@ -1701,7 +1907,7 @@ async function doImport() {
   position: relative;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(16px);
-  transition: width 0.18s ease;
+  transition: width 0.2s ease-out;
 }
 
 .sidebar.resizing {
@@ -1747,6 +1953,10 @@ async function doImport() {
 
 .sidebar.collapsed {
   width: var(--sidebar-collapsed);
+  overflow: visible;
+  z-index: 30;
+  transition-duration: 0.15s;
+  transition-timing-function: ease-in;
 }
 
 .sidebar-header {
@@ -1819,12 +2029,12 @@ async function doImport() {
 .sidebar.collapsed .search-shell,
 .sidebar.collapsed .sidebar-actions,
 .sidebar.collapsed .category-name,
+.sidebar.collapsed .node-kind,
+.sidebar.collapsed .module-symbol,
 .sidebar.collapsed .group-name,
 .sidebar.collapsed .group-count,
 .sidebar.collapsed .folder-name,
 .sidebar.collapsed .api-copy,
-.sidebar.collapsed .api-actions,
-.sidebar.collapsed .module-actions,
 .sidebar.collapsed .script-dot,
 .sidebar.collapsed .bottom-bar-btn span,
 .sidebar.collapsed .category-color,
@@ -1867,6 +2077,35 @@ async function doImport() {
 
 .sidebar.collapsed .expand-icon {
   margin: 0;
+}
+
+.sidebar.collapsed .category-header,
+.sidebar.collapsed .group-header,
+.sidebar.collapsed .api-item,
+.sidebar.collapsed .folder-item {
+  position: relative;
+}
+
+.sidebar.collapsed .category-header.selected,
+.sidebar.collapsed .group-header.selected,
+.sidebar.collapsed .api-item.active {
+  border-color: transparent;
+  box-shadow: none;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.sidebar.collapsed .category-header.selected::before,
+.sidebar.collapsed .group-header.selected::before,
+.sidebar.collapsed .api-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--primary);
 }
 
 .search-shell {
@@ -1929,17 +2168,23 @@ async function doImport() {
   cursor: pointer;
   gap: 4px;
   border-radius: var(--radius-lg);
-  transition: background 0.15s ease, transform 0.15s ease;
+  border: 1px dashed color-mix(in srgb, var(--primary) 26%, var(--border));
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+  transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }
 
 .category-header:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-hover));
+  border-color: color-mix(in srgb, var(--primary) 36%, var(--border));
   transform: translateX(1px);
 }
 
 .category-header.selected {
   background: var(--primary-soft);
   color: var(--primary);
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--primary) 28%, transparent);
+  box-shadow: inset 3px 0 0 var(--primary);
 }
 
 .group-header {
@@ -1950,13 +2195,16 @@ async function doImport() {
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
-  gap: 4px;
+  gap: 5px;
   border-radius: var(--radius-lg);
-  transition: background 0.15s ease, transform 0.15s ease;
+  border: 1px dashed color-mix(in srgb, #0ea5e9 28%, var(--border));
+  background: color-mix(in srgb, #0ea5e9 5%, transparent);
+  transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }
 
 .group-header:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, #0ea5e9 8%, var(--bg-hover));
+  border-color: color-mix(in srgb, #0ea5e9 38%, var(--border));
   transform: translateX(1px);
 }
 
@@ -1967,8 +2215,11 @@ async function doImport() {
 }
 
 .group-header.selected {
-  background: var(--bg-selected);
+  background: color-mix(in srgb, var(--primary-soft) 72%, var(--bg-panel));
   color: var(--text-primary);
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--primary) 24%, transparent);
+  box-shadow: inset 3px 0 0 var(--primary);
 }
 
 .expand-icon {
@@ -1985,6 +2236,38 @@ async function doImport() {
   box-shadow: 0 0 0 2px var(--bg-sidebar);
 }
 
+.node-kind {
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.category-kind {
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-panel));
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, transparent);
+}
+
+.module-kind {
+  background: color-mix(in srgb, #0ea5e9 12%, var(--bg-panel));
+  color: #0284c7;
+  border: 1px solid color-mix(in srgb, #0ea5e9 28%, transparent);
+}
+
+.folder-kind {
+  background: color-mix(in srgb, #f59e0b 14%, var(--bg-panel));
+  color: #b45309;
+  border: 1px solid color-mix(in srgb, #f59e0b 32%, transparent);
+}
+
 /* Collapsed mode first-letter badge */
 .collapsed-badge {
   display: none;
@@ -1999,6 +2282,7 @@ async function doImport() {
   flex-shrink: 0;
   line-height: 1;
   text-transform: uppercase;
+  text-align: center;
 }
 
 .category-collapsed-badge {
@@ -2113,11 +2397,14 @@ async function doImport() {
   font-size: var(--font-size-body);
   border-radius: var(--radius-lg);
   color: var(--text-secondary);
-  transition: background 0.15s ease, transform 0.15s ease;
+  border: 1px dashed color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, #f59e0b 5%, transparent);
+  transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }
 
 .folder-item:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, #f59e0b 9%, var(--bg-hover));
+  border-color: color-mix(in srgb, #f59e0b 35%, var(--border));
   transform: translateX(1px);
 }
 
@@ -2138,46 +2425,6 @@ async function doImport() {
   font-size: 10px;
 }
 
-
-.api-actions,
-.module-actions {
-  display: flex;
-  gap: 3px;
-  opacity: 0;
-  transform: translateX(4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.api-item:hover .api-actions,
-.api-item.active .api-actions,
-.group-header:hover .module-actions,
-.group-header.selected .module-actions {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-.api-actions button,
-.module-actions button {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel-elevated);
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 2px 5px;
-  font-size: 10px;
-  line-height: 1.2;
-}
-
-.module-actions button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.api-actions button:hover,
-.module-actions button:hover:not(:disabled) {
-  color: var(--primary);
-  border-color: var(--primary);
-}
 
 .api-copy {
   min-width: 0;
@@ -2531,38 +2778,6 @@ async function doImport() {
   transform: scale(1.18);
 }
 
-/* Collapsed mode vertical toolbar */
-.collapsed-toolbar {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 0;
-  border-top: 1px solid var(--divider);
-  background: var(--bg-panel-elevated);
-  flex-shrink: 0;
-}
-
-.collapsed-toolbar-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--bg-panel);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-}
-
-.collapsed-toolbar-btn:hover {
-  color: var(--primary);
-  border-color: var(--primary);
-  background: var(--primary-soft);
-}
-
 .sidebar-bottom-bar {
   display: flex;
   gap: 2px;
@@ -2572,10 +2787,11 @@ async function doImport() {
   flex-shrink: 0;
 }
 
-.sidebar.collapsed .sidebar-bottom-bar {
+.sidebar-bottom-bar.collapsed {
   flex-direction: column;
   align-items: center;
-  padding: 6px 4px;
+  gap: 8px;
+  padding: 8px 4px 10px;
 }
 
 .bottom-bar-btn {
@@ -2594,16 +2810,174 @@ async function doImport() {
   white-space: nowrap;
 }
 
-.sidebar.collapsed .bottom-bar-btn {
-  flex: none;
-  justify-content: center;
-  padding: 6px;
-}
-
 .bottom-bar-btn:hover {
   color: var(--primary);
   border-color: var(--primary);
   background: var(--primary-soft);
+}
+
+.collapsed-menu-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.collapsed-more-btn,
+.collapsed-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.collapsed-more-btn {
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.collapsed-fab {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.3);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.collapsed-more-btn:hover,
+.collapsed-fab:hover {
+  transform: translateY(-1px);
+}
+
+.collapsed-more-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.collapsed-popover,
+.module-hover-preview {
+  position: fixed;
+  min-width: 174px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  z-index: 1200;
+  padding: 6px;
+}
+
+.collapsed-popover {
+  position: absolute;
+  left: calc(100% + 12px);
+  bottom: 0;
+}
+
+.create-popover {
+  bottom: 0;
+}
+
+.collapsed-popover button,
+.preview-api-row {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+
+.collapsed-popover button:hover,
+.preview-api-row:hover {
+  background: var(--bg-hover);
+  color: var(--primary);
+}
+
+.collapsed-popover kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-family: var(--font-code);
+  font-size: 10px;
+}
+
+.collapsed-menu-divider {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--divider);
+}
+
+.module-hover-preview {
+  max-width: 260px;
+}
+
+.preview-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 7px;
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: 4px;
+}
+
+.preview-title span {
+  width: 22px;
+  text-align: center;
+  font-size: 17px;
+}
+
+.preview-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.preview-api-row {
+  justify-content: flex-start;
+}
+
+.preview-api-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-method {
+  min-width: 44px;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-code);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.preview-empty {
+  padding: 12px 10px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-body);
+  text-align: center;
 }
 
 .sidebar-toast {

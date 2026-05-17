@@ -35,6 +35,7 @@ const showExportPanel = ref(false)
 const showCodeGenPanel = ref(false)
 const showActionMenu = ref(false)
 const showMethodMenu = ref(false)
+const showEnvMenu = ref(false)
 const postSendAction = ref<null | 'download' | 'codegen'>(null)
 const showCancelButton = ref(false)
 let cancelRevealTimer: ReturnType<typeof setTimeout> | null = null
@@ -58,6 +59,7 @@ const baseUrlOptions = computed(() => {
     }))
 })
 const highlightedUrlSegments = computed(() => splitUrlForHighlight(currentUrl.value, envVars.value))
+const currentEnvName = computed(() => store.environments.find(item => item.id === store.currentEnvId)?.name ?? '无环境')
 
 const urlInputRef = ref<HTMLInputElement | null>(null)
 const urlAutocomplete = useVariableAutocomplete(urlInputRef)
@@ -705,6 +707,18 @@ async function sendAndThen(action: 'download' | 'codegen') {
 function closeMenus() {
   showActionMenu.value = false
   showMethodMenu.value = false
+  showEnvMenu.value = false
+}
+
+function toggleEnvMenu() {
+  showEnvMenu.value = !showEnvMenu.value
+  showActionMenu.value = false
+  showMethodMenu.value = false
+}
+
+function selectEnvironment(id: string | null) {
+  store.currentEnvId = id
+  showEnvMenu.value = false
 }
 
 function handleGlobalSend() {
@@ -735,13 +749,47 @@ onUnmounted(() => {
       <span>{{ currentApi?.name || '未命名请求' }}</span>
       <small>Enter 发送 · 支持 &#123;&#123;变量&#125;&#125;</small>
       <div class="request-context-actions" @click.stop>
-        <label class="top-env-picker" title="当前环境">
+        <div class="top-env-picker" title="当前环境" @click.stop>
           <span>环境</span>
-          <select v-model="store.currentEnvId">
-            <option v-if="store.environments.length === 0" :value="null">无环境</option>
-            <option v-for="env in store.environments" :key="env.id" :value="env.id">{{ env.name }}</option>
-          </select>
-        </label>
+          <button
+            type="button"
+            class="env-select-btn"
+            :class="{ open: showEnvMenu }"
+            aria-haspopup="listbox"
+            :aria-expanded="showEnvMenu"
+            @click="toggleEnvMenu"
+          >
+            <span class="env-dot"></span>
+            <span class="env-name">{{ currentEnvName }}</span>
+            <span class="env-chevron">⌄</span>
+          </button>
+          <div v-if="showEnvMenu" class="env-select-menu" role="listbox">
+            <button
+              type="button"
+              class="env-option"
+              :class="{ active: store.currentEnvId === null }"
+              role="option"
+              :aria-selected="store.currentEnvId === null"
+              @click="selectEnvironment(null)"
+            >
+              <span class="env-check">{{ store.currentEnvId === null ? '✓' : '' }}</span>
+              <span>无环境</span>
+            </button>
+            <button
+              v-for="env in store.environments"
+              :key="env.id"
+              type="button"
+              class="env-option"
+              :class="{ active: env.id === store.currentEnvId }"
+              role="option"
+              :aria-selected="env.id === store.currentEnvId"
+              @click="selectEnvironment(env.id)"
+            >
+              <span class="env-check">{{ env.id === store.currentEnvId ? '✓' : '' }}</span>
+              <span>{{ env.name }}</span>
+            </button>
+          </div>
+        </div>
         <button class="btn btn-sm workspace-toggle-btn" title="打开工具抽屉 / 工作台设置" @click="toggleWorkspaceControls">工具</button>
       </div>
     </div>
@@ -886,6 +934,7 @@ onUnmounted(() => {
 }
 
 .top-env-picker {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -894,14 +943,103 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.top-env-picker select {
+.env-select-btn {
   width: 168px;
-  height: 28px;
-  padding: 3px 28px 3px 8px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background-color: var(--bg-panel);
+  background: var(--bg-panel);
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.env-select-btn:hover,
+.env-select-btn.open {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary-light) 30%, var(--bg-panel));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.env-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+}
+
+.env-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.env-chevron {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+
+.env-select-btn.open .env-chevron {
+  transform: rotate(180deg);
+}
+
+.env-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 196px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  z-index: 1300;
+}
+
+.env-option {
+  width: 100%;
+  min-height: 32px;
+  padding: 7px 9px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
   font-size: var(--font-size-small);
+  text-align: left;
+}
+
+.env-option:hover {
+  background: var(--bg-hover);
+}
+
+.env-option.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 750;
+}
+
+.env-check {
+  width: 14px;
+  color: var(--primary);
+  font-weight: 800;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .workspace-toggle-btn {

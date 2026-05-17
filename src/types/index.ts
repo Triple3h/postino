@@ -156,6 +156,7 @@ export interface Category {
   id: string
   name: string
   color?: string
+  icon?: string
   description?: string
   order: number
   createdAt: number
@@ -231,6 +232,7 @@ export interface Module {
   id: string
   categoryId: string
   name: string
+  icon?: string
   type?: ModuleType
   description?: string
   stats?: ModuleStats

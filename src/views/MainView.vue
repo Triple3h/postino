@@ -181,6 +181,12 @@ function toggleRightPanel() {
   if (showRightPanel.value && rightPanelWidth.value === 0) rightPanelWidth.value = 300
 }
 
+function openWorkspaceSettingsPanel() {
+  showRightPanel.value = true
+  if (rightPanelWidth.value === 0) rightPanelWidth.value = 300
+  showWorkspaceControls.value = true
+}
+
 function toggleWorkspaceControls() {
   if (!showRightPanel.value) {
     showRightPanel.value = true
@@ -327,6 +333,7 @@ onMounted(() => {
   window.addEventListener('drop', handleWindowDrop)
   window.addEventListener('apifix:toggle-right-panel', toggleRightPanel)
   window.addEventListener('apifix:toggle-workspace-controls', toggleWorkspaceControls)
+  window.addEventListener('apifix:open-workspace-settings', openWorkspaceSettingsPanel)
   window.addEventListener('apifix:toggle-history-panel', toggleHistoryPanel)
   window.addEventListener('apifix:toggle-doc-mode', toggleDocMode)
   document.addEventListener('focusin', rememberEditableTarget)
@@ -340,6 +347,7 @@ onUnmounted(() => {
   window.removeEventListener('drop', handleWindowDrop)
   window.removeEventListener('apifix:toggle-right-panel', toggleRightPanel)
   window.removeEventListener('apifix:toggle-workspace-controls', toggleWorkspaceControls)
+  window.removeEventListener('apifix:open-workspace-settings', openWorkspaceSettingsPanel)
   window.removeEventListener('apifix:toggle-history-panel', toggleHistoryPanel)
   window.removeEventListener('apifix:toggle-doc-mode', toggleDocMode)
   document.removeEventListener('focusin', rememberEditableTarget)
