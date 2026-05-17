@@ -105,8 +105,8 @@ function relativeTime(ts: number): string {
 
 function getHistoryApiMeta(entry: HistoryEntry): { name: string; path: string } {
   const api = store.apis[entry.apiId]
-  const interfaceNode = workspace.interfaces.find(item => item.apiId === entry.apiId)
-  const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
+  const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
+  const module = workspace.modules.find(item => item.id === (entry.moduleId || interfaceNode?.moduleId))
   const category = module ? workspace.categories.find(item => item.id === module.categoryId) : null
   return {
     name: api?.name ?? interfaceNode?.name ?? '',
@@ -115,7 +115,7 @@ function getHistoryApiMeta(entry: HistoryEntry): { name: string; path: string } 
 }
 
 function loadFromHistory(entry: HistoryEntry) {
-  const interfaceNode = workspace.interfaces.find(item => item.apiId === entry.apiId)
+  const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
   workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
   store.currentApiId = entry.apiId
 }

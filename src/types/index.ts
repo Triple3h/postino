@@ -36,6 +36,7 @@ export interface CookieItem {
 export interface ApiConfig {
   id: string
   name: string
+  description?: string
   method: HttpMethod
   url: string
   headers: KvPair[]
@@ -43,6 +44,7 @@ export interface ApiConfig {
   cookies: CookieItem[]
   body: BodyConfig
   auth: AuthConfig
+  requestVariables?: KvPair[]
   preRequestScript: string
   postRequestScript: string
   folder: string | null
@@ -65,6 +67,8 @@ export interface Environment {
 export interface HistoryEntry {
   id: string
   apiId: string
+  moduleId?: string
+  interfaceId?: string
   method: HttpMethod
   url: string
   status: number
@@ -82,6 +86,8 @@ export interface ResponseData {
   statusText: string
   headers: Record<string, string>
   body: string
+  bodyEncoding?: 'text' | 'base64'
+  contentType?: string
   duration: number
   size: number
   url: string
@@ -91,6 +97,16 @@ export interface ResponseData {
   timestamp: number
 }
 
+export type AppShortcutAction =
+  | 'createNewRequest'
+  | 'sendCurrentRequest'
+  | 'saveCurrentRequest'
+  | 'openGlobalSearch'
+  | 'toggleTheme'
+  | 'toggleRightPanel'
+  | 'toggleHistory'
+  | 'toggleDocMode'
+
 export interface AppSettings {
   corsMode: 'cors' | 'proxy' | 'no-cors'
   proxyUrl: string
@@ -98,6 +114,7 @@ export interface AppSettings {
   maxHistory: number
   autoSave: boolean
   fontSize: number
+  customShortcuts?: Partial<Record<AppShortcutAction, string>>
 }
 
 export interface Group {
@@ -126,12 +143,58 @@ export interface ModuleVariableValue {
 
 export type ModuleVariables = Record<string, ModuleVariableValue>
 
+export interface ModuleStats {
+  interfaceCount: number
+  docCount: number
+  modelCount: number
+  testCaseTotal: number
+  testCaseCoverage: number
+  sceneCaseTotal: number
+  sceneCaseCoverage: number
+  avgCasePerInterface: number
+  uncoveredInterfaceCount: number
+}
+
+export interface ModuleTypeConfig {
+  mode: 'visual' | 'yaml' | 'readonly'
+  description: string
+}
+
+export interface ModuleExportConfig {
+  format: 'openapi3' | 'markdown' | 'html'
+  autoBackup: boolean
+  backupTarget?: 'gist' | 'webdav' | 'local'
+  backupEndpoint?: string
+  backupToken?: string
+  backupFileName?: string
+  teamRole?: 'owner' | 'editor' | 'viewer'
+  conflictStrategy?: 'prompt' | 'overwrite'
+  permissions?: {
+    editSettings?: boolean
+    editVariables?: boolean
+    syncDataSource?: boolean
+    backup?: boolean
+  }
+}
+
+export interface ModuleMeta {
+  createdAt: number
+  updatedAt: number
+  version: string
+}
+
 export interface ModuleDataSource {
   type: 'swagger' | 'openapi' | 'custom'
   url: string
   syncStrategy: 'manual' | 'auto' | 'webhook'
   fieldMapping: Record<string, string>
+  syncIntervalMinutes?: number
+  webhookSecret?: string
   lastSyncAt?: number
+  nextSyncAt?: number
+  lastSyncStatus?: 'success' | 'failed' | 'running'
+  lastSyncMessage?: string
+  lastSyncSourceUrl?: string
 }
 
 export interface Module {
@@ -140,8 +203,13 @@ export interface Module {
   name: string
   type?: ModuleType
   description?: string
+  stats?: ModuleStats
   variables?: ModuleVariables
   dataSource?: ModuleDataSource | null
+  moduleType?: ModuleTypeConfig
+  exportConfig?: ModuleExportConfig
+  meta?: ModuleMeta
+  openapiText?: string
   order: number
   legacyGroupName?: string
   createdAt: number
@@ -152,12 +220,91 @@ export interface InterfaceNode {
   id: string
   moduleId: string
   apiId: string
+  nodeType?: 'folder' | 'request'
+  parentId?: string | null
   name: string
   method: HttpMethod
   url: string
+  preRequestScript?: string
+  postRequestScript?: string
+  preScript?: string
+  postScript?: string
+  exportConfig?: Partial<ModuleExportConfig>
   order: number
   createdAt: number
   updatedAt: number
+}
+
+
+export interface ModuleDocArtifact {
+  id: string
+  moduleId: string
+  interfaceId?: string
+  title: string
+  format: 'markdown' | 'html' | 'openapi'
+  content: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ModuleDataModel {
+  id: string
+  moduleId: string
+  name: string
+  schema: Record<string, unknown>
+  description?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface InterfaceTestCase {
+  id: string
+  moduleId: string
+  interfaceId: string
+  name: string
+  requestOverride?: Partial<ApiConfig>
+  expectedStatus?: number
+  assertions?: string[]
+  lastRunAt?: number
+  lastPassed?: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ModuleScenarioStep {
+  id: string
+  interfaceId: string
+  caseId?: string
+  name?: string
+  order: number
+  enabled?: boolean
+  continueOnFailure?: boolean
+}
+
+export interface ModuleScenarioCase {
+  id: string
+  moduleId: string
+  name: string
+  description?: string
+  steps: ModuleScenarioStep[]
+  lastRunAt?: number
+  lastPassed?: boolean
+  lastReport?: {
+    total: number
+    passed: number
+    failed: number
+    failures: string[]
+  }
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ModuleAuditLog {
+  id: string
+  moduleId: string
+  action: string
+  detail: string
+  createdAt: number
 }
 
 export interface PlannedWorkspaceModel {
@@ -179,4 +326,7 @@ export interface AppState {
   history: HistoryEntry[]
   settings: AppSettings
   expandedFolders: string[]
+  scriptLogs?: import('@/utils/pre-request').ScriptLog[]
+  scriptVisualizations?: import('@/utils/pre-request').ScriptVisualization[]
+  scriptTests?: import('@/utils/pre-request').ScriptTestResult[]
 }

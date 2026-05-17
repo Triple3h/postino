@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { sendRequest as httpSendRequest } from '@/utils/http'
-import { executePreRequestScript, executePostResponseScript } from '@/utils/pre-request'
-import type { PostResponseData } from '@/utils/pre-request'
+import { responseBodyToBlob, responseContentType, responseFileExtension } from '@/utils/binary-response'
+import {
+  createDefaultAuthConfig,
+  createDefaultBodyConfig,
+  executePostResponseScriptAsync,
+  executePreRequestScriptAsync,
+} from '@/utils/pre-request'
+import type { PostResponseData, ScriptResult, ScriptSendRequestInput } from '@/utils/pre-request'
 import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
-import type { BodyConfig, HttpMethod, KvPair, ResponseData } from '@/types'
+import type { ApiConfig, AuthConfig, BodyConfig, CookieItem, Environment, HttpMethod, KvPair, ResponseData } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -20,14 +26,31 @@ const currentModule = computed(() => {
   const interfaceNode = workspace.interfaces.find(item => item.apiId === store.currentApiId)
   return interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) ?? null : null
 })
+const currentCategory = computed(() => currentModule.value ? workspace.categories.find(category => category.id === currentModule.value?.categoryId) ?? null : null)
 const isReadonlyModule = computed(() => currentModule.value?.type === 'readonly')
 const currentMethod = ref<HttpMethod>('GET')
 const currentUrl = ref('')
+const urlScrollLeft = ref(0)
 const showExportPanel = ref(false)
 const showCodeGenPanel = ref(false)
 const showActionMenu = ref(false)
+const showMethodMenu = ref(false)
+const postSendAction = ref<null | 'download' | 'codegen'>(null)
 
 const envVars = computed(() => store.getEnvVariables())
+const baseUrlOptions = computed(() => {
+  const keywordPattern = /(base|url|host|origin|endpoint|api)/i
+  return Object.entries(envVars.value)
+    .filter(([key, value]) => Boolean(key) && (keywordPattern.test(key) || /^https?:\/\//i.test(value)))
+    .sort((a, b) => Number(/^https?:\/\//i.test(b[1])) - Number(/^https?:\/\//i.test(a[1])))
+    .slice(0, 12)
+    .map(([key, value]) => ({
+      key,
+      template: `{{${key}}}`,
+      preview: value,
+    }))
+})
+const highlightedUrlSegments = computed(() => splitUrlForHighlight(currentUrl.value, envVars.value))
 
 const urlInputRef = ref<HTMLInputElement | null>(null)
 const urlAutocomplete = useVariableAutocomplete(urlInputRef)
@@ -47,6 +70,82 @@ watch([currentMethod, currentUrl], () => {
     })
   }
 })
+
+type UrlHighlightSegment = {
+  text: string
+  variable?: boolean
+  resolved?: boolean
+}
+
+function splitUrlForHighlight(url: string, vars: Record<string, string>): UrlHighlightSegment[] {
+  const segments: UrlHighlightSegment[] = []
+  const pattern = /\{\{\s*([^}]+?)\s*\}\}/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = pattern.exec(url))) {
+    if (match.index > lastIndex) segments.push({ text: url.slice(lastIndex, match.index) })
+    const expression = match[1]?.trim() || ''
+    segments.push({
+      text: match[0],
+      variable: true,
+      resolved: expression.startsWith('$') || Object.prototype.hasOwnProperty.call(vars, expression),
+    })
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < url.length) segments.push({ text: url.slice(lastIndex) })
+  return segments.length ? segments : [{ text: url }]
+}
+
+function syncUrlScroll() {
+  urlScrollLeft.value = urlInputRef.value?.scrollLeft ?? 0
+}
+
+function handleUrlInput() {
+  syncUrlScroll()
+  urlAutocomplete.handleInput()
+}
+
+function extractUrlSuffix(url: string): string {
+  const trimmed = url.trim()
+  if (!trimmed) return ''
+
+  const templateMatch = trimmed.match(/^\{\{[^}]+\}\}(.*)$/)
+  if (templateMatch) return normalizeUrlSuffix(templateMatch[1] || '')
+
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed)
+      const suffix = `${parsed.pathname === '/' ? '' : parsed.pathname}${parsed.search}${parsed.hash}`
+      return suffix || ''
+    } catch {
+      return ''
+    }
+  }
+
+  if (trimmed.startsWith('/')) return trimmed
+  return ''
+}
+
+function normalizeUrlSuffix(suffix: string): string {
+  const trimmed = suffix.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('/')) return trimmed
+  if (trimmed.startsWith('?') || trimmed.startsWith('#')) return `/${trimmed}`
+  return `/${trimmed}`
+}
+
+function applyBaseUrlTemplate(event: Event) {
+  const target = event.target as HTMLSelectElement
+  const key = target.value
+  target.value = ''
+  if (!key || isReadonlyModule.value) return
+  const option = baseUrlOptions.value.find(item => item.key === key)
+  if (!option) return
+  currentUrl.value = `${option.template}${extractUrlSuffix(currentUrl.value)}`
+  window.setTimeout(() => urlInputRef.value?.focus(), 0)
+}
 
 function methodColor(method: HttpMethod): string {
   const colors: Record<string, string> = {
@@ -69,6 +168,258 @@ function headerRecordToPairs(headers: Record<string, string>): KvPair[] {
   }))
 }
 
+
+function cloneKvPairs(items: KvPair[] = []): KvPair[] {
+  return items.map(item => ({ ...item }))
+}
+
+function cloneCookies(items: CookieItem[] = []): CookieItem[] {
+  return items.map(item => ({ ...item }))
+}
+
+function cloneBody(body?: BodyConfig): BodyConfig {
+  if (!body) return createDefaultBodyConfig()
+  return {
+    ...body,
+    formData: cloneKvPairs(body.formData),
+    urlEncoded: cloneKvPairs(body.urlEncoded),
+  }
+}
+
+function inferScriptBodyConfig(baseBody: BodyConfig, rawBody: string, urlencoded: KvPair[], formdata: KvPair[]): BodyConfig {
+  if (formdata.some(item => item.enabled !== false && item.key)) {
+    return { ...baseBody, type: 'form', raw: '', urlEncoded: [], formData: formdata }
+  }
+  if (urlencoded.some(item => item.enabled !== false && item.key)) {
+    return { ...baseBody, type: 'urlencoded', raw: '', urlEncoded: urlencoded, formData: [] }
+  }
+  if (rawBody && baseBody.type === 'none') {
+    try {
+      JSON.parse(rawBody)
+      return { ...baseBody, type: 'json', raw: rawBody, urlEncoded: [], formData: [] }
+    } catch {
+      return { ...baseBody, type: 'raw', raw: rawBody, urlEncoded: [], formData: [], contentType: baseBody.contentType || 'text/plain' }
+    }
+  }
+  return {
+    ...baseBody,
+    raw: rawBody,
+    urlEncoded: urlencoded,
+    formData: formdata,
+  }
+}
+
+function cloneAuth(auth?: AuthConfig): AuthConfig {
+  return auth ? { ...auth } : createDefaultAuthConfig()
+}
+
+function kvPairsFromEntries(entries: Iterable<[unknown, unknown]>): KvPair[] {
+  return Array.from(entries).map(([key, entryValue]) => ({
+    key: String(key),
+    value: String(entryValue ?? ''),
+    enabled: true,
+  })).filter(item => item.key)
+}
+
+function stringifyBodyInput(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function normalizeKvInput(input: unknown, value?: unknown): KvPair[] {
+  if (Array.isArray(input)) return input.flatMap(item => normalizeKvInput(item))
+  if (input && typeof input === 'object') {
+    const item = input as { key?: unknown; name?: unknown; value?: unknown; disabled?: unknown; description?: unknown }
+    if (!('key' in item) && !('name' in item)) {
+      const entries = (input as { entries?: unknown }).entries
+      if (typeof entries === 'function') return kvPairsFromEntries((entries as () => Iterable<[unknown, unknown]>).call(input))
+      return Object.entries(input as Record<string, unknown>).map(([key, entryValue]) => ({
+        key,
+        value: String(entryValue ?? ''),
+        enabled: true,
+      })).filter(field => field.key)
+    }
+    const key = String(item.key ?? item.name ?? '')
+    if (!key) return []
+    return [{
+      key,
+      value: String(item.value ?? ''),
+      enabled: item.disabled === undefined ? true : !item.disabled,
+      description: item.description == null ? undefined : String(item.description),
+    }]
+  }
+  if (typeof input === 'string') return [{ key: input, value: String(value ?? ''), enabled: true }]
+  return []
+}
+
+function normalizeHeaderInput(input: unknown): KvPair[] {
+  if (!input) return []
+  if (Array.isArray(input)) return input.flatMap(item => normalizeHeaderInput(item))
+  if (typeof input === 'object') {
+    const maybeRecord = input as Record<string, unknown>
+    if ('key' in maybeRecord || 'name' in maybeRecord) return normalizeKvInput(input)
+    return Object.entries(maybeRecord).map(([key, value]) => ({ key, value: String(value ?? ''), enabled: true }))
+  }
+  return []
+}
+
+function upsertPairs(target: KvPair[], source: KvPair[]) {
+  for (const item of source) {
+    const existing = target.find(pair => pair.key.toLowerCase() === item.key.toLowerCase())
+    if (existing) Object.assign(existing, item)
+    else target.push({ ...item })
+  }
+}
+
+function readScriptInput(input?: ScriptSendRequestInput): Record<string, any> {
+  if (!input) return {}
+  if (typeof input === 'string') return { url: input }
+  return input as Record<string, any>
+}
+
+function readScriptUrl(inputUrl: unknown, fallback: string): string {
+  if (typeof inputUrl === 'string') return inputUrl
+  if (inputUrl && typeof inputUrl === 'object') {
+    const url = inputUrl as { raw?: unknown; toString?: () => string }
+    if (typeof url.raw === 'string') return url.raw
+    if (url.toString && url.toString !== Object.prototype.toString) return url.toString()
+  }
+  return fallback
+}
+
+function applyScriptBodyOverride(target: BodyConfig, bodyInput: unknown): BodyConfig {
+  if (bodyInput == null) return target
+  if (typeof bodyInput === 'string') {
+    return { ...target, type: 'raw', raw: bodyInput, contentType: target.contentType || 'text/plain' }
+  }
+  if (typeof bodyInput !== 'object') {
+    return { ...target, type: 'raw', raw: String(bodyInput), contentType: target.contentType || 'text/plain' }
+  }
+
+  const body = bodyInput as Record<string, any>
+  const mode = String(body.mode ?? body.type ?? '').toLowerCase()
+  const entries = (bodyInput as { entries?: unknown }).entries
+  if (typeof entries === 'function') {
+    const pairs = kvPairsFromEntries((entries as () => Iterable<[unknown, unknown]>).call(bodyInput))
+    const ctorName = (bodyInput as { constructor?: { name?: string } }).constructor?.name?.toLowerCase() ?? ''
+    return ctorName.includes('urlsearchparams')
+      ? { ...target, type: 'urlencoded', raw: '', urlEncoded: pairs, formData: [] }
+      : { ...target, type: 'form', raw: '', urlEncoded: [], formData: pairs }
+  }
+  if (mode === 'raw' || 'raw' in body) {
+    return { ...target, type: body.contentType === 'application/json' ? 'json' : 'raw', raw: stringifyBodyInput(body.raw ?? body.content ?? ''), urlEncoded: [], formData: [], contentType: String(body.contentType ?? target.contentType ?? 'text/plain') }
+  }
+  if (mode === 'json') {
+    return { ...target, type: 'json', raw: stringifyBodyInput('content' in body ? body.content : bodyInput), urlEncoded: [], formData: [], contentType: 'application/json' }
+  }
+  if (mode === 'urlencoded' || mode === 'x-www-form-urlencoded') {
+    return { ...target, type: 'urlencoded', raw: '', urlEncoded: normalizeKvInput(body.urlencoded ?? body.urlencodedData ?? body.data ?? body.content ?? []), formData: [] }
+  }
+  if (mode === 'formdata' || mode === 'form') {
+    return { ...target, type: 'form', raw: '', urlEncoded: [], formData: normalizeKvInput(body.formdata ?? body.formData ?? body.data ?? body.content ?? []) }
+  }
+  if (mode === 'none') return { ...target, type: 'none', raw: '', urlEncoded: [], formData: [] }
+  return { ...target, type: 'json', raw: JSON.stringify(bodyInput), contentType: 'application/json' }
+}
+
+function normalizeMethod(method: unknown, fallback: HttpMethod): HttpMethod {
+  const upper = String(method ?? fallback).toUpperCase()
+  return methods.includes(upper as HttpMethod) ? upper as HttpMethod : fallback
+}
+
+async function persistScriptEnvChanges(result: ScriptResult) {
+  const changedKeys = result.envChangedKeys ?? []
+  if (changedKeys.length === 0) return
+
+  const currentEnv = store.environments.find(item => item.id === store.currentEnvId)
+  const env: Environment = currentEnv
+    ? { ...currentEnv, variables: currentEnv.variables.map(item => ({ ...item })) }
+    : { id: `env:${Date.now().toString(36)}`, name: '默认环境', variables: [] }
+
+  for (const key of changedKeys) {
+    const index = env.variables.findIndex(item => item.key === key)
+    const nextValue = result.envVars[key]
+    if (nextValue === undefined) {
+      if (index >= 0) env.variables.splice(index, 1)
+      continue
+    }
+    if (index >= 0) {
+      env.variables[index] = { ...env.variables[index], value: nextValue, enabled: true }
+    } else {
+      env.variables.push({ key, value: nextValue, enabled: true })
+    }
+  }
+
+  await store.upsertEnvironment(env)
+}
+
+function collectScriptArtifacts(result: ScriptResult) {
+  if (result.visualizations?.length) {
+    store.scriptVisualizations.push(...result.visualizations)
+  }
+  if (result.tests?.length) {
+    store.scriptTests.push(...result.tests)
+  }
+}
+
+function buildScriptInfo(api: ApiConfig, eventName: 'prerequest' | 'test', interfaceName = api.name) {
+  return {
+    moduleName: currentModule.value?.name || '',
+    categoryName: currentCategory.value?.name || '',
+    interfaceName,
+    eventName,
+  }
+}
+
+async function sendScriptHttpRequest(input?: ScriptSendRequestInput, baseApi?: ApiConfig): Promise<ResponseData> {
+  const request = readScriptInput(input)
+  const headers = baseApi ? cloneKvPairs(baseApi.headers) : []
+  upsertPairs(headers, normalizeHeaderInput(request.header))
+  upsertPairs(headers, normalizeHeaderInput(request.headers))
+
+  const params = baseApi ? cloneKvPairs(baseApi.params) : []
+  upsertPairs(params, normalizeKvInput(request.params))
+  if (request.url && typeof request.url === 'object') {
+    upsertPairs(params, normalizeKvInput((request.url as Record<string, unknown>).query))
+  }
+
+  const cookies = baseApi ? cloneCookies(baseApi.cookies) : []
+  upsertPairs(cookies, normalizeKvInput(request.cookie) as CookieItem[])
+  upsertPairs(cookies, normalizeKvInput(request.cookies) as CookieItem[])
+
+  const body = applyScriptBodyOverride(cloneBody(baseApi?.body), request.body)
+  const auth = { ...cloneAuth(baseApi?.auth), ...(request.auth && typeof request.auth === 'object' ? request.auth : {}) }
+
+  return httpSendRequest({
+    method: normalizeMethod(request.method, baseApi?.method ?? 'GET'),
+    url: readScriptUrl(request.url, baseApi?.url ?? ''),
+    headers,
+    params,
+    cookies,
+    autoCarryCookies: store.autoCarryCookies,
+    body,
+    auth,
+    corsMode: store.settings.corsMode,
+    proxyUrl: store.settings.proxyUrl,
+    envVars: store.getEnvVariables(),
+    timeoutMs: typeof request.timeout === 'number' && request.timeout > 0 ? request.timeout : undefined,
+    followRedirects: typeof request.followRedirects === 'boolean' ? request.followRedirects : undefined,
+  })
+}
+
+async function sendScriptInterface(interfaceOrApiId: string, overrides?: ScriptSendRequestInput): Promise<ResponseData> {
+  const node = workspace.interfaces.find(item => item.id === interfaceOrApiId || item.apiId === interfaceOrApiId || item.name === interfaceOrApiId)
+  const api = node?.apiId ? store.apis[node.apiId] : store.apis[interfaceOrApiId]
+  if (!api) throw new Error(`未找到接口：${interfaceOrApiId}`)
+  return sendScriptHttpRequest(overrides ?? { url: api.url, method: api.method }, api)
+}
+
 async function send() {
   if (!currentUrl.value.trim()) return
   if (!currentApi.value) return
@@ -76,6 +427,8 @@ async function send() {
   store.loading = true
   store.response = null
   store.scriptLogs = []
+  store.scriptVisualizations = []
+  store.scriptTests = []
 
   const allLogs: import('@/utils/pre-request').ScriptLog[] = []
 
@@ -89,45 +442,109 @@ async function send() {
       if (h.enabled && h.key) headers[h.key] = h.value
     }
 
+    let method = api.method
     let url = api.url
     let body = api.body.raw || ''
     let urlencoded = [...api.body.urlEncoded]
     let formdata = [...api.body.formData]
+    let cookies = (api.cookies || []).map(cookie => ({ ...cookie }))
     let effectiveEnvVars = envVars
 
+    for (const folder of workspace.getAncestorFolders(api.id)) {
+      if (!folder.preRequestScript?.trim()) continue
+      const scriptResult = await executePreRequestScriptAsync(
+        folder.preRequestScript,
+        headers,
+        url,
+        body,
+        urlencoded,
+        formdata,
+        effectiveEnvVars,
+        { requestMethod: method, requestCookies: cookies, sendRequest: input => sendScriptHttpRequest(input), sendInterface: sendScriptInterface, info: buildScriptInfo(api, 'prerequest', folder.name) },
+      )
+      method = normalizeMethod(scriptResult.method, method)
+      headers = scriptResult.headers
+      cookies = scriptResult.cookies
+      url = scriptResult.url
+      body = scriptResult.body
+      urlencoded = scriptResult.urlencoded
+      formdata = scriptResult.formdata
+      effectiveEnvVars = scriptResult.envVars
+      allLogs.push({ level: 'info', timestamp: Date.now(), args: [`执行文件夹前置脚本：${folder.name}`] })
+      allLogs.push(...scriptResult.logs)
+      collectScriptArtifacts(scriptResult)
+      await persistScriptEnvChanges(scriptResult)
+      if (scriptResult.skipRequest) {
+        store.response = {
+          status: 0,
+          statusText: 'Pre-request skipped',
+          headers: {},
+          body: '',
+          duration: 0,
+          size: 0,
+          url,
+          method,
+          requestHeaders: headers,
+          requestBody: body || null,
+          timestamp: Date.now(),
+        }
+        store.scriptLogs = allLogs
+        postSendAction.value = null
+        return
+      }
+    }
+
     if (api.preRequestScript) {
-      const scriptResult = executePreRequestScript(
+      const scriptResult = await executePreRequestScriptAsync(
         api.preRequestScript,
         headers,
         url,
         body,
         urlencoded,
         formdata,
-        envVars,
+        effectiveEnvVars,
+        { requestMethod: method, requestCookies: cookies, sendRequest: input => sendScriptHttpRequest(input), sendInterface: sendScriptInterface, info: buildScriptInfo(api, 'prerequest') },
       )
+      method = normalizeMethod(scriptResult.method, method)
       headers = scriptResult.headers
+      cookies = scriptResult.cookies
       url = scriptResult.url
       body = scriptResult.body
       urlencoded = scriptResult.urlencoded
       formdata = scriptResult.formdata
       effectiveEnvVars = scriptResult.envVars
       allLogs.push(...scriptResult.logs)
+      collectScriptArtifacts(scriptResult)
+      await persistScriptEnvChanges(scriptResult)
+      if (scriptResult.skipRequest) {
+        store.response = {
+          status: 0,
+          statusText: 'Pre-request skipped',
+          headers: {},
+          body: '',
+          duration: 0,
+          size: 0,
+          url,
+          method,
+          requestHeaders: headers,
+          requestBody: body || null,
+          timestamp: Date.now(),
+        }
+        store.scriptLogs = allLogs
+        postSendAction.value = null
+        return
+      }
     }
 
-    const effectiveBody: BodyConfig = {
-      ...api.body,
-      raw: body,
-      urlEncoded: urlencoded,
-      formData: formdata,
-    }
+    const effectiveBody = inferScriptBodyConfig(api.body, body, urlencoded, formdata)
 
     // Send request
     const response = await httpSendRequest({
-      method: api.method,
+      method,
       url,
       headers: headerRecordToPairs(headers),
       params: api.params,
-      cookies: api.cookies || [],
+      cookies,
       autoCarryCookies: store.autoCarryCookies,
       body: effectiveBody,
       auth: api.auth,
@@ -137,6 +554,13 @@ async function send() {
     })
 
     store.response = response
+
+    if (postSendAction.value === 'download') {
+      downloadResponse(response)
+    } else if (postSendAction.value === 'codegen') {
+      showCodeGenPanel.value = true
+    }
+    postSendAction.value = null
 
     // Execute post-response script
     if (api.postRequestScript) {
@@ -148,12 +572,15 @@ async function send() {
         duration: response.duration,
         responseSize: response.size,
       }
-      const postResult = executePostResponseScript(
+      const postResult = await executePostResponseScriptAsync(
         api.postRequestScript,
         postData,
-        envVars,
+        effectiveEnvVars,
+        { sendRequest: input => sendScriptHttpRequest(input), sendInterface: sendScriptInterface, info: buildScriptInfo(api, 'test') },
       )
       allLogs.push(...postResult.logs)
+      collectScriptArtifacts(postResult)
+      await persistScriptEnvChanges(postResult)
     }
 
     store.scriptLogs = allLogs
@@ -161,9 +588,9 @@ async function send() {
     // Add to history
     store.addHistory({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-        apiId: api.id,
-        method: api.method,
-        url,
+      apiId: api.id,
+      method,
+      url,
       status: response.status,
       statusText: response.statusText,
       duration: response.duration,
@@ -188,13 +615,27 @@ async function send() {
       timestamp: Date.now(),
     }
     store.scriptLogs = allLogs
+    postSendAction.value = null
   } finally {
     store.loading = false
   }
 }
 
 function toggleActionMenu() {
+  showMethodMenu.value = false
   showActionMenu.value = !showActionMenu.value
+}
+
+function toggleMethodMenu() {
+  if (isReadonlyModule.value) return
+  showActionMenu.value = false
+  showMethodMenu.value = !showMethodMenu.value
+}
+
+function selectMethod(method: HttpMethod) {
+  if (isReadonlyModule.value) return
+  currentMethod.value = method
+  showMethodMenu.value = false
 }
 
 function openExport() {
@@ -207,35 +648,128 @@ function openCodeGen() {
   showCodeGenPanel.value = true
 }
 
-function closeActionMenu() {
-  showActionMenu.value = false
+
+function downloadResponse(response: ResponseData) {
+  const contentType = responseContentType(response)
+  const extension = responseFileExtension(contentType)
+  const blob = responseBodyToBlob(response)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `response-${new Date(response.timestamp).toISOString().replace(/[:.]/g, '-')}.${extension}`
+  a.click()
+  URL.revokeObjectURL(url)
 }
+
+async function sendAndThen(action: 'download' | 'codegen') {
+  showActionMenu.value = false
+  postSendAction.value = action
+  await send()
+}
+
+function closeMenus() {
+  showActionMenu.value = false
+  showMethodMenu.value = false
+}
+
+function handleGlobalSend() {
+  if (!store.loading && currentUrl.value.trim()) {
+    send()
+  }
+}
+
+function handleGlobalOpenCodeGen() {
+  if (currentApi.value) openCodeGen()
+}
+
+onMounted(() => {
+  window.addEventListener('apifix:send-current-request', handleGlobalSend)
+  window.addEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
+})
+onUnmounted(() => {
+  window.removeEventListener('apifix:send-current-request', handleGlobalSend)
+  window.removeEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
+})
 </script>
 
 <template>
-  <div class="request-shell" @click="closeActionMenu">
+  <div class="request-shell" @click="closeMenus">
     <div class="request-context">
       <span class="request-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
       <span>{{ currentApi?.name || '未命名请求' }}</span>
       <small>Enter 发送 · 支持 &#123;&#123;变量&#125;&#125;</small>
     </div>
     <div class="request-bar">
-      <select v-model="currentMethod" class="method-select" :style="{ color: methodColor(currentMethod) }">
-        <option v-for="m in methods" :key="m" :value="m">{{ m }}</option>
-      </select>
+      <div class="method-picker" @click.stop>
+        <button
+          type="button"
+          class="method-select"
+          :class="{ open: showMethodMenu }"
+          :style="{ color: methodColor(currentMethod) }"
+          :disabled="isReadonlyModule"
+          aria-haspopup="listbox"
+          :aria-expanded="showMethodMenu"
+          @click="toggleMethodMenu"
+        >
+          <span class="method-option-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
+          <span>{{ currentMethod }}</span>
+          <span class="method-caret">⌄</span>
+        </button>
+        <div v-if="showMethodMenu" class="method-dropdown" role="listbox">
+          <button
+            v-for="m in methods"
+            :key="m"
+            type="button"
+            class="method-option"
+            :class="{ active: m === currentMethod }"
+            role="option"
+            :aria-selected="m === currentMethod"
+            @click="selectMethod(m)"
+          >
+            <span class="method-option-dot" :style="{ backgroundColor: methodColor(m) }"></span>
+            <strong :style="{ color: methodColor(m) }">{{ m }}</strong>
+          </button>
+        </div>
+      </div>
       <div class="url-field">
         <span class="url-prefix">URL</span>
-        <input
-          ref="urlInputRef"
-          v-model="currentUrl"
-          type="url"
-          class="url-input"
-          placeholder="https://api.example.com/users/{{id}}"
-          @keydown.enter="send"
-          @input="urlAutocomplete.handleInput()"
-          @keydown="urlAutocomplete.handleKeydown($event) ? null : null"
+        <select
+          v-if="baseUrlOptions.length"
+          class="base-url-select"
+          title="选择基础地址变量并保留当前路径"
           :disabled="isReadonlyModule"
-        />
+          @change="applyBaseUrlTemplate"
+        >
+          <option value="">基础地址</option>
+          <option v-for="item in baseUrlOptions" :key="item.key" :value="item.key">
+            {{ item.key }} · {{ item.preview }}
+          </option>
+        </select>
+        <div class="url-input-wrap">
+          <div
+            class="url-highlight-layer"
+            aria-hidden="true"
+            :style="{ transform: `translateX(-${urlScrollLeft}px)` }"
+          >
+            <span
+              v-for="(segment, index) in highlightedUrlSegments"
+              :key="`${index}-${segment.text}`"
+              :class="{ 'url-var-token': segment.variable, unresolved: segment.variable && !segment.resolved }"
+            >{{ segment.text }}</span>
+          </div>
+          <input
+            ref="urlInputRef"
+            v-model="currentUrl"
+            type="url"
+            class="url-input"
+            placeholder="https://api.example.com/users/{{id}}"
+            @keydown.enter="send"
+            @input="handleUrlInput"
+            @scroll="syncUrlScroll"
+            @keydown="urlAutocomplete.handleKeydown($event) ? null : null"
+            :disabled="isReadonlyModule"
+          />
+        </div>
       </div>
       <button class="btn btn-primary send-btn" @click="send" :disabled="store.loading || !currentUrl.trim()">
         <span v-if="store.loading" class="send-spinner"></span>
@@ -244,6 +778,8 @@ function closeActionMenu() {
       <div class="action-menu-wrapper">
         <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作">⋯</button>
         <div v-if="showActionMenu" class="action-dropdown" @click.stop>
+          <button class="action-item" @click="sendAndThen('download')">发送并下载响应</button>
+          <button class="action-item" @click="sendAndThen('codegen')">发送后生成代码</button>
           <button class="action-item" @click="openExport">导出请求</button>
           <button class="action-item" @click="openCodeGen">代码生成</button>
         </div>
@@ -312,9 +848,17 @@ function closeActionMenu() {
   gap: 8px;
 }
 
+.method-picker {
+  position: relative;
+}
+
 .method-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   height: 38px;
-  padding: 0 30px 0 10px;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background-color: var(--bg-panel);
@@ -324,6 +868,63 @@ function closeActionMenu() {
   min-width: 92px;
   outline: none;
   box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.method-select:hover:not(:disabled),
+.method-select.open {
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+}
+
+.method-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.method-caret {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.method-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 110;
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.method-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.method-option:hover,
+.method-option.active {
+  background: var(--bg-hover);
+}
+
+.method-option-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 10%, transparent);
 }
 
 .url-field {
@@ -353,20 +954,87 @@ function closeActionMenu() {
   border-right: 1px solid var(--divider);
 }
 
-.url-input {
+.base-url-select {
+  max-width: 168px;
+  height: 28px;
+  margin-left: 8px;
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  outline: none;
+}
+
+.base-url-select:hover:not(:disabled),
+.base-url-select:focus:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+
+.url-input-wrap {
+  position: relative;
   flex: 1;
+  min-width: 0;
   height: 36px;
+  overflow: hidden;
+}
+
+.url-highlight-layer,
+.url-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 36px;
+  padding: 0;
   font-size: var(--font-size-body);
   font-family: var(--font-code);
+  line-height: 36px;
+  white-space: pre;
+}
+
+.url-highlight-layer {
+  pointer-events: none;
+  color: var(--text-primary);
+}
+
+.url-input {
   border: none;
   background: transparent;
+  color: transparent;
+  caret-color: var(--text-primary);
   box-shadow: none !important;
+}
+
+.url-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.url-input::selection {
+  background: rgba(91, 124, 250, 0.22);
+}
+
+.url-var-token {
+  color: var(--primary);
+  border-bottom: 1px dashed var(--primary);
+  font-weight: 700;
+}
+
+.url-var-token.unresolved {
+  color: var(--error);
+  border-bottom-color: var(--error);
 }
 
 .send-btn {
   min-width: 84px;
   height: 38px;
   border-radius: var(--radius-xl);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.send-btn:hover:not(:disabled) {
+  transform: scale(1.02);
 }
 
 .send-spinner {

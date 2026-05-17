@@ -75,7 +75,7 @@ const valueAutocomplete = useVariableAutocomplete(activeValueRef)
             v-model="row.value"
             :placeholder="valuePlaceholder || 'Value'"
             :disabled="readonly || !row.enabled"
-            @input="update; valueAutocomplete.handleInput()"
+            @input="update(); valueAutocomplete.handleInput()"
             @keydown="valueAutocomplete.handleKeydown($event) ? null : null"
           />
         </div>

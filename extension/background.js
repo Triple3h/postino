@@ -13,6 +13,7 @@ const MAX_RECENT_WEB_REQUESTS = 50;
 
 const CONTEXT_MENU_IDS = {
   sendSelectionToSidePanel: 'apifix-send-selection-sidepanel',
+  formatSelectionJson: 'apifix-format-selection-json',
   sendPageToSidePanel: 'apifix-send-page-sidepanel',
   openSidePanel: 'apifix-open-sidepanel',
   openFullPage: 'apifix-open-full-page',
@@ -99,11 +100,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'APIFIX_STATE_CHANGED' || message.type === 'APIFIX_EDITOR_ACTIVITY') {
+    if (!message.relayedByBackground) {
+      chrome.runtime.sendMessage({ ...message, relayedByBackground: true }).catch(() => {});
+    }
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.type === 'TRIGGER_DATA_SOURCE_SYNC' || message.type === 'APIFIX_TRIGGER_DATASOURCE_SYNC') {
+    chrome.runtime.sendMessage({ type: 'APIFIX_TRIGGER_DATASOURCE_SYNC', moduleId: message.moduleId || null, secret: message.secret || '' }).catch(() => {});
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (message.type === 'CANCEL_REQUEST') {
     // 预留：取消请求
     sendResponse({ success: true });
     return false;
   }
+});
+
+
+chrome.runtime.onMessageExternal?.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'TRIGGER_DATA_SOURCE_SYNC' || message?.type === 'APIFIX_TRIGGER_DATASOURCE_SYNC') {
+    chrome.runtime.sendMessage({ type: 'APIFIX_TRIGGER_DATASOURCE_SYNC', moduleId: message.moduleId || null, secret: message.secret || '' }).catch(() => {});
+    sendResponse({ success: true });
+    return false;
+  }
+  sendResponse({ success: false, error: 'Unsupported message type' });
+  return false;
 });
 
 chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
@@ -121,6 +147,28 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
     const context = await collectPageContext(tab, info.selectionText || '', 'selection');
     await storePendingImport({ source: 'context-menu-selection', context }, { tab });
     await openSidePanelForTab(tab);
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_IDS.formatSelectionJson) {
+    const context = await collectPageContext(tab, info.selectionText || '', 'selection-json-format');
+    if (context?.isJson) {
+      await storePendingImport({ source: 'context-menu-json-format', context }, { tab });
+      if (tab?.id) {
+        await chrome.tabs.sendMessage(tab.id, {
+          type: 'APIFIX_FORMAT_SELECTION',
+          selectionText: info.selectionText || '',
+        }).catch(() => null);
+      }
+      await openSidePanelForTab(tab);
+      return;
+    }
+    if (tab?.id) {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: 'APIFIX_FORMAT_SELECTION',
+        selectionText: info.selectionText || '',
+      }).catch(() => null);
+    }
     return;
   }
 
@@ -144,7 +192,7 @@ chrome.commands?.onCommand.addListener(async (command) => {
   }
 
   if (command === 'open-popup') {
-    await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+    await openPopupPage();
   }
 });
 
@@ -207,6 +255,11 @@ function createContextMenus() {
       contexts: ['selection'],
     });
     chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.formatSelectionJson,
+      title: '发送选中 JSON 到 Side Panel 格式化',
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
       id: CONTEXT_MENU_IDS.sendPageToSidePanel,
       title: '发送当前页面上下文到 ApiFix',
       contexts: ['page'],
@@ -225,9 +278,13 @@ function createContextMenus() {
 }
 
 async function collectPageContext(tab, fallbackSelection, mode) {
+  const fallbackJson = parseJsonCandidate(fallbackSelection || '');
   const base = {
     mode,
     selectionText: fallbackSelection || '',
+    text: fallbackSelection || '',
+    json: fallbackJson.ok ? fallbackJson.value : null,
+    isJson: fallbackJson.ok,
     pageUrl: tab?.url || '',
     pageTitle: tab?.title || '',
     capturedAt: Date.now(),
@@ -244,6 +301,16 @@ async function collectPageContext(tab, fallbackSelection, mode) {
     return { ...base, ...(response?.data || response || {}) };
   } catch (err) {
     return base;
+  }
+}
+
+function parseJsonCandidate(text) {
+  const value = String(text || '').trim();
+  if (!value || (!value.startsWith('{') && !value.startsWith('['))) return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(value) };
+  } catch (_err) {
+    return { ok: false };
   }
 }
 
@@ -288,9 +355,39 @@ async function openSidePanelForTab(tab) {
   await chrome.sidePanel.open({ windowId: tab.windowId });
 }
 
+async function focusExistingExtensionPage(path) {
+  const baseUrl = chrome.runtime.getURL(path);
+  const tabs = await chrome.tabs.query({ url: `${baseUrl}*` });
+  const tab = tabs[0];
+  if (!tab?.id) return null;
+  if (tab.windowId) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => null);
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => null);
+  return tab;
+}
+
+async function openOrFocusExtensionPage(path, query = '') {
+  if (!query) {
+    const existing = await focusExistingExtensionPage(path);
+    if (existing) return existing;
+  }
+  return chrome.tabs.create({ url: chrome.runtime.getURL(`${path}${query}`) });
+}
+
+async function openPopupPage() {
+  if (chrome.action?.openPopup) {
+    try {
+      await chrome.action.openPopup();
+      return null;
+    } catch (err) {
+      // Fall back to a regular extension tab when the browser disallows programmatic popup opening.
+    }
+  }
+  return openOrFocusExtensionPage('popup.html');
+}
+
 async function openFullPage(importId) {
   const suffix = importId ? `?pendingImport=${encodeURIComponent(importId)}` : '';
-  return chrome.tabs.create({ url: chrome.runtime.getURL(`main.html${suffix}`) });
+  return openOrFocusExtensionPage('main.html', suffix);
 }
 
 function normalizeChromeHeaders(headers) {
@@ -298,6 +395,25 @@ function normalizeChromeHeaders(headers) {
     key: header.name || header.key || '',
     value: header.value || '',
   })).filter(header => header.key);
+}
+
+
+async function getCookieHeaderForUrl(url) {
+  if (!chrome.cookies?.getAll) return '';
+  try {
+    const cookies = await chrome.cookies.getAll({ url });
+    return cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+  } catch (err) {
+    return '';
+  }
+}
+
+async function applyBrowserCookies(fetchOptions, url, autoCarryCookies) {
+  if (!autoCarryCookies) return;
+  const cookieHeader = await getCookieHeaderForUrl(url);
+  if (!cookieHeader) return;
+  const existing = fetchOptions.headers.Cookie || fetchOptions.headers.cookie;
+  fetchOptions.headers.Cookie = existing ? `${existing}; ${cookieHeader}` : cookieHeader;
 }
 
 function upsertRecentWebRequest(requestId, patch) {
@@ -325,13 +441,39 @@ async function getRecentWebRequests() {
   return stored[RECENT_WEB_REQUESTS_KEY] || [];
 }
 
+
+function isBinaryContentType(contentType) {
+  const ct = String(contentType || '').toLowerCase();
+  return ct.includes('application/octet-stream') ||
+    ct.includes('application/pdf') ||
+    ct.includes('image/') ||
+    ct.includes('audio/') ||
+    ct.includes('video/') ||
+    ct.includes('font/') ||
+    ct.includes('application/zip') ||
+    ct.includes('application/gzip') ||
+    ct.includes('application/x-');
+}
+
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000;
+  const chunks = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(chunks.join(''));
+}
+
 async function handleApiRequest(data) {
-  const { method, url, headers, body, bodyType } = data;
+  const { method, url, headers, body, bodyType, autoCarryCookies, timeoutMs, followRedirects } = data;
 
   const fetchOptions = {
     method: method,
     headers: headers || {},
+    redirect: followRedirects === false ? 'manual' : 'follow',
   };
+  await applyBrowserCookies(fetchOptions, url, autoCarryCookies);
 
   // 设置body
   if (body && !['GET', 'HEAD'].includes(method)) {
@@ -360,9 +502,16 @@ async function handleApiRequest(data) {
   }
 
   const startTime = performance.now();
+  const controller = typeof AbortController !== 'undefined' && timeoutMs && timeoutMs > 0 ? new AbortController() : null;
+  let timeoutId;
+  if (controller) {
+    fetchOptions.signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  }
 
   try {
     const response = await fetch(url, fetchOptions);
+    if (timeoutId) clearTimeout(timeoutId);
     const endTime = performance.now();
     const duration = Math.round(endTime - startTime);
 
@@ -374,10 +523,17 @@ async function handleApiRequest(data) {
 
     // 获取响应体
     const contentType = response.headers.get('content-type') || '';
-    let responseText;
+    let responseText = '';
+    let bodyEncoding = 'text';
+    let size = 0;
     let isJson = false;
 
-    if (contentType.includes('json') || contentType.includes('javascript')) {
+    if (isBinaryContentType(contentType)) {
+      const arrayBuffer = await response.arrayBuffer();
+      responseText = arrayBufferToBase64(arrayBuffer);
+      bodyEncoding = 'base64';
+      size = arrayBuffer.byteLength;
+    } else if (contentType.includes('json') || contentType.includes('javascript')) {
       try {
         const json = await response.json();
         responseText = JSON.stringify(json, null, 2);
@@ -390,7 +546,7 @@ async function handleApiRequest(data) {
     }
 
     // 尝试将非JSON响应解析为JSON
-    if (!isJson && responseText) {
+    if (bodyEncoding === 'text' && !isJson && responseText) {
       try {
         const json = JSON.parse(responseText);
         responseText = JSON.stringify(json, null, 2);
@@ -398,30 +554,34 @@ async function handleApiRequest(data) {
       } catch (e) {}
     }
 
-    const size = new Blob([responseText]).size;
+    if (bodyEncoding === 'text') size = new Blob([responseText]).size;
 
     return {
       status: response.status,
       statusText: response.statusText,
       headers: respHeaders,
       body: responseText,
+      bodyEncoding,
       contentType: contentType,
       duration: duration,
       size: size,
     };
   } catch (err) {
+    if (timeoutId) clearTimeout(timeoutId);
     const endTime = performance.now();
-    throw new Error(`请求失败: ${err.message}`);
+    const timeoutSuffix = err?.name === 'AbortError' ? `（超时 ${timeoutMs}ms）` : '';
+    throw new Error(`请求失败${timeoutSuffix}: ${err.message}`);
   }
 }
 
 async function handleStreamingRequest(data, tabId) {
-  const { method, url, headers, body, bodyType, streamId } = data;
+  const { method, url, headers, body, bodyType, streamId, autoCarryCookies } = data;
 
   const fetchOptions = {
     method: method,
     headers: headers || {},
   };
+  await applyBrowserCookies(fetchOptions, url, autoCarryCookies);
 
   // 设置body（与普通请求相同逻辑）
   if (body && !['GET', 'HEAD'].includes(method)) {
@@ -543,12 +703,13 @@ async function handleStreamingRequest(data, tabId) {
 }
 
 async function handleDownloadRequest(data) {
-  const { method, url, headers, body, bodyType } = data;
+  const { method, url, headers, body, bodyType, autoCarryCookies } = data;
 
   const fetchOptions = {
     method: method,
     headers: headers || {},
   };
+  await applyBrowserCookies(fetchOptions, url, autoCarryCookies);
 
   if (body && !['GET', 'HEAD'].includes(method)) {
     if (bodyType === 'formdata') {
@@ -596,12 +757,7 @@ async function handleDownloadRequest(data) {
 
   // Read as ArrayBuffer and convert to base64
   const arrayBuffer = await response.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  const base64 = btoa(binary);
+  const base64 = arrayBufferToBase64(arrayBuffer);
 
   return {
     base64,

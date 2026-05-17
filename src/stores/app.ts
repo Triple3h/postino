@@ -1,17 +1,176 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { ApiConfig, Environment, HistoryEntry, ResponseData, AppSettings, Group } from '@/types'
-import type { ScriptLog } from '@/utils/pre-request'
+import type { ApiConfig, Category, Environment, HistoryEntry, InterfaceNode, Module as ApiModule, ResponseData, AppSettings, Group } from '@/types'
+import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 import { db } from '@/db'
 import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
+import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
   proxyUrl: 'https://corsproxy.io/?',
-  theme: 'light',
+  theme: 'system',
   maxHistory: 100,
   autoSave: true,
   fontSize: 13,
+  customShortcuts: { ...DEFAULT_SHORTCUTS },
+}
+
+function defaultAuth(): ApiConfig['auth'] {
+  return {
+    type: 'none',
+    bearerToken: '',
+    basicUsername: '',
+    basicPassword: '',
+    apiKeyName: '',
+    apiKeyValue: '',
+    apiKeyIn: 'header',
+  }
+}
+
+function defaultBody(raw = '', contentType = ''): ApiConfig['body'] {
+  return {
+    type: raw ? (contentType.includes('json') ? 'json' : 'raw') : 'none',
+    raw,
+    formData: [],
+    urlEncoded: [],
+    binaryFile: null,
+    contentType,
+  }
+}
+
+function starterApi(input: Pick<ApiConfig, 'id' | 'name' | 'method' | 'url'> & Partial<ApiConfig>, now: number): ApiConfig {
+  return {
+    id: input.id,
+    name: input.name,
+    description: input.description || '',
+    method: input.method,
+    url: input.url,
+    headers: input.headers || [],
+    params: input.params || [],
+    cookies: input.cookies || [],
+    body: input.body || defaultBody(),
+    auth: input.auth || defaultAuth(),
+    requestVariables: input.requestVariables || [],
+    preRequestScript: input.preRequestScript || '',
+    postRequestScript: input.postRequestScript || '',
+    folder: input.folder ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+async function seedStarterWorkspace(): Promise<void> {
+  const now = Date.now()
+  const category: Category = {
+    id: 'category:starter',
+    name: '示例项目',
+    color: '#6366f1',
+    order: 0,
+    createdAt: now,
+    updatedAt: now,
+  }
+  const modules: ApiModule[] = [
+    {
+      id: 'module:starter-jsonplaceholder',
+      categoryId: category.id,
+      name: 'JSONPlaceholder',
+      type: 'generic',
+      description: '免鉴权示例接口，可用于快速体验 GET/POST、变量和 Body 编辑。',
+      variables: {
+        jsonplaceholderBaseUrl: {
+          remote: 'https://jsonplaceholder.typicode.com',
+          local: '',
+          description: 'JSONPlaceholder 示例服务地址',
+        },
+      },
+      dataSource: null,
+      stats: { interfaceCount: 2, docCount: 0, modelCount: 0, testCaseTotal: 0, testCaseCoverage: 0, sceneCaseTotal: 0, sceneCaseCoverage: 0, avgCasePerInterface: 0, uncoveredInterfaceCount: 2 },
+      moduleType: { mode: 'visual', description: '可视化 API 模块' },
+      exportConfig: { format: 'openapi3', autoBackup: false, backupTarget: 'local', teamRole: 'owner', conflictStrategy: 'prompt', permissions: { editSettings: true, editVariables: true, syncDataSource: true, backup: true } },
+      meta: { createdAt: now, updatedAt: now, version: '1.0.0' },
+      order: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'module:starter-weather',
+      categoryId: category.id,
+      name: '天气 API',
+      type: 'generic',
+      description: 'Open-Meteo 免鉴权天气接口示例，用于零配置启动体验。',
+      variables: {
+        weatherBaseUrl: {
+          remote: 'https://api.open-meteo.com/v1',
+          local: '',
+          description: 'Open-Meteo 示例服务地址',
+        },
+      },
+      dataSource: null,
+      stats: { interfaceCount: 1, docCount: 0, modelCount: 0, testCaseTotal: 0, testCaseCoverage: 0, sceneCaseTotal: 0, sceneCaseCoverage: 0, avgCasePerInterface: 0, uncoveredInterfaceCount: 1 },
+      moduleType: { mode: 'visual', description: '可视化 API 模块' },
+      exportConfig: { format: 'openapi3', autoBackup: false, backupTarget: 'local', teamRole: 'owner', conflictStrategy: 'prompt', permissions: { editSettings: true, editVariables: true, syncDataSource: true, backup: true } },
+      meta: { createdAt: now, updatedAt: now, version: '1.0.0' },
+      order: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]
+  const apis = [
+    starterApi({
+      id: 'api:starter-jsonplaceholder-posts',
+      name: '获取文章列表',
+      description: '获取 JSONPlaceholder 文章列表，默认限制 5 条。',
+      method: 'GET',
+      url: '{{jsonplaceholderBaseUrl}}/posts',
+      params: [{ key: '_limit', value: '5', enabled: true }],
+      postRequestScript: 'pm.test("状态码为 200", () => pm.expect(pm.response.code).to.equal(200));\npm.test("响应是数组", () => pm.expect(pm.response.json()).to.be.an("array"));',
+    }, now),
+    starterApi({
+      id: 'api:starter-jsonplaceholder-create-post',
+      name: '创建文章',
+      description: 'POST JSON Body 示例，可体验 Body 美化/压缩和发送。',
+      method: 'POST',
+      url: '{{jsonplaceholderBaseUrl}}/posts',
+      headers: [{ key: 'Content-Type', value: 'application/json', enabled: true }],
+      body: defaultBody(JSON.stringify({ title: 'ApiFix Bin', body: 'Hello from starter project', userId: 1 }, null, 2), 'application/json'),
+      postRequestScript: 'pm.test("创建成功", () => pm.expect(pm.response.code).to.be.within(200, 201));',
+    }, now),
+    starterApi({
+      id: 'api:starter-weather-current',
+      name: '获取当前天气',
+      description: 'Open-Meteo 当前天气示例，无需 API Key。',
+      method: 'GET',
+      url: '{{weatherBaseUrl}}/forecast',
+      params: [
+        { key: 'latitude', value: '31.2304', enabled: true, description: '上海纬度' },
+        { key: 'longitude', value: '121.4737', enabled: true, description: '上海经度' },
+        { key: 'current_weather', value: 'true', enabled: true },
+      ],
+    }, now),
+  ]
+  const interfaces: InterfaceNode[] = [
+    { id: 'interface:starter-jsonplaceholder-posts', moduleId: modules[0].id, apiId: apis[0].id, nodeType: 'request', parentId: null, name: apis[0].name, method: apis[0].method, url: apis[0].url, order: 0, createdAt: now, updatedAt: now },
+    { id: 'interface:starter-jsonplaceholder-create-post', moduleId: modules[0].id, apiId: apis[1].id, nodeType: 'request', parentId: null, name: apis[1].name, method: apis[1].method, url: apis[1].url, order: 1, createdAt: now, updatedAt: now },
+    { id: 'interface:starter-weather-current', moduleId: modules[1].id, apiId: apis[2].id, nodeType: 'request', parentId: null, name: apis[2].name, method: apis[2].method, url: apis[2].url, order: 0, createdAt: now, updatedAt: now },
+  ]
+  const environment: Environment = {
+    id: 'env:starter-local',
+    name: '本地开发',
+    variables: [
+      { key: 'jsonplaceholderBaseUrl', value: 'https://jsonplaceholder.typicode.com', enabled: true },
+      { key: 'weatherBaseUrl', value: 'https://api.open-meteo.com/v1', enabled: true },
+    ],
+  }
+
+  await db.transaction('rw', [db.apis, db.environments, db.categories, db.modules, db.interfaces, db.settings], async () => {
+    await db.categories.put(category)
+    await db.modules.bulkPut(modules)
+    await db.interfaces.bulkPut(interfaces)
+    await db.apis.bulkPut(apis)
+    await db.environments.put(environment)
+    await db.settings.put({ key: 'starterSeeded', value: true })
+  })
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -28,6 +187,8 @@ export const useAppStore = defineStore('app', () => {
   const settings = ref<AppSettings>({ ...defaultSettings })
   const expandedFolders = ref<string[]>([])
   const scriptLogs = ref<ScriptLog[]>([])
+  const scriptVisualizations = ref<ScriptVisualization[]>([])
+  const scriptTests = ref<ScriptTestResult[]>([])
   const autoCarryCookies = ref(false)
 
   let initialized = false
@@ -37,13 +198,30 @@ export const useAppStore = defineStore('app', () => {
     initialized = true
 
     try {
-      const [apiList, groupList, envList, historyList, settingsList] = await Promise.all([
+      let [apiList, groupList, envList, historyList, settingsList] = await Promise.all([
         db.apis.toArray(),
         db.groups.toArray(),
         db.environments.toArray(),
         db.history.orderBy('timestamp').reverse().toArray(),
         db.settings.toArray(),
       ])
+
+      const starterSeeded = settingsList.some(item => item.key === 'starterSeeded' && item.value)
+      const [categoryCount, moduleCount, interfaceCount] = await Promise.all([
+        db.categories.count(),
+        db.modules.count(),
+        db.interfaces.count(),
+      ])
+      if (!starterSeeded && apiList.length === 0 && envList.length === 0 && groupList.length === 0 && categoryCount === 0 && moduleCount === 0 && interfaceCount === 0) {
+        await seedStarterWorkspace()
+        ;[apiList, groupList, envList, historyList, settingsList] = await Promise.all([
+          db.apis.toArray(),
+          db.groups.toArray(),
+          db.environments.toArray(),
+          db.history.orderBy('timestamp').reverse().toArray(),
+          db.settings.toArray(),
+        ])
+      }
 
       const apiMap: Record<string, ApiConfig> = {}
       for (const api of apiList) {
@@ -101,10 +279,14 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  function addApi(api: ApiConfig, moduleId?: string | null) {
+  async function addApi(api: ApiConfig, moduleId?: string | null, parentId: string | null = null): Promise<void> {
     apis.value[api.id] = api
-    db.apis.add(api).catch(e => console.error('Failed to add API to IndexedDB:', e))
-    useWorkspaceStore().addInterfaceForApi(api, moduleId ?? undefined).catch(e => console.error('Failed to add interface in IndexedDB:', e))
+    try {
+      await db.apis.put(api)
+      await useWorkspaceStore().addInterfaceForApi(api, moduleId ?? undefined, parentId)
+    } catch (e) {
+      console.error('Failed to add API to IndexedDB:', e)
+    }
   }
 
   function deleteApi(id: string) {
@@ -117,14 +299,21 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function addHistory(entry: HistoryEntry) {
-    if (entry.starred === undefined) entry.starred = false
-    history.value.unshift(entry)
+    const workspace = useWorkspaceStore()
+    const interfaceNode = workspace.interfaces.find(item => item.apiId === entry.apiId)
+    const normalized: HistoryEntry = {
+      ...entry,
+      moduleId: entry.moduleId || interfaceNode?.moduleId,
+      interfaceId: entry.interfaceId || interfaceNode?.id,
+      starred: entry.starred === undefined ? false : entry.starred,
+    }
+    history.value.unshift(normalized)
     if (history.value.length > settings.value.maxHistory) {
       const removed = history.value.splice(settings.value.maxHistory)
       const removedIds = removed.map(h => h.id)
       db.history.bulkDelete(removedIds).catch(e => console.error('Failed to delete old history from IndexedDB:', e))
     }
-    db.history.add(entry).catch(e => console.error('Failed to add history to IndexedDB:', e))
+    db.history.add(normalized).catch(e => console.error('Failed to add history to IndexedDB:', e))
   }
 
   function toggleStar(id: string) {
@@ -192,6 +381,10 @@ export const useAppStore = defineStore('app', () => {
         if (scopedValue) vars[`${item.name}.${key}`] = scopedValue
       }
     }
+    const currentApi = currentApiId.value ? apis.value[currentApiId.value] : null
+    for (const item of currentApi?.requestVariables ?? []) {
+      if (item.enabled && item.key) vars[item.key] = item.value
+    }
     return vars
   }
 
@@ -207,7 +400,7 @@ export const useAppStore = defineStore('app', () => {
   return {
     apis, groups, groupOrder, currentApiId, activeTab,
     response, loading, environments, currentEnvId,
-    history, settings, expandedFolders, scriptLogs, autoCarryCookies,
+    history, settings, expandedFolders, scriptLogs, scriptVisualizations, scriptTests, autoCarryCookies,
     init, getCurrentApi, updateApi, addApi, deleteApi,
     addHistory, toggleStar, deleteHistoryEntry, clearHistory,
     upsertEnvironment, deleteEnvironment,

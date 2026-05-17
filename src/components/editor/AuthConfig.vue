@@ -4,6 +4,7 @@ import type { AuthConfig } from '@/types'
 
 const props = defineProps<{
   modelValue: AuthConfig
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +24,7 @@ const authTypes: { value: AuthConfig['type']; label: string }[] = [
 ]
 
 function update(partial: Partial<AuthConfig>) {
+  if (props.readonly) return
   emit('update:modelValue', { ...props.modelValue, ...partial })
 }
 </script>
@@ -31,7 +33,7 @@ function update(partial: Partial<AuthConfig>) {
   <div class="auth-config">
     <div class="auth-type-select">
       <label>认证类型</label>
-      <select :value="auth.type" @change="update({ type: ($event.target as HTMLSelectElement).value as AuthConfig['type'] })">
+      <select :value="auth.type" :disabled="readonly" @change="update({ type: ($event.target as HTMLSelectElement).value as AuthConfig['type'] })">
         <option v-for="t in authTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
       </select>
     </div>
@@ -39,7 +41,7 @@ function update(partial: Partial<AuthConfig>) {
     <div v-if="auth.type === 'bearer'" class="auth-fields">
       <div class="field">
         <label>Token</label>
-        <input type="text" :value="auth.bearerToken" @input="update({ bearerToken: ($event.target as HTMLInputElement).value })" placeholder="输入 Bearer Token" />
+        <input type="text" :value="auth.bearerToken" :disabled="readonly" @input="update({ bearerToken: ($event.target as HTMLInputElement).value })" placeholder="输入 Bearer Token" />
       </div>
       <div class="field-hint">
         将发送 <code>Authorization: Bearer {{ auth.bearerToken || 'token' }}</code>
@@ -49,26 +51,26 @@ function update(partial: Partial<AuthConfig>) {
     <div v-if="auth.type === 'basic'" class="auth-fields">
       <div class="field">
         <label>用户名</label>
-        <input type="text" :value="auth.basicUsername" @input="update({ basicUsername: ($event.target as HTMLInputElement).value })" placeholder="用户名" />
+        <input type="text" :value="auth.basicUsername" :disabled="readonly" @input="update({ basicUsername: ($event.target as HTMLInputElement).value })" placeholder="用户名" />
       </div>
       <div class="field">
         <label>密码</label>
-        <input type="text" :value="auth.basicPassword" @input="update({ basicPassword: ($event.target as HTMLInputElement).value })" placeholder="密码" />
+        <input type="text" :value="auth.basicPassword" :disabled="readonly" @input="update({ basicPassword: ($event.target as HTMLInputElement).value })" placeholder="密码" />
       </div>
     </div>
 
     <div v-if="auth.type === 'apikey'" class="auth-fields">
       <div class="field">
         <label>Key 名称</label>
-        <input type="text" :value="auth.apiKeyName" @input="update({ apiKeyName: ($event.target as HTMLInputElement).value })" placeholder="Header 或 Query 参数名" />
+        <input type="text" :value="auth.apiKeyName" :disabled="readonly" @input="update({ apiKeyName: ($event.target as HTMLInputElement).value })" placeholder="Header 或 Query 参数名" />
       </div>
       <div class="field">
         <label>Key 值</label>
-        <input type="text" :value="auth.apiKeyValue" @input="update({ apiKeyValue: ($event.target as HTMLInputElement).value })" placeholder="API Key 值" />
+        <input type="text" :value="auth.apiKeyValue" :disabled="readonly" @input="update({ apiKeyValue: ($event.target as HTMLInputElement).value })" placeholder="API Key 值" />
       </div>
       <div class="field">
         <label>添加到</label>
-        <select :value="auth.apiKeyIn" @change="update({ apiKeyIn: ($event.target as HTMLSelectElement).value as AuthConfig['apiKeyIn'] })">
+        <select :value="auth.apiKeyIn" :disabled="readonly" @change="update({ apiKeyIn: ($event.target as HTMLSelectElement).value as AuthConfig['apiKeyIn'] })">
           <option value="header">Header</option>
           <option value="query">Query 参数</option>
         </select>

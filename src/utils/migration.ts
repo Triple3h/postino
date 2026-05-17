@@ -202,6 +202,8 @@ export function migrateLegacyData(): MigrationResult {
     result.history = legacyHistory.map(h => ({
       id: h.id || generateId(),
       apiId: h.apiId || '',
+      moduleId: undefined,
+      interfaceId: undefined,
       method: (h.method || 'GET') as HttpMethod,
       url: h.url || '',
       status: h.status || 0,

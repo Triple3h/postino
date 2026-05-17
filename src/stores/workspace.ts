@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { db } from '@/db'
-import type { ApiConfig, Category, Group, InterfaceNode, Module as ApiModule, PlannedWorkspaceModel } from '@/types'
+import type { ApiConfig, Category, Group, InterfaceNode, Module as ApiModule, ModuleExportConfig, ModuleStats, ModuleType, PlannedWorkspaceModel } from '@/types'
 
 export const DEFAULT_CATEGORY_ID = 'category:default'
 export const DEFAULT_CATEGORY_NAME = '默认分组'
@@ -10,6 +10,70 @@ export const UNGROUPED_MODULE_ID = 'module:ungrouped'
 export const UNGROUPED_MODULE_NAME = '未分模块'
 
 export type WorkspaceSelectionType = 'category' | 'module' | 'interface' | null
+
+
+const MODEL_VERSION = '1.0.0'
+
+function moduleModeFromType(type?: ModuleType): 'visual' | 'yaml' | 'readonly' {
+  if (type === 'openapi-yaml') return 'yaml'
+  if (type === 'readonly') return 'readonly'
+  return 'visual'
+}
+
+function defaultModuleStats(interfaceCount = 0): ModuleStats {
+  return {
+    interfaceCount,
+    docCount: 0,
+    modelCount: 0,
+    testCaseTotal: 0,
+    testCaseCoverage: 0,
+    sceneCaseTotal: 0,
+    sceneCaseCoverage: 0,
+    avgCasePerInterface: 0,
+    uncoveredInterfaceCount: interfaceCount,
+  }
+}
+
+function defaultExportConfig(): ModuleExportConfig {
+  return {
+    format: 'openapi3',
+    autoBackup: false,
+    backupTarget: 'local',
+    backupEndpoint: '',
+    backupToken: '',
+    backupFileName: '',
+    teamRole: 'owner',
+    conflictStrategy: 'prompt',
+    permissions: {
+      editSettings: true,
+      editVariables: true,
+      syncDataSource: true,
+      backup: true,
+    },
+  }
+}
+
+function normalizeModule(item: ApiModule): ApiModule {
+  const type = item.type ?? 'generic'
+  const stats = item.stats ?? defaultModuleStats()
+  return {
+    ...item,
+    type,
+    stats,
+    variables: item.variables ?? {},
+    dataSource: item.dataSource ?? null,
+    moduleType: item.moduleType ?? {
+      mode: moduleModeFromType(type),
+      description: type === 'readonly' ? '只读同步模块' : type === 'openapi-yaml' ? 'OpenAPI YAML/JSON 模块' : '可视化 API 模块',
+    },
+    exportConfig: item.exportConfig ?? defaultExportConfig(),
+    meta: item.meta ?? {
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      version: MODEL_VERSION,
+    },
+  }
+}
 
 function stableId(prefix: string, value: string): string {
   return `${prefix}:${encodeURIComponent(value)}`
@@ -61,8 +125,12 @@ export function derivePlannedWorkspaceModel(
       categoryId,
       name: UNGROUPED_MODULE_NAME,
       type: 'generic',
+      stats: defaultModuleStats(),
       variables: {},
       dataSource: null,
+      moduleType: { mode: 'visual', description: '可视化 API 模块' },
+      exportConfig: defaultExportConfig(),
+      meta: { createdAt: now, updatedAt: now, version: MODEL_VERSION },
       order: 0,
       legacyGroupName: groupName,
       createdAt: now,
@@ -77,6 +145,8 @@ export function derivePlannedWorkspaceModel(
         id: stableId('interface', apiId),
         moduleId,
         apiId,
+        nodeType: 'request',
+        parentId: null,
         name: api.name,
         method: api.method,
         url: api.url,
@@ -106,8 +176,12 @@ export function derivePlannedWorkspaceModel(
       categoryId: DEFAULT_CATEGORY_ID,
       name: UNGROUPED_MODULE_NAME,
       type: 'generic',
+      stats: defaultModuleStats(),
       variables: {},
       dataSource: null,
+      moduleType: { mode: 'visual', description: '可视化 API 模块' },
+      exportConfig: defaultExportConfig(),
+      meta: { createdAt: now, updatedAt: now, version: MODEL_VERSION },
       order: 0,
       createdAt: now,
       updatedAt: now,
@@ -118,6 +192,8 @@ export function derivePlannedWorkspaceModel(
         id: stableId('interface', api.id),
         moduleId,
         apiId: api.id,
+        nodeType: 'request',
+        parentId: null,
         name: api.name,
         method: api.method,
         url: api.url,
@@ -163,6 +239,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   let initialized = false
 
+  function normalizeInterfaceNode(item: InterfaceNode): InterfaceNode {
+    return {
+      ...item,
+      nodeType: item.nodeType ?? 'request',
+      parentId: item.parentId ?? null,
+      preScript: item.preScript ?? item.preRequestScript ?? '',
+      postScript: item.postScript ?? item.postRequestScript ?? '',
+    }
+  }
+
   async function init(): Promise<void> {
     if (initialized) return
     initialized = true
@@ -174,8 +260,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     ])
 
     categories.value = categoryList
-    modules.value = moduleList
-    interfaces.value = interfaceList
+    modules.value = moduleList.map(normalizeModule)
+    interfaces.value = interfaceList.map(normalizeInterfaceNode)
   }
 
   function getModel(): PlannedWorkspaceModel {
@@ -187,6 +273,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function replaceModel(model: PlannedWorkspaceModel): Promise<void> {
+    const normalizedModules = model.modules.map(normalizeModule)
+    const normalizedInterfaces = model.interfaces.map(normalizeInterfaceNode)
     await db.transaction('rw', db.categories, db.modules, db.interfaces, async () => {
       await Promise.all([
         db.categories.clear(),
@@ -195,14 +283,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       ])
       await Promise.all([
         db.categories.bulkPut(model.categories),
-        db.modules.bulkPut(model.modules),
-        db.interfaces.bulkPut(model.interfaces),
+        db.modules.bulkPut(normalizedModules),
+        db.interfaces.bulkPut(normalizedInterfaces),
       ])
     })
 
     categories.value = sortByOrder(model.categories)
-    modules.value = sortByOrder(model.modules)
-    interfaces.value = sortByOrder(model.interfaces)
+    modules.value = sortByOrder(normalizedModules)
+    interfaces.value = sortByOrder(normalizedInterfaces)
   }
 
   async function replaceFromLegacyGroups(
@@ -273,22 +361,37 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       categoryId: category.id,
       name: trimmedName,
       type: 'generic',
+      stats: defaultModuleStats(),
       variables: {},
       dataSource: null,
+      moduleType: { mode: 'visual', description: '可视化 API 模块' },
+      exportConfig: defaultExportConfig(),
+      meta: { createdAt: now, updatedAt: now, version: MODEL_VERSION },
       order: nextOrder(modules.value.filter(item => item.categoryId === category.id)),
       createdAt: now,
       updatedAt: now,
     }
-    await db.modules.put(module)
-    modules.value = sortByOrder([...modules.value, module])
-    return module
+    const normalized = normalizeModule(module)
+    await db.modules.put(normalized)
+    modules.value = sortByOrder([...modules.value, normalized])
+    return normalized
   }
 
   async function updateModule(id: string, updates: Partial<Omit<ApiModule, 'id' | 'createdAt'>>): Promise<void> {
     const updatedAt = Date.now()
-    await db.modules.update(id, { ...updates, updatedAt })
+    const existing = modules.value.find(module => module.id === id)
+    const nextUpdates = {
+      ...updates,
+      updatedAt,
+      meta: {
+        createdAt: existing?.meta?.createdAt ?? existing?.createdAt ?? updatedAt,
+        updatedAt,
+        version: existing?.meta?.version ?? MODEL_VERSION,
+      },
+    }
+    await db.modules.update(id, nextUpdates)
     modules.value = sortByOrder(modules.value.map(module => module.id === id
-      ? { ...module, ...updates, updatedAt }
+      ? normalizeModule({ ...module, ...nextUpdates })
       : module))
   }
 
@@ -305,16 +408,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       categoryId: DEFAULT_CATEGORY_ID,
       name: groupName,
       type: 'generic',
+      stats: defaultModuleStats(),
       variables: {},
       dataSource: null,
+      moduleType: { mode: 'visual', description: '可视化 API 模块' },
+      exportConfig: defaultExportConfig(),
+      meta: { createdAt: now, updatedAt: now, version: MODEL_VERSION },
       order: nextOrder(modules.value.filter(item => item.categoryId === DEFAULT_CATEGORY_ID)),
       legacyGroupName: groupName,
       createdAt: now,
       updatedAt: now,
     }
-    await db.modules.put(module)
-    modules.value = sortByOrder([...modules.value, module])
-    return module
+    const normalized = normalizeModule(module)
+    await db.modules.put(normalized)
+    modules.value = sortByOrder([...modules.value, normalized])
+    return normalized
   }
 
   async function ensureUngroupedModule(): Promise<ApiModule> {
@@ -329,33 +437,44 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       categoryId: DEFAULT_CATEGORY_ID,
       name: UNGROUPED_MODULE_NAME,
       type: 'generic',
+      stats: defaultModuleStats(),
       variables: {},
       dataSource: null,
+      moduleType: { mode: 'visual', description: '可视化 API 模块' },
+      exportConfig: defaultExportConfig(),
+      meta: { createdAt: now, updatedAt: now, version: MODEL_VERSION },
       order: nextOrder(modules.value.filter(item => item.categoryId === DEFAULT_CATEGORY_ID)),
       createdAt: now,
       updatedAt: now,
     }
-    await db.modules.put(module)
-    modules.value = sortByOrder([...modules.value, module])
-    return module
+    const normalized = normalizeModule(module)
+    await db.modules.put(normalized)
+    modules.value = sortByOrder([...modules.value, normalized])
+    return normalized
   }
 
-  async function addInterfaceForApi(api: ApiConfig, moduleId?: string): Promise<InterfaceNode> {
+  async function addInterfaceForApi(api: ApiConfig, moduleId?: string, parentId: string | null = null): Promise<InterfaceNode> {
     const targetModule = moduleId
       ? modules.value.find(module => module.id === moduleId) ?? await ensureUngroupedModule()
       : await ensureUngroupedModule()
-    const existing = interfaces.value.find(item => item.apiId === api.id)
+    const existing = interfaces.value.find(item => item.apiId === api.id && (item.nodeType ?? 'request') === 'request')
     const now = Date.now()
     const interfaceNode: InterfaceNode = {
       id: existing?.id ?? stableId('interface', api.id),
       moduleId: targetModule.id,
       apiId: api.id,
+      nodeType: 'request',
+      parentId,
       name: api.name,
       method: api.method,
       url: api.url,
-      order: existing && existing.moduleId === targetModule.id
+      preRequestScript: api.preRequestScript,
+      postRequestScript: api.postRequestScript,
+      preScript: api.preRequestScript,
+      postScript: api.postRequestScript,
+      order: existing && existing.moduleId === targetModule.id && (existing.parentId ?? null) === parentId
         ? existing.order
-        : nextOrder(interfaces.value.filter(item => item.moduleId === targetModule.id)),
+        : nextOrder(interfaces.value.filter(item => item.moduleId === targetModule.id && (item.parentId ?? null) === parentId)),
       createdAt: existing?.createdAt ?? api.createdAt,
       updatedAt: now,
     }
@@ -368,8 +487,41 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return interfaceNode
   }
 
+  async function addFolder(moduleId: string, name: string, parentId: string | null = null): Promise<InterfaceNode> {
+    const module = modules.value.find(item => item.id === moduleId) ?? await ensureUngroupedModule()
+    const now = Date.now()
+    const folder: InterfaceNode = {
+      id: stableId('folder', `${module.id}/${parentId ?? 'root'}/${name}/${now}`),
+      moduleId: module.id,
+      apiId: '',
+      nodeType: 'folder',
+      parentId,
+      name,
+      method: 'GET',
+      url: '',
+      preRequestScript: '',
+      postRequestScript: '',
+      preScript: '',
+      postScript: '',
+      order: nextOrder(interfaces.value.filter(item => item.moduleId === module.id && (item.parentId ?? null) === parentId)),
+      createdAt: now,
+      updatedAt: now,
+    }
+    await db.interfaces.put(folder)
+    interfaces.value = sortByOrder([...interfaces.value, folder])
+    return folder
+  }
+
+  async function updateInterfaceNode(id: string, updates: Partial<Omit<InterfaceNode, 'id' | 'createdAt'>>): Promise<void> {
+    const updatedAt = Date.now()
+    await db.interfaces.update(id, { ...updates, updatedAt })
+    interfaces.value = sortByOrder(interfaces.value.map(item => item.id === id
+      ? normalizeInterfaceNode({ ...item, ...updates, updatedAt })
+      : item))
+  }
+
   async function syncInterfaceFromApi(api: ApiConfig): Promise<void> {
-    const matches = interfaces.value.filter(item => item.apiId === api.id)
+    const matches = interfaces.value.filter(item => item.apiId === api.id && (item.nodeType ?? 'request') === 'request')
     if (matches.length === 0) {
       await addInterfaceForApi(api)
       return
@@ -380,10 +532,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       name: api.name,
       method: api.method,
       url: api.url,
+      preRequestScript: api.preRequestScript,
+      postRequestScript: api.postRequestScript,
+      preScript: api.preRequestScript,
+      postScript: api.postRequestScript,
       updatedAt,
     })))
-    interfaces.value = interfaces.value.map(item => item.apiId === api.id
-      ? { ...item, name: api.name, method: api.method, url: api.url, updatedAt }
+    interfaces.value = interfaces.value.map(item => item.apiId === api.id && (item.nodeType ?? 'request') === 'request'
+      ? { ...item, name: api.name, method: api.method, url: api.url, preRequestScript: api.preRequestScript, postRequestScript: api.postRequestScript, preScript: api.preRequestScript, postScript: api.postRequestScript, updatedAt }
       : item)
   }
 
@@ -392,6 +548,104 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (ids.length === 0) return
     await db.interfaces.bulkDelete(ids)
     interfaces.value = interfaces.value.filter(item => item.apiId !== apiId)
+  }
+
+  function getDescendantNodes(parentId: string): InterfaceNode[] {
+    const result: InterfaceNode[] = []
+    const visit = (id: string) => {
+      const children = sortByOrder(interfaces.value.filter(item => (item.parentId ?? null) === id))
+      for (const child of children) {
+        result.push(child)
+        if ((child.nodeType ?? 'request') === 'folder') visit(child.id)
+      }
+    }
+    visit(parentId)
+    return result
+  }
+
+  async function deleteInterfaceSubtree(nodeId: string): Promise<void> {
+    const ids = [nodeId, ...getDescendantNodes(nodeId).map(item => item.id)]
+    await db.interfaces.bulkDelete(ids)
+    interfaces.value = interfaces.value.filter(item => !ids.includes(item.id))
+  }
+
+  async function moveInterfaceNode(
+    nodeId: string,
+    targetModuleId: string,
+    targetParentId: string | null,
+    targetOrder?: number,
+  ): Promise<void> {
+    const node = interfaces.value.find(item => item.id === nodeId)
+    if (!node) return
+    if (targetParentId === nodeId) return
+
+    const descendantIds = new Set(getDescendantNodes(nodeId).map(item => item.id))
+    if (targetParentId && descendantIds.has(targetParentId)) return
+
+    const siblings = sortByOrder(interfaces.value.filter(item =>
+      item.id !== nodeId &&
+      item.moduleId === targetModuleId &&
+      (item.parentId ?? null) === targetParentId,
+    ))
+    const insertAt = Math.max(0, Math.min(targetOrder ?? siblings.length, siblings.length))
+    siblings.splice(insertAt, 0, {
+      ...node,
+      moduleId: targetModuleId,
+      parentId: targetParentId,
+      order: insertAt,
+      updatedAt: Date.now(),
+    })
+
+    const updatedAt = Date.now()
+    const reordered = siblings.map((item, order) => ({
+      ...item,
+      moduleId: targetModuleId,
+      parentId: targetParentId,
+      order,
+      updatedAt,
+    }))
+    const moved = reordered.find(item => item.id === nodeId)
+    if (!moved) return
+
+    const descendants = getDescendantNodes(nodeId).map(item => ({
+      ...item,
+      moduleId: targetModuleId,
+      updatedAt,
+    }))
+    await db.interfaces.bulkPut([...reordered, ...descendants])
+
+    const updatedById = new Map<string, InterfaceNode>()
+    for (const item of [...reordered, ...descendants]) updatedById.set(item.id, item)
+    interfaces.value = sortByOrder(interfaces.value.map(item => updatedById.get(item.id) ?? item))
+  }
+
+  async function moveModule(moduleId: string, targetCategoryId: string, targetOrder?: number): Promise<void> {
+    const module = modules.value.find(item => item.id === moduleId)
+    if (!module) return
+    const siblings = sortByOrder(modules.value.filter(item => item.id !== moduleId && item.categoryId === targetCategoryId))
+    const insertAt = Math.max(0, Math.min(targetOrder ?? siblings.length, siblings.length))
+    const updatedAt = Date.now()
+    siblings.splice(insertAt, 0, { ...module, categoryId: targetCategoryId, order: insertAt, updatedAt })
+    const reordered = siblings.map((item, order) => ({ ...item, categoryId: targetCategoryId, order, updatedAt }))
+    await db.modules.bulkPut(reordered)
+    const updatedById = new Map(reordered.map(item => [item.id, item]))
+    modules.value = sortByOrder(modules.value.map(item => updatedById.get(item.id) ?? item))
+  }
+
+  function getAncestorFolders(interfaceOrApiId: string): InterfaceNode[] {
+    const node = interfaces.value.find(item => item.id === interfaceOrApiId || item.apiId === interfaceOrApiId)
+    if (!node) return []
+    const folders: InterfaceNode[] = []
+    let parentId = node.parentId ?? null
+    const guard = new Set<string>()
+    while (parentId && !guard.has(parentId)) {
+      guard.add(parentId)
+      const parent = interfaces.value.find(item => item.id === parentId)
+      if (!parent) break
+      if ((parent.nodeType ?? 'request') === 'folder') folders.unshift(parent)
+      parentId = parent.parentId ?? null
+    }
+    return folders
   }
 
   function selectCategory(categoryId: string): void {
@@ -460,8 +714,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     ensureModuleForLegacyGroup,
     ensureUngroupedModule,
     addInterfaceForApi,
+    addFolder,
+    updateInterfaceNode,
     syncInterfaceFromApi,
     removeInterfacesForApi,
+    getDescendantNodes,
+    deleteInterfaceSubtree,
+    moveInterfaceNode,
+    moveModule,
+    getAncestorFolders,
     selectCategory,
     selectModule,
     selectInterface,

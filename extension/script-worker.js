@@ -1,8 +1,3 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head><meta charset="UTF-8"><title>ApiFix Script Sandbox</title></head>
-<body>
-<script>
 function formatLogArg(arg) {
   if (arg instanceof Error) return `${arg.name}: ${arg.message}`
   if (typeof arg === 'string') return arg
@@ -622,12 +617,12 @@ function createSendRequestFacade(requestId) {
     const promise = new Promise((resolve, reject) => {
       const handler = event => {
         if (event.data?.type !== 'SCRIPT_SEND_RESPONSE' || event.data.requestId !== requestId || event.data.callId !== callId) return
-        window.removeEventListener('message', handler)
+        self.removeEventListener('message', handler)
         if (event.data.success) resolve(createResponseFacade(event.data.response))
         else reject(new Error(event.data.error || 'pm.sendRequest failed'))
       }
-      window.addEventListener('message', handler)
-      parent.postMessage({ type: 'SCRIPT_SEND_REQUEST', requestId, callId, input }, '*')
+      self.addEventListener('message', handler)
+      self.postMessage({ type: 'SCRIPT_SEND_REQUEST', requestId, callId, input })
     })
     if (callback) promise.then(resp => callback(null, resp)).catch(err => callback(err, null))
     return promise
@@ -638,12 +633,12 @@ function createSendRequestFacade(requestId) {
     const promise = new Promise((resolve, reject) => {
       const handler = event => {
         if (event.data?.type !== 'SCRIPT_SEND_RESPONSE' || event.data.requestId !== requestId || event.data.callId !== callId) return
-        window.removeEventListener('message', handler)
+        self.removeEventListener('message', handler)
         if (event.data.success) resolve(createResponseFacade(event.data.response))
         else reject(new Error(event.data.error || 'pm.sendRequest.sendInterface failed'))
       }
-      window.addEventListener('message', handler)
-      parent.postMessage({ type: 'SCRIPT_SEND_REQUEST', requestId, callId, interfaceOrApiId, overrides }, '*')
+      self.addEventListener('message', handler)
+      self.postMessage({ type: 'SCRIPT_SEND_REQUEST', requestId, callId, interfaceOrApiId, overrides })
     })
     if (callback) promise.then(resp => callback(null, resp)).catch(err => callback(err, null))
     return promise
@@ -665,12 +660,12 @@ function createExecutionFacade(requestId, log, info) {
     const promise = new Promise((resolve, reject) => {
       const handler = event => {
         if (event.data?.type !== 'SCRIPT_SEND_RESPONSE' || event.data.requestId !== requestId || event.data.callId !== callId) return
-        window.removeEventListener('message', handler)
+        self.removeEventListener('message', handler)
         if (event.data.success) resolve(createResponseFacade(event.data.response))
         else reject(new Error(event.data.error || 'pm.execution.runRequest failed'))
       }
-      window.addEventListener('message', handler)
-      parent.postMessage({ type: 'SCRIPT_SEND_REQUEST', requestId, callId, interfaceOrApiId, overrides }, '*')
+      self.addEventListener('message', handler)
+      self.postMessage({ type: 'SCRIPT_SEND_REQUEST', requestId, callId, interfaceOrApiId, overrides })
     })
     if (callback) promise.then(resp => callback(null, resp)).catch(err => callback(err, null))
     return promise
@@ -686,7 +681,7 @@ function createExecutionFacade(requestId, log, info) {
   }
 }
 
-window.addEventListener('message', async (event) => {
+self.addEventListener('message', async event => {
   const { type, script, envVars, method, headers, cookies, url, body, urlencoded, formdata, requestId, responseData, info } = event.data || {}
   if (type !== 'EXECUTE_SCRIPT') return
 
@@ -739,8 +734,7 @@ window.addEventListener('message', async (event) => {
       },
       body: {
         _raw: body || '', _fields: [...(urlencoded || [])], _formdata: [...(formdata || [])],
-        get raw() { return this._raw }, set raw(val) { applyBodyInput(this, val) },
-        update(val) { applyBodyInput(this, val) },
+        get raw() { return this._raw }, set raw(val) { applyBodyInput(this, val) }, update(val) { applyBodyInput(this, val) },
         set(key, value) { const existing = this._fields.find(f => f.key === key); if (existing) { existing.value = String(value); existing.enabled = true } else this._fields.push({ key, value: String(value), enabled: true }) },
         get(key) { return this._fields.find(f => f.key === key)?.value },
         remove(key) { this._fields = this._fields.filter(f => f.key !== key) },
@@ -870,32 +864,23 @@ window.addEventListener('message', async (event) => {
     const CryptoJS = createCryptoJsShim()
     const safeScript = `'use strict';\n${script}`
     const fn = new AsyncFunction(
-      'pm', 'postman', 'console', 'Math', 'Date', 'parseInt', 'parseFloat',
-      'JSON', 'CryptoJS', 'encodeURIComponent', 'decodeURIComponent', 'btoa', 'atob',
-      'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
-      'Promise', 'Array', 'Object', 'String', 'Number', 'Boolean', 'RegExp', 'Map', 'Set', 'WeakMap', 'WeakSet',
-      'Proxy', 'Reflect', 'Symbol', 'Intl', 'ArrayBuffer', 'Uint8Array', 'TextEncoder', 'TextDecoder', 'URL', 'URLSearchParams',
-      'FormData', 'Blob', 'File', 'Error', 'TypeError', 'RangeError',
+      'pm', 'postman', 'console', 'Math', 'Date', 'parseInt', 'parseFloat', 'JSON', 'CryptoJS', 'encodeURIComponent', 'decodeURIComponent', 'btoa', 'atob',
+      'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'Promise', 'Array', 'Object', 'String', 'Number', 'Boolean', 'RegExp', 'Map', 'Set', 'WeakMap', 'WeakSet',
+      'Proxy', 'Reflect', 'Symbol', 'Intl', 'ArrayBuffer', 'Uint8Array', 'TextEncoder', 'TextDecoder', 'URL', 'URLSearchParams', 'FormData', 'Blob', 'File', 'Error', 'TypeError', 'RangeError',
       'window', 'document', 'navigator', 'location', 'fetch', 'XMLHttpRequest', 'WebSocket', 'localStorage', 'sessionStorage', 'indexedDB', 'eval', 'Function', 'globalThis', 'self', 'parent', 'top', 'opener', 'chrome',
       safeScript,
     )
     await fn(
-      pm, postman, sandboxedConsole, Math, Date, parseInt, parseFloat,
-      JSON, CryptoJS, encodeURIComponent, decodeURIComponent, btoa, atob,
-      setTimeout, setInterval, clearTimeout, clearInterval,
-      Promise, Array, Object, String, Number, Boolean, RegExp, Map, Set, WeakMap, WeakSet,
-      Proxy, Reflect, Symbol, Intl, ArrayBuffer, Uint8Array, TextEncoder, TextDecoder, URL, URLSearchParams,
-      typeof FormData === 'undefined' ? undefined : FormData, typeof Blob === 'undefined' ? undefined : Blob, typeof File === 'undefined' ? undefined : File, Error, TypeError, RangeError,
+      pm, postman, sandboxedConsole, Math, Date, parseInt, parseFloat, JSON, CryptoJS, encodeURIComponent, decodeURIComponent, btoa, atob,
+      setTimeout, setInterval, clearTimeout, clearInterval, Promise, Array, Object, String, Number, Boolean, RegExp, Map, Set, WeakMap, WeakSet,
+      Proxy, Reflect, Symbol, Intl, ArrayBuffer, Uint8Array, TextEncoder, TextDecoder, URL, URLSearchParams, typeof FormData === 'undefined' ? undefined : FormData, typeof Blob === 'undefined' ? undefined : Blob, typeof File === 'undefined' ? undefined : File, Error, TypeError, RangeError,
       deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal,
     )
     await Promise.all(pendingTests)
     for (const result of tests) log(result.passed ? 'log' : 'error', result.skipped ? `- ${result.name} (skipped)` : result.passed ? `✓ ${result.name}` : `✗ ${result.name}: ${result.error}`)
-    parent.postMessage({ type: 'SCRIPT_RESULT', requestId, success: true, result: { method: pm.request.method, headers: pm.request.headers._store, cookies: pm.request.cookies._store, url: pm.request.url._url, body: pm.request.body._raw, urlencoded: pm.request.body._fields, formdata: pm.request.body._formdata, envVars: envStore, envChangedKeys: [...changedEnvKeys], skipRequest: Boolean(pm.execution?._state?.skipRequest), nextRequest: pm.execution?._state?.nextRequest ?? null, logs, visualizations, tests } }, '*')
+    self.postMessage({ type: 'SCRIPT_RESULT', requestId, success: true, result: { method: pm.request.method, headers: pm.request.headers._store, cookies: pm.request.cookies._store, url: pm.request.url._url, body: pm.request.body._raw, urlencoded: pm.request.body._fields, formdata: pm.request.body._formdata, envVars: envStore, envChangedKeys: [...changedEnvKeys], skipRequest: Boolean(pm.execution?._state?.skipRequest), nextRequest: pm.execution?._state?.nextRequest ?? null, logs, visualizations, tests } })
   } catch (err) {
     log('error', `脚本执行错误: ${err.message || String(err)}`)
-    parent.postMessage({ type: 'SCRIPT_RESULT', requestId, success: false, error: err.message || String(err), result: { method: pm.request.method, headers: pm.request.headers._store, cookies: pm.request.cookies._store, url: pm.request.url._url, body: pm.request.body._raw, urlencoded: pm.request.body._fields, formdata: pm.request.body._formdata, envVars: envStore, envChangedKeys: [...changedEnvKeys], skipRequest: Boolean(pm.execution?._state?.skipRequest), nextRequest: pm.execution?._state?.nextRequest ?? null, logs, visualizations, tests } }, '*')
+    self.postMessage({ type: 'SCRIPT_RESULT', requestId, success: false, error: err.message || String(err), result: { method: pm.request.method, headers: pm.request.headers._store, cookies: pm.request.cookies._store, url: pm.request.url._url, body: pm.request.body._raw, urlencoded: pm.request.body._fields, formdata: pm.request.body._formdata, envVars: envStore, envChangedKeys: [...changedEnvKeys], skipRequest: Boolean(pm.execution?._state?.skipRequest), nextRequest: pm.execution?._state?.nextRequest ?? null, logs, visualizations, tests } })
   }
 })
-</script>
-</body>
-</html>

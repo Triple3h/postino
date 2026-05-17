@@ -7,6 +7,7 @@ import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 const props = defineProps<{
   modelValue: BodyConfig
   method: string
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -36,16 +37,29 @@ const rawModes: { value: string; label: string }[] = [
 ]
 
 const rawContent = ref(props.modelValue.raw)
+const rawMessage = ref('')
+
+const dynamicTokens = ['{{$timestamp}}', '{{$isoTimestamp}}', '{{$guid}}', '{{$randomInt}}', '{{$randomEmail}}']
+
+const rawStats = computed(() => {
+  const text = rawContent.value || ''
+  return {
+    lines: text ? text.split(/\r?\n/).length : 0,
+    chars: text.length,
+  }
+})
 
 watch(() => props.modelValue.raw, (val) => {
   rawContent.value = val
 })
 
 function update(partial: Partial<BodyConfig>) {
+  if (props.readonly) return
   emit('update:modelValue', { ...props.modelValue, ...partial })
 }
 
 function updateType(type: BodyConfig['type']) {
+  if (props.readonly) return
   const updates: Partial<BodyConfig> = { type }
   if (type === 'json') {
     updates.contentType = 'application/json'
@@ -64,8 +78,29 @@ function updateUrlEncoded(urlEncoded: KvPair[]) {
   update({ urlEncoded })
 }
 
-function updateRawContent() {
+function updateRawContent(clearMessage = true) {
+  if (props.readonly) return
+  if (clearMessage) rawMessage.value = ''
   update({ raw: rawContent.value })
+}
+
+function transformJsonBody(compact = false) {
+  if (props.readonly) return
+  try {
+    const parsed = JSON.parse(rawContent.value || 'null')
+    rawContent.value = JSON.stringify(parsed, null, compact ? 0 : 2)
+    rawMessage.value = compact ? 'JSON 已压缩' : 'JSON 已美化'
+    updateRawContent(false)
+  } catch (err) {
+    rawMessage.value = `JSON 解析失败：${err instanceof Error ? err.message : String(err)}`
+  }
+}
+
+
+function insertDynamicToken(token: string) {
+  if (props.readonly) return
+  rawContent.value = rawContent.value ? `${rawContent.value}${token}` : token
+  updateRawContent()
 }
 
 const isBodyDisabled = computed(() => props.method === 'GET' || props.method === 'HEAD')
@@ -92,6 +127,7 @@ const rawLanguage = computed(() => {
           :key="bt.value"
           :class="['body-type-btn', { active: body.type === bt.value }]"
           @click="updateType(bt.value)"
+          :disabled="readonly"
         >
           {{ bt.label }}
         </button>
@@ -102,24 +138,41 @@ const rawLanguage = computed(() => {
       </div>
 
       <div v-if="body.type === 'json'" class="body-raw">
+        <div class="raw-helper-bar">
+          <div class="json-tools">
+            <button :disabled="readonly" @click="transformJsonBody(false)">美化</button>
+            <button :disabled="readonly" @click="transformJsonBody(true)">压缩</button>
+          </div>
+          <div class="dynamic-token-list">
+            <button v-for="token in dynamicTokens" :key="`json-${token}`" :disabled="readonly" @click="insertDynamicToken(token)">{{ token }}</button>
+          </div>
+          <span>{{ rawStats.lines }} 行 · {{ rawStats.chars }} 字符</span>
+          <span v-if="rawMessage" class="raw-message">{{ rawMessage }}</span>
+        </div>
         <CodeMirrorEditor
           :model-value="rawContent"
           language="json"
           placeholder='{"key": "value"}'
+          :readonly="readonly"
           @update:model-value="rawContent = $event; updateRawContent()"
         />
       </div>
 
       <div v-if="body.type === 'raw'" class="body-raw">
         <div class="raw-mode-select">
-          <select :value="body.contentType" @change="update({ contentType: ($event.target as HTMLSelectElement).value })">
+          <select :value="body.contentType" :disabled="readonly" @change="update({ contentType: ($event.target as HTMLSelectElement).value })">
             <option v-for="rm in rawModes" :key="rm.value" :value="rm.value">{{ rm.label }}</option>
           </select>
+          <div class="dynamic-token-list">
+            <button v-for="token in dynamicTokens" :key="`raw-${token}`" :disabled="readonly" @click="insertDynamicToken(token)">{{ token }}</button>
+          </div>
+          <span class="raw-stats">{{ rawStats.lines }} 行 · {{ rawStats.chars }} 字符</span>
         </div>
         <CodeMirrorEditor
           :model-value="rawContent"
           :language="rawLanguage"
           placeholder="输入请求体内容..."
+          :readonly="readonly"
           @update:model-value="rawContent = $event; updateRawContent()"
         />
       </div>
@@ -130,6 +183,7 @@ const rawLanguage = computed(() => {
           @update:model-value="updateFormData"
           key-placeholder="字段名"
           value-placeholder="值"
+          :readonly="readonly"
         />
       </div>
 
@@ -139,12 +193,13 @@ const rawLanguage = computed(() => {
           @update:model-value="updateUrlEncoded"
           key-placeholder="字段名"
           value-placeholder="值"
+          :readonly="readonly"
         />
       </div>
 
       <div v-if="body.type === 'binary'" class="body-binary">
         <div class="binary-upload">
-          <input type="file" @change="update({ binaryFile: ($event.target as HTMLInputElement).files?.[0]?.name ?? null })" />
+          <input type="file" :disabled="readonly" @change="update({ binaryFile: ($event.target as HTMLInputElement).files?.[0]?.name ?? null })" />
           <span v-if="body.binaryFile" class="binary-filename">{{ body.binaryFile }}</span>
         </div>
       </div>
@@ -162,6 +217,56 @@ const rawLanguage = computed(() => {
 .body-editor.disabled {
   opacity: 0.5;
   pointer-events: none;
+}
+
+
+.raw-helper-bar,
+.raw-mode-select {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.raw-helper-bar {
+  margin-bottom: 8px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-small);
+}
+
+.json-tools,
+.dynamic-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.json-tools button,
+.dynamic-token-list button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 7px;
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.json-tools button:hover:not(:disabled),
+.dynamic-token-list button:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.raw-message {
+  color: var(--text-tertiary);
+}
+
+.raw-stats {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-small);
 }
 
 .body-disabled-hint {

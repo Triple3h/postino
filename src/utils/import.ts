@@ -1,4 +1,4 @@
-import type { ApiConfig, HttpMethod, KvPair, BodyConfig, AuthConfig } from '@/types'
+import type { ApiConfig, HttpMethod, KvPair, BodyConfig, AuthConfig, CookieItem } from '@/types'
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -15,6 +15,7 @@ function createDefaultApi(partial: Partial<ApiConfig> = {}): ApiConfig {
     cookies: partial.cookies || [],
     body: partial.body || { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
     auth: partial.auth || { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
+    requestVariables: partial.requestVariables || [],
     preRequestScript: partial.preRequestScript || '',
     postRequestScript: partial.postRequestScript || '',
     folder: partial.folder || null,
@@ -180,10 +181,14 @@ export function importCurl(curlStr: string): ApiConfig | null {
 
 interface PostmanItem {
   name?: string
+  event?: PostmanEvent[]
+  variable?: PostmanVariable[]
   request?: {
     method?: string
     url?: string | { raw?: string; host?: string[]; path?: string[]; query?: Array<{ key: string; value: string }> }
     header?: Array<{ key: string; value: string; disabled?: boolean }>
+    cookie?: Array<{ key: string; value: string; disabled?: boolean }>
+    auth?: PostmanAuth
     body?: {
       mode?: string
       raw?: string
@@ -193,32 +198,143 @@ interface PostmanItem {
   }
 }
 
+interface PostmanAuth {
+  type?: string
+  bearer?: Array<{ key: string; value: string }>
+  basic?: Array<{ key: string; value: string }>
+  apikey?: Array<{ key: string; value: string }>
+}
+
+interface PostmanEvent {
+  listen?: string
+  script?: {
+    exec?: string[] | string
+    type?: string
+  }
+}
+
 interface PostmanFolder {
   name?: string
+  event?: PostmanEvent[]
+  variable?: PostmanVariable[]
   item: PostmanNode[]
 }
 
 type PostmanNode = PostmanItem | PostmanFolder
 
+interface PostmanVariable {
+  key?: string
+  value?: unknown
+  disabled?: boolean
+}
+
 interface PostmanCollection {
   info?: { name?: string }
   item?: PostmanNode[]
+  variable?: PostmanVariable[]
 }
 
-function resolvePostmanUrl(url: string | { raw?: string; host?: string[]; path?: string[]; query?: Array<{ key: string; value: string }> } | undefined): string {
+type PostmanUrl = string | { raw?: string; host?: string[]; path?: string[]; query?: Array<{ key: string; value: string; disabled?: boolean }> }
+
+function stripQueryFromUrl(raw: string): string {
+  const hashIndex = raw.indexOf('#')
+  const beforeHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw
+  const hash = hashIndex >= 0 ? raw.slice(hashIndex) : ''
+  const queryIndex = beforeHash.indexOf('?')
+  return queryIndex >= 0 ? `${beforeHash.slice(0, queryIndex)}${hash}` : raw
+}
+
+function resolvePostmanUrl(url: PostmanUrl | undefined): string {
   if (!url) return ''
   if (typeof url === 'string') return url
-  if (url.raw) return url.raw
+  if (url.raw) return url.query?.length ? stripQueryFromUrl(url.raw) : url.raw
   let result = ''
   if (url.host) result += url.host.join('.')
   if (url.path) result += '/' + url.path.join('/')
-  if (url.query && url.query.length > 0) {
-    result += '?' + url.query.map(q => `${q.key}=${q.value}`).join('&')
-  }
   return result
 }
 
-function parsePostmanItem(item: PostmanItem): ApiConfig | null {
+function resolvePostmanParams(url: PostmanUrl | undefined): KvPair[] {
+  if (!url || typeof url === 'string') return []
+  return (url.query || [])
+    .filter(param => param.key)
+    .map(param => ({ key: param.key, value: param.value ?? '', enabled: !param.disabled }))
+}
+
+function parsePostmanVariables(variables: PostmanVariable[] | undefined): KvPair[] {
+  return (variables || [])
+    .filter(variable => Boolean(variable.key))
+    .map(variable => ({
+      key: variable.key || '',
+      value: variable.value == null ? '' : String(variable.value),
+      enabled: !variable.disabled,
+    }))
+}
+
+function mergeKvPairs(primary: KvPair[], fallback: KvPair[]): KvPair[] {
+  const merged = primary.map(item => ({ ...item }))
+  const existingKeys = new Set(merged.map(item => item.key))
+  for (const item of fallback) {
+    if (!existingKeys.has(item.key)) {
+      merged.push({ ...item })
+      existingKeys.add(item.key)
+    }
+  }
+  return merged
+}
+
+function resolvePostmanScript(events: PostmanEvent[] | undefined, listen: string): string {
+  const event = events?.find(item => item.listen === listen)
+  const exec = event?.script?.exec
+  if (Array.isArray(exec)) return exec.join('\n')
+  return typeof exec === 'string' ? exec : ''
+}
+
+function joinPostmanScripts(...scripts: Array<string | undefined>): string {
+  return scripts
+    .map(script => script?.trim() ?? '')
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function postmanAuthValue(auth: PostmanAuth | undefined, group: keyof PostmanAuth, key: string): string {
+  const entries = auth?.[group]
+  return Array.isArray(entries) ? entries.find(item => item.key === key)?.value ?? '' : ''
+}
+
+function parsePostmanAuth(auth: PostmanAuth | undefined): AuthConfig {
+  const empty: AuthConfig = {
+    type: 'none',
+    bearerToken: '',
+    basicUsername: '',
+    basicPassword: '',
+    apiKeyName: '',
+    apiKeyValue: '',
+    apiKeyIn: 'header',
+  }
+  if (!auth?.type || auth.type === 'noauth') return empty
+  if (auth.type === 'bearer') return { ...empty, type: 'bearer', bearerToken: postmanAuthValue(auth, 'bearer', 'token') }
+  if (auth.type === 'basic') {
+    return {
+      ...empty,
+      type: 'basic',
+      basicUsername: postmanAuthValue(auth, 'basic', 'username'),
+      basicPassword: postmanAuthValue(auth, 'basic', 'password'),
+    }
+  }
+  if (auth.type === 'apikey') {
+    return {
+      ...empty,
+      type: 'apikey',
+      apiKeyName: postmanAuthValue(auth, 'apikey', 'key'),
+      apiKeyValue: postmanAuthValue(auth, 'apikey', 'value'),
+      apiKeyIn: postmanAuthValue(auth, 'apikey', 'in') === 'query' ? 'query' : 'header',
+    }
+  }
+  return empty
+}
+
+function parsePostmanItem(item: PostmanItem, inheritedPreRequestScript = '', inheritedPostRequestScript = ''): ApiConfig | null {
   if (!item.request) return null
 
   const method = (item.request.method || 'GET').toUpperCase() as HttpMethod
@@ -228,6 +344,14 @@ function parsePostmanItem(item: PostmanItem): ApiConfig | null {
     value: h.value,
     enabled: !h.disabled,
   }))
+  const params = resolvePostmanParams(item.request.url)
+  const cookies: CookieItem[] = (item.request.cookie || [])
+    .filter(cookie => cookie.key)
+    .map(cookie => ({
+      key: cookie.key,
+      value: cookie.value ?? '',
+      enabled: !cookie.disabled,
+    }))
 
   let body: BodyConfig = { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' }
 
@@ -265,17 +389,48 @@ function parsePostmanItem(item: PostmanItem): ApiConfig | null {
     method,
     url,
     headers,
+    params,
+    cookies,
     body,
+    auth: parsePostmanAuth(item.request.auth),
+    preRequestScript: joinPostmanScripts(inheritedPreRequestScript, resolvePostmanScript(item.event, 'prerequest')),
+    postRequestScript: joinPostmanScripts(inheritedPostRequestScript, resolvePostmanScript(item.event, 'test')),
   })
 }
 
-function flattenItems(items: PostmanNode[], folder: string | null = null): Array<{ item: PostmanItem; folder: string | null }> {
-  const result: Array<{ item: PostmanItem; folder: string | null }> = []
+type FlattenedPostmanItem = {
+  item: PostmanItem
+  folder: string | null
+  inheritedPreRequestScript: string
+  inheritedPostRequestScript: string
+  inheritedVariables: KvPair[]
+}
+
+function flattenItems(
+  items: PostmanNode[],
+  folder: string | null = null,
+  inheritedPreRequestScript = '',
+  inheritedPostRequestScript = '',
+  inheritedVariables: KvPair[] = [],
+): FlattenedPostmanItem[] {
+  const result: FlattenedPostmanItem[] = []
   for (const item of items) {
     if ('item' in item && Array.isArray(item.item)) {
-      result.push(...flattenItems(item.item, item.name || folder))
+      result.push(...flattenItems(
+        item.item,
+        item.name || folder,
+        joinPostmanScripts(inheritedPreRequestScript, resolvePostmanScript(item.event, 'prerequest')),
+        joinPostmanScripts(inheritedPostRequestScript, resolvePostmanScript(item.event, 'test')),
+        mergeKvPairs(parsePostmanVariables(item.variable), inheritedVariables),
+      ))
     } else if ('request' in item) {
-      result.push({ item: item as PostmanItem, folder })
+      result.push({
+        item: item as PostmanItem,
+        folder,
+        inheritedPreRequestScript,
+        inheritedPostRequestScript,
+        inheritedVariables: mergeKvPairs(parsePostmanVariables(item.variable), inheritedVariables),
+      })
     }
   }
   return result
@@ -286,13 +441,21 @@ export function importPostman(jsonStr: string): ApiConfig[] {
     const collection: PostmanCollection = JSON.parse(jsonStr)
     if (!collection.item || !Array.isArray(collection.item)) return []
 
+    const collectionVariables = parsePostmanVariables(collection.variable)
     const flatItems = flattenItems(collection.item)
-    return flatItems
-      .map(({ item, folder }) => {
-        const api = parsePostmanItem(item)
-        return api ? { ...api, folder } : null
+    const imported: ApiConfig[] = []
+
+    for (const { item, folder, inheritedPreRequestScript, inheritedPostRequestScript, inheritedVariables } of flatItems) {
+      const api = parsePostmanItem(item, inheritedPreRequestScript, inheritedPostRequestScript)
+      if (!api) continue
+      imported.push({
+        ...api,
+        folder,
+        requestVariables: mergeKvPairs(api.requestVariables || [], mergeKvPairs(inheritedVariables, collectionVariables)),
       })
-      .filter((a): a is ApiConfig => a !== null)
+    }
+
+    return imported
   } catch {
     return []
   }

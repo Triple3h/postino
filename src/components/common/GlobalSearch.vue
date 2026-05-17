@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -7,6 +7,7 @@ const store = useAppStore()
 const workspace = useWorkspaceStore()
 const showSearch = ref(false)
 const searchQuery = ref('')
+const selectedIndex = ref(0)
 
 const results = computed(() => {
   if (!searchQuery.value.trim()) return []
@@ -17,6 +18,7 @@ const results = computed(() => {
 
   // Search planned interfaces first so results can show category/module context.
   for (const interfaceNode of workspace.interfaces) {
+    if ((interfaceNode.nodeType ?? 'request') === 'folder') continue
     const api = store.apis[interfaceNode.apiId]
     const module = workspace.modules.find(item => item.id === interfaceNode.moduleId)
     const category = module ? workspace.categories.find(item => item.id === module.categoryId) : null
@@ -53,7 +55,28 @@ const results = computed(() => {
   for (const env of store.environments) {
     for (const v of env.variables) {
       if (v.key.toLowerCase().includes(q) || v.value.toLowerCase().includes(q)) {
-        items.push({ type: '变量', name: `${env.name}.${v.key}`, id: env.id, extra: v.value })
+        items.push({ type: '环境变量', name: `${env.name}.${v.key}`, id: env.id, extra: v.value })
+      }
+    }
+  }
+
+  // Search module variables across all modules.
+  for (const module of workspace.modules) {
+    for (const [key, value] of Object.entries(module.variables ?? {})) {
+      const candidateValues = [value.local, value.remote, value.description, ...Object.values(value.environmentValues ?? {})].filter(Boolean)
+      if (key.toLowerCase().includes(q) || candidateValues.some(item => String(item).toLowerCase().includes(q))) {
+        const displayValue = value.local || value.remote || Object.values(value.environmentValues ?? {})[0] || value.description || ''
+        items.push({ type: '模块变量', name: `${module.name}.${key}`, id: module.id, extra: String(displayValue) })
+      }
+    }
+  }
+
+  // Search request-level variables across all APIs.
+  for (const [apiId, api] of Object.entries(store.apis)) {
+    for (const variable of api.requestVariables ?? []) {
+      if (!variable.key) continue
+      if (variable.key.toLowerCase().includes(q) || String(variable.value || '').toLowerCase().includes(q) || String(variable.description || '').toLowerCase().includes(q)) {
+        items.push({ type: '请求变量', name: `${api.name}.${variable.key}`, id: apiId, extra: variable.value || variable.description || '' })
       }
     }
   }
@@ -71,33 +94,56 @@ const results = computed(() => {
 function openSearch() {
   showSearch.value = true
   searchQuery.value = ''
+  selectedIndex.value = 0
 }
 
 function closeSearch() {
   showSearch.value = false
 }
 
-function selectResult(result: typeof results.value[0]) {
-  if (result.type === '接口') {
+function selectResult(result: typeof results.value[0], sendAfterSelect = false) {
+  if (result.type === '接口' || result.type === '历史' || result.type === '请求变量') {
     const interfaceNode = workspace.interfaces.find(item => item.apiId === result.id)
     workspace.selectInterface(interfaceNode?.id ?? result.id)
     store.currentApiId = result.id
+    if (sendAfterSelect) {
+      window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+    }
+  } else if (result.type === '模块变量') {
+    workspace.selectModule(result.id)
+    store.currentApiId = null
   }
   closeSearch()
 }
 
+function activateSelected(sendAfterSelect = false) {
+  const result = results.value[selectedIndex.value] ?? results.value[0]
+  if (result) selectResult(result, sendAfterSelect)
+}
+
+function moveSelection(delta: number) {
+  if (results.value.length === 0) return
+  selectedIndex.value = (selectedIndex.value + delta + results.value.length) % results.value.length
+}
+
+watch(results, () => {
+  selectedIndex.value = 0
+})
+
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'k' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault()
-    openSearch()
-  }
   if (e.key === 'Escape' && showSearch.value) {
     closeSearch()
   }
 }
 
-onMounted(() => window.addEventListener('keydown', handleKeydown))
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('apifix:open-global-search', openSearch)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('apifix:open-global-search', openSearch)
+})
 </script>
 
 <template>
@@ -110,9 +156,18 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
         placeholder="搜索接口、变量、历史..."
         autofocus
         @keydown.escape="closeSearch"
+        @keydown.down.prevent="moveSelection(1)"
+        @keydown.up.prevent="moveSelection(-1)"
+        @keydown.enter.prevent="activateSelected(true)"
       />
       <div class="search-results">
-        <div v-for="r in results" :key="r.id + r.name" class="search-result" @click="selectResult(r)">
+        <div
+          v-for="(r, index) in results"
+          :key="r.id + r.name"
+          :class="['search-result', { selected: selectedIndex === index }]"
+          @mouseenter="selectedIndex = index"
+          @click="selectResult(r)"
+        >
           <span class="result-type">{{ r.type }}</span>
           <span class="result-name">{{ r.name }}</span>
           <span class="result-extra">{{ r.extra }}</span>
@@ -175,7 +230,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.search-result:hover {
+.search-result:hover,
+.search-result.selected {
   background: var(--bg-hover);
   border-left-color: var(--primary);
 }

@@ -1,15 +1,17 @@
 import { ref, watch } from 'vue'
 import type { AppSettings } from '@/types'
+import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
 
 const SETTINGS_KEY = 'apifix_settings'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
   proxyUrl: 'https://corsproxy.io/?',
-  theme: 'light',
+  theme: 'system',
   maxHistory: 100,
   autoSave: true,
   fontSize: 13,
+  customShortcuts: { ...DEFAULT_SHORTCUTS },
 }
 
 function loadSettings(): AppSettings {

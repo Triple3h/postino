@@ -103,6 +103,7 @@ function buildExtension() {
     'devtools-panel.html',
     'devtools-panel.js',
     'sandbox.html',
+    'script-worker.js',
   ]
   for (const f of extFiles) {
     const src = join(extDir, f)

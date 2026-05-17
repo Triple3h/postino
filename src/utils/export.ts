@@ -19,6 +19,10 @@ export function generateCurl(api: ApiConfig, envVars: Record<string, string> = {
     const encoded = btoa(`${resolveValue(api.auth.basicUsername, envVars)}:${resolveValue(api.auth.basicPassword, envVars)}`)
     parts.push(`-H 'Authorization: Basic ${encoded}'`)
   }
+  const cookieHeader = buildCookieHeader(api, envVars)
+  if (cookieHeader) {
+    parts.push(`-b '${cookieHeader}'`)
+  }
 
   // Body
   if (api.body.type === 'json' && api.body.raw) {
@@ -81,6 +85,11 @@ export function generatePythonRequests(api: ApiConfig, envVars: Record<string, s
     lines.push(`params = ${JSON.stringify(params, null, 4)}`)
   }
 
+  const cookies = getEnabledCookies(api, envVars)
+  if (Object.keys(cookies).length > 0) {
+    lines.push(`cookies = ${JSON.stringify(cookies, null, 4)}`)
+  }
+
   // Body
   let bodyLine = ''
   if (api.body.type === 'json' && api.body.raw) {
@@ -103,6 +112,7 @@ export function generatePythonRequests(api: ApiConfig, envVars: Record<string, s
   const kwargs: string[] = []
   if (Object.keys(headers).length > 0) kwargs.push('headers=headers')
   if (Object.keys(params).length > 0) kwargs.push('params=params')
+  if (Object.keys(cookies).length > 0) kwargs.push('cookies=cookies')
   if (bodyLine) kwargs.push(bodyLine)
 
   lines.push(`response = requests.${method}(url${kwargs.length > 0 ? ', ' + kwargs.join(', ') : ''}${authLine})`)
@@ -120,6 +130,10 @@ export function generateJavaScriptFetch(api: ApiConfig, envVars: Record<string, 
   }
   if (api.auth.type === 'bearer') {
     headers['Authorization'] = `Bearer ${resolveValue(api.auth.bearerToken, envVars)}`
+  }
+  const cookieHeader = buildCookieHeader(api, envVars)
+  if (cookieHeader && !hasHeader(headers, 'Cookie')) {
+    headers['Cookie'] = cookieHeader
   }
 
   const options: Record<string, unknown> = {
@@ -167,6 +181,10 @@ export function generateJavaScriptAxios(api: ApiConfig, envVars: Record<string, 
   if (api.auth.type === 'bearer') {
     headers['Authorization'] = `Bearer ${resolveValue(api.auth.bearerToken, envVars)}`
   }
+  const cookieHeader = buildCookieHeader(api, envVars)
+  if (cookieHeader && !hasHeader(headers, 'Cookie')) {
+    headers['Cookie'] = cookieHeader
+  }
 
   const config: Record<string, unknown> = {
     method: api.method.toLowerCase(),
@@ -208,6 +226,10 @@ export function generateJavaHttpClient(api: ApiConfig, envVars: Record<string, s
     headers['Authorization'] = `Basic ${btoa(`${resolveValue(api.auth.basicUsername, envVars)}:${resolveValue(api.auth.basicPassword, envVars)}`)}`
   } else if (api.auth.type === 'apikey' && api.auth.apiKeyIn === 'header' && api.auth.apiKeyName) {
     headers[api.auth.apiKeyName] = resolveValue(api.auth.apiKeyValue, envVars)
+  }
+  const cookieHeader = buildCookieHeader(api, envVars)
+  if (cookieHeader && !hasHeader(headers, 'Cookie')) {
+    headers['Cookie'] = cookieHeader
   }
 
   let url = resolveValue(api.url, envVars)
@@ -263,16 +285,76 @@ export function generateJavaHttpClient(api: ApiConfig, envVars: Record<string, s
 }
 
 export function generatePostmanCollection(apis: ApiConfig[], name: string = 'API Fox Lite Export'): string {
+  const buildAuth = (api: ApiConfig) => {
+    if (api.auth.type === 'bearer' && api.auth.bearerToken) {
+      return { type: 'bearer', bearer: [{ key: 'token', value: api.auth.bearerToken, type: 'string' }] }
+    }
+    if (api.auth.type === 'basic' && (api.auth.basicUsername || api.auth.basicPassword)) {
+      return {
+        type: 'basic',
+        basic: [
+          { key: 'username', value: api.auth.basicUsername, type: 'string' },
+          { key: 'password', value: api.auth.basicPassword, type: 'string' },
+        ],
+      }
+    }
+    if (api.auth.type === 'apikey' && api.auth.apiKeyName) {
+      return {
+        type: 'apikey',
+        apikey: [
+          { key: 'key', value: api.auth.apiKeyName, type: 'string' },
+          { key: 'value', value: api.auth.apiKeyValue, type: 'string' },
+          { key: 'in', value: api.auth.apiKeyIn, type: 'string' },
+        ],
+      }
+    }
+    return undefined
+  }
+
+  const buildEvents = (api: ApiConfig) => {
+    const events = []
+    if (api.preRequestScript?.trim()) {
+      events.push({
+        listen: 'prerequest',
+        script: {
+          type: 'text/javascript',
+          exec: api.preRequestScript.split(/\r?\n/),
+        },
+      })
+    }
+    if (api.postRequestScript?.trim()) {
+      events.push({
+        listen: 'test',
+        script: {
+          type: 'text/javascript',
+          exec: api.postRequestScript.split(/\r?\n/),
+        },
+      })
+    }
+    return events.length ? events : undefined
+  }
+
+  const variableMap = new Map<string, string>()
+  for (const api of apis) {
+    for (const variable of api.requestVariables || []) {
+      if (variable.enabled !== false && variable.key && !variableMap.has(variable.key)) {
+        variableMap.set(variable.key, variable.value)
+      }
+    }
+  }
+  const variables = Array.from(variableMap, ([key, value]) => ({ key, value, type: 'string' }))
+
   const collection = {
     info: {
       name,
       schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
     },
-    item: apis.map(api => ({
-      name: api.name,
-      request: {
+    variable: variables.length ? variables : undefined,
+    item: apis.map(api => {
+      const request: Record<string, unknown> = {
         method: api.method,
         header: api.headers.filter(h => h.enabled).map(h => ({ key: h.key, value: h.value })),
+        cookie: api.cookies.filter(cookie => cookie.enabled).map(cookie => ({ key: cookie.key, value: cookie.value })),
         url: {
           raw: api.url,
           query: api.params.filter(p => p.enabled).map(p => ({ key: p.key, value: p.value })),
@@ -283,8 +365,18 @@ export function generatePostmanCollection(apis: ApiConfig[], name: string = 'API
           formdata: api.body.type === 'form' ? api.body.formData.filter(f => f.enabled).map(f => ({ key: f.key, value: f.value, type: 'text' })) : undefined,
           urlencoded: api.body.type === 'urlencoded' ? api.body.urlEncoded.filter(f => f.enabled).map(f => ({ key: f.key, value: f.value })) : undefined,
         } : undefined,
-      },
-    })),
+      }
+      const auth = buildAuth(api)
+      if (auth) request.auth = auth
+
+      const item: Record<string, unknown> = {
+        name: api.name,
+        request,
+      }
+      const event = buildEvents(api)
+      if (event) item.event = event
+      return item
+    }),
   }
 
   return JSON.stringify(collection, null, 2)
@@ -309,6 +401,7 @@ export function generateOpenApiSpec(apis: ApiConfig[], title: string = 'API Fox 
         },
       },
     }
+    if (api.description) operation.description = api.description
 
     const requestBody = buildOpenApiRequestBody(api)
     if (requestBody) operation.requestBody = requestBody
@@ -343,12 +436,21 @@ export function generateOpenApiSpec(apis: ApiConfig[], title: string = 'API Fox 
   return JSON.stringify(spec, null, 2)
 }
 
+export function generateOpenApiYamlSpec(apis: ApiConfig[], title: string = 'API Fox Lite Export'): string {
+  const spec = JSON.parse(generateOpenApiSpec(apis, title))
+  return `${stringifyYaml(spec)}\n`
+}
+
 export function generateMarkdownDoc(api: ApiConfig): string {
   const lines: string[] = []
   lines.push(`## ${api.name}`)
   lines.push('')
   lines.push(`**${api.method}** \`${api.url}\``)
   lines.push('')
+  if (api.description) {
+    lines.push(api.description)
+    lines.push('')
+  }
 
   if (api.headers.length > 0) {
     lines.push('### Headers')
@@ -368,6 +470,17 @@ export function generateMarkdownDoc(api: ApiConfig): string {
     lines.push('|-----|-------|-------------|')
     for (const p of api.params.filter(p => p.enabled)) {
       lines.push(`| ${p.key} | ${p.value} | ${p.description || ''} |`)
+    }
+    lines.push('')
+  }
+
+  if (api.cookies.length > 0) {
+    lines.push('### Cookies')
+    lines.push('')
+    lines.push('| Key | Value | Description |')
+    lines.push('|-----|-------|-------------|')
+    for (const cookie of api.cookies.filter(cookie => cookie.enabled)) {
+      lines.push(`| ${cookie.key} | ${cookie.value} | ${cookie.description || ''} |`)
     }
     lines.push('')
   }
@@ -395,6 +508,7 @@ export function generateMarkdownDoc(api: ApiConfig): string {
 export function generateHtmlDoc(api: ApiConfig, envVars: Record<string, string> = {}): string {
   const headers = api.headers.filter(h => h.enabled && h.key)
   const params = api.params.filter(p => p.enabled && p.key)
+  const cookies = api.cookies.filter(cookie => cookie.enabled && cookie.key)
   const body = getRequestBodyString(api, envVars)
   const curl = generateCurl(api, envVars)
 
@@ -419,9 +533,11 @@ export function generateHtmlDoc(api: ApiConfig, envVars: Record<string, string> 
 </head>
 <body>
   <h1>${escapeHtml(api.name || '未命名请求')}</h1>
+  ${api.description ? `<p>${escapeHtml(api.description)}</p>` : ''}
   <div class="endpoint"><span class="method">${escapeHtml(api.method)}</span><code>${escapeHtml(resolveValue(api.url, envVars))}</code></div>
   ${renderHtmlTable('Headers', headers)}
   ${renderHtmlTable('Query Parameters', params)}
+  ${renderHtmlTable('Cookies', cookies)}
   ${body ? `<h2>Request Body</h2><pre>${escapeHtml(body)}</pre>` : ''}
   <h2>cURL</h2>
   <pre>${escapeHtml(curl)}</pre>
@@ -431,6 +547,20 @@ export function generateHtmlDoc(api: ApiConfig, envVars: Record<string, string> 
 
 function resolveValue(value: string, envVars: Record<string, string>): string {
   return value.replace(/\{\{(\w+)\}\}/g, (_, key) => envVars[key] ?? `{{${key}}}`)
+}
+
+function getEnabledCookies(api: ApiConfig, envVars: Record<string, string>): Record<string, string> {
+  const cookies: Record<string, string> = {}
+  for (const cookie of api.cookies.filter(cookie => cookie.enabled && cookie.key)) {
+    cookies[resolveValue(cookie.key, envVars)] = resolveValue(cookie.value, envVars)
+  }
+  return cookies
+}
+
+function buildCookieHeader(api: ApiConfig, envVars: Record<string, string>): string {
+  return Object.entries(getEnabledCookies(api, envVars))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('; ')
 }
 
 function getRequestBodyString(api: ApiConfig, envVars: Record<string, string>): string {
@@ -521,6 +651,16 @@ function buildOpenApiParameters(api: ApiConfig): unknown[] {
       required: false,
       schema: { type: 'string' },
       example: h.value || undefined,
+    })
+  }
+  for (const cookie of api.cookies.filter(cookie => cookie.enabled && cookie.key)) {
+    parameters.push({
+      name: cookie.key,
+      in: 'cookie',
+      description: cookie.description || undefined,
+      required: false,
+      schema: { type: 'string' },
+      example: cookie.value || undefined,
     })
   }
   if (api.auth.type === 'apikey' && api.auth.apiKeyIn === 'query' && api.auth.apiKeyName) {
@@ -636,4 +776,42 @@ function parseJsonExample(value: string): unknown {
 function sanitizeOperationId(value: string): string {
   const id = value.replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
   return id || 'apiRequest'
+}
+
+function stringifyYaml(value: unknown, indent = 0): string {
+  const pad = ' '.repeat(indent)
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `${pad}[]`
+    return value.map(item => {
+      if (isYamlScalar(item)) return `${pad}- ${formatYamlScalar(item)}`
+      return `${pad}-\n${stringifyYaml(item, indent + 2)}`
+    }).join('\n')
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+    if (entries.length === 0) return `${pad}{}`
+    return entries.map(([key, item]) => {
+      if (isYamlScalar(item)) return `${pad}${formatYamlKey(key)}: ${formatYamlScalar(item)}`
+      return `${pad}${formatYamlKey(key)}:\n${stringifyYaml(item, indent + 2)}`
+    }).join('\n')
+  }
+
+  return `${pad}${formatYamlScalar(value)}`
+}
+
+function isYamlScalar(value: unknown): boolean {
+  return value === null || ['string', 'number', 'boolean'].includes(typeof value)
+}
+
+function formatYamlKey(key: string): string {
+  return /^[A-Za-z0-9_./{}-]+$/.test(key) ? key : JSON.stringify(key)
+}
+
+function formatYamlScalar(value: unknown): string {
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return 'null'
 }

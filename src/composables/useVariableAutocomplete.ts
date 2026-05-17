@@ -1,5 +1,6 @@
 import { ref, computed, type Ref } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 interface AutocompleteItem {
   name: string
@@ -27,6 +28,7 @@ const DYNAMIC_ITEMS: AutocompleteItem[] = [
 
 export function useVariableAutocomplete(inputRef: Ref<HTMLInputElement | HTMLTextAreaElement | null>) {
   const store = useAppStore()
+  const workspace = useWorkspaceStore()
   const showAutocomplete = ref(false)
   const autocompletePosition = ref({ top: 0, left: 0 })
   const autocompleteFilter = ref('')
@@ -40,7 +42,49 @@ export function useVariableAutocomplete(inputRef: Ref<HTMLInputElement | HTMLTex
       .map(v => ({ name: v.key, preview: v.value.slice(0, 40), source: '环境变量' }))
   })
 
-  const allItems = computed(() => [...envItems.value, ...DYNAMIC_ITEMS])
+  const requestItems = computed<AutocompleteItem[]>(() => {
+    const api = store.getCurrentApi()
+    return (api?.requestVariables ?? [])
+      .filter(v => v.enabled && v.key)
+      .map(v => ({ name: v.key, preview: v.value.slice(0, 40), source: '请求变量' }))
+  })
+
+  const currentModule = computed(() => {
+    const node = workspace.interfaces.find(item => item.apiId === store.currentApiId || item.id === store.currentApiId)
+    return node ? workspace.modules.find(item => item.id === node.moduleId) ?? null : null
+  })
+
+  function moduleVariableValue(value: { remote?: string; local?: string; environmentValues?: Record<string, string> }): string {
+    return (store.currentEnvId && value.environmentValues?.[store.currentEnvId]) || value.local || value.remote || ''
+  }
+
+  const moduleItems = computed<AutocompleteItem[]>(() => {
+    const module = currentModule.value
+    if (!module?.variables) return []
+    return Object.entries(module.variables).map(([name, value]) => ({
+      name,
+      preview: moduleVariableValue(value).slice(0, 40),
+      source: '模块变量',
+    }))
+  })
+
+  const scopedModuleItems = computed<AutocompleteItem[]>(() => {
+    return workspace.modules.flatMap(module => Object.entries(module.variables ?? {}).map(([key, value]) => ({
+      name: `${module.name}.${key}`,
+      preview: moduleVariableValue(value).slice(0, 40),
+      source: '跨模块引用',
+    })))
+  })
+
+  const allItems = computed(() => {
+    const seen = new Set<string>()
+    return [...requestItems.value, ...moduleItems.value, ...envItems.value, ...scopedModuleItems.value, ...DYNAMIC_ITEMS]
+      .filter(item => {
+        if (seen.has(item.name)) return false
+        seen.add(item.name)
+        return true
+      })
+  })
 
   function findTriggerPos(text: string, cursorPos: number): number {
     let pos = cursorPos - 1

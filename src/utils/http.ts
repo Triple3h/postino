@@ -1,5 +1,6 @@
 import type { HttpMethod, ResponseData, ApiConfig, AuthConfig, BodyConfig, KvPair, CookieItem } from '@/types'
 import { resolveTemplateVars } from '@/utils/template'
+import { arrayBufferToBase64, isBinaryContentType } from '@/utils/binary-response'
 
 export interface RequestOptions {
   method: HttpMethod
@@ -13,6 +14,8 @@ export interface RequestOptions {
   corsMode: 'cors' | 'proxy' | 'no-cors'
   proxyUrl: string
   envVars: Record<string, string>
+  timeoutMs?: number
+  followRedirects?: boolean
 }
 
 function isExtensionEnvironment(): boolean {
@@ -30,6 +33,9 @@ function sendRequestViaExtension(data: {
   body?: string
   bodyType?: string
   formdataFields?: KvPair[]
+  autoCarryCookies?: boolean
+  timeoutMs?: number
+  followRedirects?: boolean
 }): Promise<ResponseData> {
   return new Promise((resolve, reject) => {
     const runtime = getChromeRuntime()
@@ -61,6 +67,8 @@ function sendRequestViaExtension(data: {
           statusText: d.statusText,
           headers,
           body: d.body,
+          bodyEncoding: d.bodyEncoding ?? 'text',
+          contentType: d.contentType,
           duration: d.duration,
           size: d.size,
           url: data.url,
@@ -199,7 +207,7 @@ function buildCookieHeader(cookies: CookieItem[], autoCarryCookies: boolean, env
 }
 
 export async function sendRequest(options: RequestOptions): Promise<ResponseData> {
-  const { method, url, headers, params, cookies, autoCarryCookies, body, auth, corsMode, proxyUrl, envVars } = options
+  const { method, url, headers, params, cookies, autoCarryCookies, body, auth, corsMode, proxyUrl, envVars, timeoutMs, followRedirects } = options
 
   const finalUrl = buildUrl(url, params, auth, envVars)
   const finalHeaders = buildHeaders(headers, auth, envVars)
@@ -216,7 +224,7 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
 
   // Extension environment: bypass CORS via background service worker
   if (isExtensionEnvironment()) {
-    const extBody: any = { method, url: finalUrl, headers: finalHeaders }
+    const extBody: any = { method, url: finalUrl, headers: finalHeaders, autoCarryCookies, timeoutMs, followRedirects }
     if (body.type === 'form' && reqBody instanceof FormData) {
       extBody.bodyType = 'formdata'
       extBody.formdataFields = body.formData.filter(f => f.enabled && f.key)
@@ -235,6 +243,7 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
     method,
     headers: finalHeaders,
     body: method !== 'GET' && method !== 'HEAD' ? reqBody : undefined,
+    redirect: followRedirects === false ? 'manual' : 'follow',
   }
 
   if (corsMode === 'proxy') {
@@ -250,7 +259,14 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
   let statusText = ''
   let respHeaders: Record<string, string> = {}
   let respBody = ''
+  let bodyEncoding: ResponseData['bodyEncoding'] = 'text'
   let size = 0
+  const controller = typeof AbortController !== 'undefined' && timeoutMs && timeoutMs > 0 ? new AbortController() : null
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  if (controller) {
+    fetchOptions.signal = controller.signal
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  }
 
   try {
     const resp = await fetch(fetchUrl, fetchOptions)
@@ -263,14 +279,24 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
       respHeaders[k] = v
     })
 
-    respBody = await resp.text()
-    size = new Blob([respBody]).size
+    const contentTypeHeader = resp.headers.get('content-type') || ''
+    if (isBinaryContentType(contentTypeHeader)) {
+      const buffer = await resp.arrayBuffer()
+      respBody = arrayBufferToBase64(buffer)
+      bodyEncoding = 'base64'
+      size = buffer.byteLength
+    } else {
+      respBody = await resp.text()
+      size = new Blob([respBody]).size
+    }
 
     return {
       status,
       statusText,
       headers: respHeaders,
       body: respBody,
+      bodyEncoding,
+      contentType: contentTypeHeader,
       duration,
       size,
       url: finalUrl,
@@ -294,5 +320,7 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
       requestBody: reqBody?.toString() ?? null,
       timestamp: Date.now(),
     }
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
   }
 }

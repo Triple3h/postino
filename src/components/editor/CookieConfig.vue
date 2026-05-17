@@ -6,6 +6,7 @@ import type { CookieItem } from '@/types'
 const props = defineProps<{
   modelValue: CookieItem[]
   autoCarry: boolean
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,10 +21,12 @@ watch(() => props.modelValue, (val) => {
 }, { deep: true })
 
 function updateCookies(cookies: CookieItem[]) {
+  if (props.readonly) return
   emit('update:modelValue', cookies)
 }
 
 function toggleAutoCarry() {
+  if (props.readonly) return
   emit('update:autoCarry', !props.autoCarry)
 }
 </script>
@@ -35,6 +38,7 @@ function toggleAutoCarry() {
         <input
           type="checkbox"
           :checked="autoCarry"
+          :disabled="readonly"
           @change="toggleAutoCarry"
         />
         <span>自动携带当前域名 Cookie</span>
@@ -48,6 +52,7 @@ function toggleAutoCarry() {
         key-placeholder="Cookie 名"
         value-placeholder="值"
         show-description
+        :readonly="readonly"
       />
     </div>
   </div>
