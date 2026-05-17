@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ChevronDown } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import KvEditor from '@/components/common/KvEditor.vue'
@@ -285,7 +286,7 @@ function formatLogTime(ts: number): string {
       </button>
       <div class="tab-menu-wrap">
         <button :class="['tab-btn', { active: isInGroup(scriptTabs) }]" @click="showScriptMenu = !showScriptMenu; showAdvancedMenu = false">
-          脚本 ▾
+          脚本 <ChevronDown :size="14" />
         </button>
         <div v-if="showScriptMenu" class="tab-dropdown">
           <button
@@ -298,7 +299,7 @@ function formatLogTime(ts: number): string {
       </div>
       <div class="tab-menu-wrap">
         <button :class="['tab-btn', { active: isInGroup(advancedTabs) }]" @click="showAdvancedMenu = !showAdvancedMenu; showScriptMenu = false">
-          高级 ▾
+          高级 <ChevronDown :size="14" />
         </button>
         <div v-if="showAdvancedMenu" class="tab-dropdown">
           <button

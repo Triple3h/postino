@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ArrowDownLeft, BarChart3, Boxes, FileJson2, FileText, Link2, Lock, PackageOpen, Puzzle, Settings, Trash2 } from '@lucide/vue'
+import { ArrowDownLeft, ArrowRight, BarChart3, BookOpen, Boxes, BrickWall, CheckCircle2, ClipboardList, FileJson2, FileText, Link2, Lock, PackageOpen, Puzzle, ReceiptText, RefreshCw, Settings, Trash2, TrendingUp, Wrench, Zap } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { generateMarkdownDoc, generateOpenApiSpec, generateOpenApiYamlSpec } from '@/utils/export'
@@ -1806,7 +1806,7 @@ function getScenarioStepSummary(scenario: ModuleScenarioCase): string {
   return scenario.steps
     .sort((a, b) => a.order - b.order)
     .map(step => `${step.enabled === false ? '（跳过）' : ''}${step.name || getTestCaseName(step.caseId) || getInterfaceName(step.interfaceId)}`)
-    .join(' → ')
+    .join(' -> ')
 }
 
 function hasScenarioContinueOnFailure(scenario: ModuleScenarioCase): boolean {
@@ -2418,7 +2418,7 @@ async function runAllScenarioCases() {
           <section class="settings-card">
             <div class="section-heading-row">
               <div>
-                <h3>📈 近 7 日调试趋势</h3>
+                <h3><TrendingUp :size="18" /> 近 7 日调试趋势</h3>
                 <p>按当前模块接口的历史请求次数生成轻量趋势图。</p>
               </div>
               <button class="btn btn-sm" @click="activeModuleTab = 'artifacts'">生成报告</button>
@@ -2440,7 +2440,7 @@ async function runAllScenarioCases() {
             </div>
           </section>
           <section class="settings-card">
-            <h3>⚡ 快捷侧栏</h3>
+            <h3><Zap :size="18" /> 快捷侧栏</h3>
             <p>聚合设计中的分享、文档站和代码生成入口，减少从模块主页跳转成本。</p>
             <div class="module-quick-rail">
               <button class="quick-rail-item" @click="exportModuleMarkdown">
@@ -2470,7 +2470,7 @@ async function runAllScenarioCases() {
             </div>
           </section>
           <section class="settings-card">
-            <h3>📋 单接口用例覆盖</h3>
+            <h3><ClipboardList :size="18" /> 单接口用例覆盖</h3>
             <div class="stat-grid">
               <div><strong>{{ moduleStats.caseTotal }}</strong><span>用例总数</span></div>
               <div><strong>{{ moduleStats.caseCoverage }}</strong><span>覆盖率</span></div>
@@ -2479,7 +2479,7 @@ async function runAllScenarioCases() {
             </div>
           </section>
           <section class="settings-card">
-            <h3>🔄 场景用例覆盖</h3>
+            <h3><RefreshCw :size="18" /> 场景用例覆盖</h3>
             <div class="stat-grid">
               <div><strong>{{ moduleStats.sceneCaseTotal }}</strong><span>用例总数</span></div>
               <div><strong>{{ moduleStats.sceneCoverage }}</strong><span>覆盖率</span></div>
@@ -2492,7 +2492,7 @@ async function runAllScenarioCases() {
         <section class="settings-card">
           <div class="section-heading-row">
             <div>
-              <h3>🛠 请求批量编辑</h3>
+              <h3><Wrench :size="18" /> 请求批量编辑</h3>
               <p>对当前模块所有接口批量新增、覆盖或删除 Header / Query 参数，适合统一鉴权头、灰度标记和环境参数迁移。</p>
             </div>
             <button class="btn btn-sm btn-primary" :disabled="!bulkEditDraft.key.trim() || bulkEditAffectedCount === 0" @click="applyModuleBulkEdit">
@@ -2768,7 +2768,7 @@ async function runAllScenarioCases() {
               <p>批量迁移当前模块接口 URL、Header、Cookie、Params、Body、Auth 和请求变量中的 <code>&#123;&#123;变量&#125;&#125;</code> 引用。</p>
             </div>
             <input v-model="variableRenameDraft.from" type="text" placeholder="旧变量名，如 token" />
-            <span>→</span>
+            <span class="variable-rename-arrow"><ArrowRight :size="16" /></span>
             <input v-model="variableRenameDraft.to" type="text" placeholder="新变量名，如 accessToken" />
             <button class="btn btn-sm" @click="renameVariableAcrossModule">迁移引用</button>
           </div>
@@ -2790,7 +2790,7 @@ async function runAllScenarioCases() {
         <section class="settings-card">
           <div class="section-heading-row">
             <div>
-              <h3>📚 模块文档</h3>
+              <h3><BookOpen :size="18" /> 模块文档</h3>
               <p>记录模块级或接口级文档，可作为后续文档站、Markdown/HTML/OpenAPI 导出的基础数据。</p>
             </div>
             <button class="btn btn-sm btn-primary" @click="saveDocArtifact">{{ docDraft.id ? '更新文档' : '保存文档' }}</button>
@@ -2837,7 +2837,7 @@ async function runAllScenarioCases() {
         <section class="settings-card">
           <div class="section-heading-row">
             <div>
-              <h3>🧱 数据模型</h3>
+              <h3><BrickWall :size="18" /> 数据模型</h3>
               <p>维护模块内可复用 JSON Schema，便于接口响应、请求体和文档生成引用。</p>
             </div>
             <button class="btn btn-sm btn-primary" @click="saveDataModel">{{ modelDraft.id ? '更新模型' : '保存模型' }}</button>
@@ -2871,7 +2871,7 @@ async function runAllScenarioCases() {
         <section class="settings-card">
           <div class="section-heading-row">
             <div>
-              <h3>✅ 单接口测试用例</h3>
+              <h3><CheckCircle2 :size="18" /> 单接口测试用例</h3>
               <p>为接口创建断言用例，并可按当前环境变量直接运行。支持 <code>status in 200,201</code>、<code>body not includes error</code>、<code>header content-type includes json</code>、<code>$.data.id exists</code>、<code>$.items length &gt; 0</code>、<code>env.token=$.data.token</code>。</p>
             </div>
             <div class="quick-actions">
@@ -2943,7 +2943,7 @@ async function runAllScenarioCases() {
         <section class="settings-card">
           <div class="section-heading-row">
             <div>
-              <h3>🔄 场景用例编排</h3>
+              <h3><RefreshCw :size="18" /> 场景用例编排</h3>
               <p>把多个单接口用例串成业务流程，运行后生成通过/失败报告，并回写模块场景覆盖率。</p>
             </div>
             <div class="quick-actions">
@@ -3027,7 +3027,7 @@ async function runAllScenarioCases() {
 
       <template v-else>
         <section class="settings-card">
-          <h3>🧾 审计日志</h3>
+          <h3><ReceiptText :size="18" /> 审计日志</h3>
           <p>记录当前模块的设置、变量、同步、导出与备份操作，便于团队排查最近变更。</p>
           <div class="audit-log-list">
             <div v-for="log in moduleAuditLogs" :key="log.id" class="audit-log-row">

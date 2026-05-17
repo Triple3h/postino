@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { X } from '@lucide/vue'
+import { ArrowLeftRight, Star, X } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { generateCurl } from '@/utils/export'
@@ -507,7 +507,7 @@ function escapeHtml(value: string): string {
             :class="['star-btn', { starred: entry.starred }]"
             @click="toggleStar(entry, $event)"
             title="收藏"
-          >{{ entry.starred ? '★' : '☆' }}</button>
+          ><Star :size="15" :fill="entry.starred ? 'currentColor' : 'none'" /></button>
           <span :class="['method-badge', entry.method.toLowerCase()]">{{ entry.method }}</span>
           <span
             v-if="getHistoryApiMeta(entry).name"
@@ -550,7 +550,7 @@ function escapeHtml(value: string): string {
               <span>{{ formatSize(diffEntryA?.responseSize ?? 0) }}</span>
             </div>
           </div>
-          <div class="diff-arrow">&#8596;</div>
+          <div class="diff-arrow"><ArrowLeftRight :size="22" /></div>
           <div class="diff-entry-card">
             <div class="diff-card-label">对比</div>
             <div class="diff-card-method">{{ diffEntryB?.method }}</div>

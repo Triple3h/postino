@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Clock3, Play, TriangleAlert } from '@lucide/vue'
+import { Clock3, Download, Play, TriangleAlert, Zap } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
@@ -728,7 +728,7 @@ function exportResponseHtmlReport() {
         </span>
         <div class="response-actions">
           <button class="resp-action-btn" @click="copyResponse">复制响应</button>
-          <button class="resp-action-btn" @click="saveResponse">⬇ 保存</button>
+          <button class="resp-action-btn" @click="saveResponse"><Download :size="14" /> 保存</button>
         </div>
       </div>
       <div class="response-tabs">
@@ -808,7 +808,7 @@ function exportResponseHtmlReport() {
         </div>
       </template>
       <template v-else>
-        <div class="empty-orb">↯</div>
+        <div class="empty-orb"><Zap :size="34" /></div>
         <h3>响应预览区</h3>
         <p>发送请求后在此查看 Body、Headers 与脚本 Console。</p>
       </template>
@@ -828,7 +828,7 @@ function exportResponseHtmlReport() {
         </span>
         <div class="response-actions">
           <button class="resp-action-btn" @click="copyResponse">复制响应</button>
-          <button class="resp-action-btn" @click="saveResponse">⬇ 保存</button>
+          <button class="resp-action-btn" @click="saveResponse"><Download :size="14" /> 保存</button>
           <button class="resp-action-btn" @click="exportResponseDoc">生成文档</button>
           <button class="resp-action-btn" @click="exportResponseHtmlReport">HTML 报告</button>
         </div>

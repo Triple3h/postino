@@ -889,7 +889,7 @@ window.addEventListener('message', async (event) => {
       deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal, deniedGlobal,
     )
     await Promise.all(pendingTests)
-    for (const result of tests) log(result.passed ? 'log' : 'error', result.skipped ? `- ${result.name} (skipped)` : result.passed ? `✓ ${result.name}` : `✗ ${result.name}: ${result.error}`)
+    for (const result of tests) log(result.passed ? 'log' : 'error', result.skipped ? `[SKIP] ${result.name}` : result.passed ? `[PASS] ${result.name}` : `[FAIL] ${result.name}: ${result.error}`)
     parent.postMessage({ type: 'SCRIPT_RESULT', requestId, success: true, result: { method: pm.request.method, headers: pm.request.headers._store, cookies: pm.request.cookies._store, url: pm.request.url._url, body: pm.request.body._raw, urlencoded: pm.request.body._fields, formdata: pm.request.body._formdata, envVars: envStore, envChangedKeys: [...changedEnvKeys], skipRequest: Boolean(pm.execution?._state?.skipRequest), nextRequest: pm.execution?._state?.nextRequest ?? null, logs, visualizations, tests } }, '*')
   } catch (err) {
     log('error', `脚本执行错误: ${err.message || String(err)}`)

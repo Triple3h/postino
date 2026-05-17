@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Lock } from '@lucide/vue'
+import { Check, ChevronDown, Ellipsis, Lock } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { sendRequest as httpSendRequest } from '@/utils/http'
@@ -762,7 +762,7 @@ onUnmounted(() => {
           >
             <span class="env-dot"></span>
             <span class="env-name">{{ currentEnvName }}</span>
-            <span class="env-chevron">⌄</span>
+            <span class="env-chevron"><ChevronDown :size="14" /></span>
           </button>
           <div v-if="showEnvMenu" class="env-select-menu" role="listbox">
             <button
@@ -773,7 +773,7 @@ onUnmounted(() => {
               :aria-selected="store.currentEnvId === null"
               @click="selectEnvironment(null)"
             >
-              <span class="env-check">{{ store.currentEnvId === null ? '✓' : '' }}</span>
+              <span class="env-check"><Check v-if="store.currentEnvId === null" :size="14" /></span>
               <span>无环境</span>
             </button>
             <button
@@ -786,7 +786,7 @@ onUnmounted(() => {
               :aria-selected="env.id === store.currentEnvId"
               @click="selectEnvironment(env.id)"
             >
-              <span class="env-check">{{ env.id === store.currentEnvId ? '✓' : '' }}</span>
+              <span class="env-check"><Check v-if="env.id === store.currentEnvId" :size="14" /></span>
               <span>{{ env.name }}</span>
             </button>
           </div>
@@ -808,7 +808,7 @@ onUnmounted(() => {
         >
           <span class="method-option-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
           <span>{{ currentMethod }}</span>
-          <span class="method-caret">⌄</span>
+          <span class="method-caret"><ChevronDown :size="14" /></span>
         </button>
         <div v-if="showMethodMenu" class="method-dropdown" role="listbox">
           <button
@@ -874,7 +874,7 @@ onUnmounted(() => {
       <button class="btn btn-sm save-request-btn" @click="saveCurrentApi" :disabled="isReadonlyModule || !currentApi" title="Ctrl+S 保存">保存</button>
       <button v-if="store.loading && showCancelButton" class="btn btn-sm cancel-send-btn" @click="store.cancelCurrentRequest()" title="取消请求">取消</button>
       <div class="action-menu-wrapper">
-        <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作">⋯</button>
+        <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作"><Ellipsis :size="18" /></button>
         <div v-if="showActionMenu" class="action-dropdown" @click.stop>
           <button class="action-item" @click="sendAndThen('download')">发送并下载响应</button>
           <button class="action-item" @click="sendAndThen('codegen')">发送后生成代码</button>

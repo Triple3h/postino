@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Monitor, Moon, Puzzle, Settings, Sun } from '@lucide/vue'
+import { Bookmark, Clipboard, Globe2, Monitor, Moon, Puzzle, Settings, Sun } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import Sidebar from '@/components/sidebar/Sidebar.vue'
@@ -464,7 +464,7 @@ onUnmounted(() => {
             <div class="inspector-line"><span>数据源</span><strong>{{ currentModule?.dataSource?.url ? '已绑定' : '未绑定' }}</strong></div>
           </section>
           <section class="inspector-card">
-            <h3>🌍 当前环境</h3>
+            <h3><Globe2 :size="16" /> 当前环境</h3>
             <select v-model="store.currentEnvId" class="inspector-select">
               <option v-if="store.environments.length === 0" :value="null">无环境</option>
               <option v-for="env in store.environments" :key="env.id" :value="env.id">{{ env.name }}</option>
@@ -477,11 +477,11 @@ onUnmounted(() => {
             <p v-else class="inspector-empty">暂无启用变量。</p>
           </section>
           <section class="inspector-card">
-            <h3>📋 动态值</h3>
+            <h3><Clipboard :size="16" /> 动态值</h3>
             <button v-for="item in dynamicValues" :key="item" class="dynamic-token" @click="insertOrCopyText(item)">{{ item }}</button>
           </section>
           <section class="inspector-card">
-            <h3>🔖 快捷操作</h3>
+            <h3><Bookmark :size="16" /> 快捷操作</h3>
             <div class="inspector-actions-grid">
               <button class="btn btn-sm" @click="openCodeGenPanel">生成代码</button>
               <button class="btn btn-sm" @click="toggleHistoryPanel">历史记录</button>

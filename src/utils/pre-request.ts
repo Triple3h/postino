@@ -1656,7 +1656,7 @@ async function executeAsyncScript(
   }
 
   for (const result of tests) {
-    appendLog(result.passed ? 'log' : 'error', result.skipped ? `- ${result.name} (skipped)` : result.passed ? `✓ ${result.name}` : `✗ ${result.name}: ${result.error}`)
+    appendLog(result.passed ? 'log' : 'error', result.skipped ? `[SKIP] ${result.name}` : result.passed ? `[PASS] ${result.name}` : `[FAIL] ${result.name}: ${result.error}`)
   }
 }
 

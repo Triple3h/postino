@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { Trash2, X } from '@lucide/vue'
+import { ChevronDown, Trash2, X } from '@lucide/vue'
 import type { KvPair } from '@/types'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
@@ -365,7 +365,7 @@ const duplicateKeyIndices = computed(() => {
       </div>
       <div class="kv-toolbar-menu" @click.stop>
         <button class="toolbar-btn" :class="{ active: bulkMode || showActionsMenu }" @click="showActionsMenu = !showActionsMenu" :disabled="readonly" title="更多表格操作">
-          批量编辑 ▾
+          批量编辑 <ChevronDown :size="14" />
         </button>
         <div v-if="showActionsMenu" class="kv-action-dropdown">
           <button class="kv-action-item" @click="toggleBulkMode">{{ bulkMode ? '完成批量编辑' : '批量编辑' }}</button>

@@ -2,9 +2,13 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   Box,
+  ArrowLeftRight,
+  Check,
   ChevronDown,
   ChevronRight,
+  Diff,
   Download,
+  FileCode2,
   FilePlus2,
   FileText,
   Folder,
@@ -675,7 +679,7 @@ function buildBatchReport(scopeLabel: string, scopeName: string, mode: BatchSend
 
   for (const item of [...results].sort((a, b) => a.index - b.index)) {
     const escaped = (value: string) => value.replace(/\|/g, '\\|').replace(/\n/g, ' ')
-    const status = item.ok ? `✅ ${item.status} ${item.statusText}` : `❌ ${item.status} ${item.statusText}`
+    const status = item.ok ? `PASS ${item.status} ${item.statusText}` : `FAIL ${item.status} ${item.statusText}`
     lines.push(`| ${item.index + 1} | ${escaped(item.api.name)} | ${item.api.method} | ${escaped(status)} | ${item.duration}ms | ${item.size}B | ${escaped(item.url)} | ${escaped(item.error ?? '')} |`)
   }
 
@@ -1651,7 +1655,7 @@ async function doImport() {
                   </span>
                   <span class="node-kind folder-kind">文件夹</span>
                   <span class="folder-name">{{ row.node.name }}</span>
-                  <span v-if="row.node.preRequestScript || row.node.preScript" class="script-dot" title="有文件夹前置脚本">●</span>
+                  <span v-if="row.node.preRequestScript || row.node.preScript" class="script-dot" title="有文件夹前置脚本"><FileCode2 :size="12" /></span>
                 </template>
                 <template v-else>
                   <span :class="['method-badge', (getInterfaceApi(row.node)?.method ?? row.node.method).toLowerCase()]">
@@ -1799,7 +1803,7 @@ async function doImport() {
         <div class="compare-header">
           <div>
             <h3>接口对比差异</h3>
-            <p>{{ comparePair.left.name }} ↔ {{ comparePair.right.name }}</p>
+            <p><span>{{ comparePair.left.name }}</span><ArrowLeftRight :size="15" /><span>{{ comparePair.right.name }}</span></p>
           </div>
           <button class="btn btn-sm" @click="closeApiCompare">关闭</button>
         </div>
@@ -1815,7 +1819,10 @@ async function doImport() {
             :class="['compare-grid', 'compare-row', { same: section.same }]"
           >
             <div class="compare-name">
-              <span>{{ section.same ? '✓' : 'Δ' }}</span>
+              <span>
+                <Check v-if="section.same" :size="14" />
+                <Diff v-else :size="14" />
+              </span>
               {{ section.name }}
             </div>
             <pre>{{ section.left }}</pre>
