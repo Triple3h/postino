@@ -64,6 +64,10 @@ function updateType(type: BodyConfig['type']) {
   if (type === 'json') {
     updates.contentType = 'application/json'
     if (!props.modelValue.raw) updates.raw = '{\n  \n}'
+  } else if (type === 'form') {
+    updates.contentType = 'multipart/form-data'
+  } else if (type === 'urlencoded') {
+    updates.contentType = 'application/x-www-form-urlencoded'
   } else if (type === 'raw') {
     updates.contentType = props.modelValue.contentType || 'text/plain'
   }
@@ -184,6 +188,7 @@ const rawLanguage = computed(() => {
           key-placeholder="字段名"
           value-placeholder="值"
           :readonly="readonly"
+          :allow-file-upload="true"
         />
       </div>
 

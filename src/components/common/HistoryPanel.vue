@@ -14,6 +14,203 @@ const activeFilter = ref<'all' | 'starred' | 'success' | 'fail'>('all')
 const contextMenu = ref<{ x: number; y: number; entry: HistoryEntry } | null>(null)
 const toast = ref('')
 
+// --- Bulk select ---
+const bulkMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+
+function toggleBulkMode() {
+  bulkMode.value = !bulkMode.value
+  if (!bulkMode.value) {
+    selectedIds.value.clear()
+  }
+}
+
+function toggleSelectEntry(id: string, e: Event) {
+  const checked = (e.target as HTMLInputElement).checked
+  e.stopPropagation()
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id)
+  } else {
+    selectedIds.value.add(id)
+  }
+}
+
+function toggleSelectAll() {
+  const allIds = filteredHistory.value.map(h => h.id)
+  const allSelected = allIds.every(id => selectedIds.value.has(id))
+  if (allSelected) {
+    selectedIds.value.clear()
+  } else {
+    for (const id of allIds) {
+      selectedIds.value.add(id)
+    }
+  }
+}
+
+function deleteSelected() {
+  const ids = Array.from(selectedIds.value)
+  if (ids.length === 0) return
+  for (const id of ids) {
+    store.deleteHistoryEntry(id)
+  }
+  selectedIds.value.clear()
+  showToast(`已删除 ${ids.length} 条记录`)
+}
+
+const isAllSelected = computed(() => {
+  const allIds = filteredHistory.value.map(h => h.id)
+  return allIds.length > 0 && allIds.every(id => selectedIds.value.has(id))
+})
+
+// --- Diff comparison ---
+const compareBase = ref<HistoryEntry | null>(null)
+const showDiffModal = ref(false)
+const diffEntryA = ref<HistoryEntry | null>(null)
+const diffEntryB = ref<HistoryEntry | null>(null)
+
+interface DiffRow {
+  type: 'added' | 'removed' | 'changed' | 'same'
+  path: string
+  before: string
+  after: string
+}
+
+function flattenJson(value: unknown, prefix = '$', out: Record<string, unknown> = {}): Record<string, unknown> {
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => flattenJson(item, `${prefix}[${index}]`, out))
+    } else {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        flattenJson(child, `${prefix}.${key}`, out)
+      }
+    }
+  } else {
+    out[prefix] = value
+  }
+  return out
+}
+
+function formatDiffValue(value: unknown): string {
+  if (value === undefined) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value)
+}
+
+function computeDiff(bodyA: string | null, bodyB: string | null): DiffRow[] {
+  const textA = bodyA || ''
+  const textB = bodyB || ''
+  try {
+    const before = flattenJson(JSON.parse(textA))
+    const after = flattenJson(JSON.parse(textB))
+    const paths = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).sort()
+    return paths.map(path => {
+      const hasBefore = Object.prototype.hasOwnProperty.call(before, path)
+      const hasAfter = Object.prototype.hasOwnProperty.call(after, path)
+      const beforeValue = formatDiffValue(before[path])
+      const afterValue = formatDiffValue(after[path])
+      const type: DiffRow['type'] = !hasBefore ? 'added' : !hasAfter ? 'removed' : beforeValue !== afterValue ? 'changed' : 'same'
+      return { type, path, before: beforeValue, after: afterValue }
+    }).filter(row => row.type !== 'same')
+  } catch {
+    const beforeLines = textA.split('\n')
+    const afterLines = textB.split('\n')
+    const max = Math.max(beforeLines.length, afterLines.length)
+    const rows: DiffRow[] = []
+    for (let index = 0; index < max; index++) {
+      const before = beforeLines[index]
+      const after = afterLines[index]
+      if (before === after) continue
+      rows.push({
+        type: before === undefined ? 'added' : after === undefined ? 'removed' : 'changed',
+        path: `line ${index + 1}`,
+        before: before ?? '',
+        after: after ?? '',
+      })
+    }
+    return rows
+  }
+}
+
+const diffRows = computed<DiffRow[]>(() => {
+  const a = diffEntryA.value
+  const b = diffEntryB.value
+  if (!a || !b) return []
+  return computeDiff(a.requestBody, b.requestBody)
+})
+
+const diffMetaRows = computed(() => {
+  const a = diffEntryA.value
+  const b = diffEntryB.value
+  if (!a || !b) return []
+  const rows: DiffRow[] = []
+  if (a.status !== b.status) {
+    rows.push({ type: 'changed', path: 'status', before: String(a.status), after: String(b.status) })
+  }
+  if (a.duration !== b.duration) {
+    rows.push({ type: 'changed', path: 'duration', before: `${a.duration}ms`, after: `${b.duration}ms` })
+  }
+  if (a.responseSize !== b.responseSize) {
+    rows.push({ type: 'changed', path: 'size', before: formatSize(a.responseSize), after: formatSize(b.responseSize) })
+  }
+  // Header diff
+  const headersA = a.requestHeaders || {}
+  const headersB = b.requestHeaders || {}
+  const allHeaderKeys = Array.from(new Set([...Object.keys(headersA), ...Object.keys(headersB)])).sort()
+  for (const key of allHeaderKeys) {
+    const hasA = Object.prototype.hasOwnProperty.call(headersA, key)
+    const hasB = Object.prototype.hasOwnProperty.call(headersB, key)
+    const valA = headersA[key] ?? ''
+    const valB = headersB[key] ?? ''
+    if (!hasA) {
+      rows.push({ type: 'added', path: `header.${key}`, before: '', after: valB })
+    } else if (!hasB) {
+      rows.push({ type: 'removed', path: `header.${key}`, before: valA, after: '' })
+    } else if (valA !== valB) {
+      rows.push({ type: 'changed', path: `header.${key}`, before: valA, after: valB })
+    }
+  }
+  return rows
+})
+
+function startCompare(entry: HistoryEntry) {
+  if (!compareBase.value) {
+    compareBase.value = entry
+    contextMenu.value = null
+    showToast('已选择基准记录，请选择第二条记录进行对比')
+    return
+  }
+  // Second click: open diff
+  diffEntryA.value = compareBase.value
+  diffEntryB.value = entry
+  compareBase.value = null
+  showDiffModal.value = true
+  contextMenu.value = null
+}
+
+function cancelCompare() {
+  compareBase.value = null
+}
+
+function closeDiffModal() {
+  showDiffModal.value = false
+  diffEntryA.value = null
+  diffEntryB.value = null
+}
+
+// --- Re-send from history ---
+function resendFromHistory(entry: HistoryEntry) {
+  const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
+  workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
+  store.currentApiId = entry.apiId
+  contextMenu.value = null
+  // Trigger send after a microtask to allow state to settle
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+  }, 0)
+  showToast('正在重新发送请求...')
+}
+
+// --- Existing logic ---
 const filteredHistory = computed(() => {
   let list = store.history
 
@@ -92,6 +289,12 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+function formatSize(bytes: number): string {
+  if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`
+  if (bytes > 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${bytes}B`
+}
+
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts
   if (diff < 60000) return '刚刚'
@@ -115,6 +318,10 @@ function getHistoryApiMeta(entry: HistoryEntry): { name: string; path: string } 
 }
 
 function loadFromHistory(entry: HistoryEntry) {
+  if (bulkMode.value) {
+    toggleSelectEntry(entry.id, new MouseEvent('click'))
+    return
+  }
   const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
   workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
   store.currentApiId = entry.apiId
@@ -175,6 +382,16 @@ function buildApiConfigFromHistory(entry: HistoryEntry): ApiConfig {
       apiKeyName: '',
       apiKeyValue: '',
       apiKeyIn: 'header',
+      digestUsername: '',
+      digestPassword: '',
+      oauth2GrantType: 'authorization_code',
+      oauth2AccessTokenUrl: '',
+      oauth2ClientId: '',
+      oauth2ClientSecret: '',
+      oauth2Scope: '',
+      oauth2Token: '',
+      oauth2Username: '',
+      oauth2Password: '',
     },
     preRequestScript: '',
     postRequestScript: '',
@@ -216,6 +433,15 @@ function showToast(msg: string) {
   toast.value = msg
   setTimeout(() => { toast.value = '' }, 1500)
 }
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 </script>
 
 <template>
@@ -234,20 +460,49 @@ function showToast(msg: string) {
           :class="['filter-btn', { active: activeFilter === f.key }]"
           @click="activeFilter = f.key"
         >{{ f.label }}</button>
+        <button
+          :class="['filter-btn', { active: bulkMode }]"
+          @click="toggleBulkMode"
+        >选择</button>
       </div>
-      <button class="btn btn-sm clear-btn" @click="handleClearHistory" v-if="store.history.length > 0">清空</button>
+      <div class="header-actions">
+        <template v-if="bulkMode && selectedIds.size > 0">
+          <button class="btn btn-sm danger-btn" @click="deleteSelected">删除选中 ({{ selectedIds.size }})</button>
+        </template>
+        <button class="btn btn-sm clear-btn" @click="handleClearHistory" v-if="store.history.length > 0 && !bulkMode">清空</button>
+      </div>
+      <!-- Compare base indicator -->
+      <div v-if="compareBase" class="compare-banner">
+        <span>已选择基准: {{ compareBase.method }} {{ compareBase.url }}</span>
+        <button class="compare-cancel" @click="cancelCompare">取消</button>
+      </div>
     </div>
     <div class="history-list">
+      <!-- Bulk select header -->
+      <div v-if="bulkMode && filteredHistory.length > 0" class="bulk-header">
+        <label class="bulk-checkbox">
+          <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" />
+          <span>全选</span>
+        </label>
+        <span class="bulk-count">{{ selectedIds.size }} / {{ filteredHistory.length }}</span>
+      </div>
       <template v-for="group in groupedHistory" :key="group.label">
         <div class="time-group-label">{{ group.label }}</div>
         <div
           v-for="entry in group.entries"
           :key="entry.id"
-          class="history-item"
+          :class="[
+            'history-item',
+            { 'compare-base': compareBase?.id === entry.id, 'bulk-selected': selectedIds.has(entry.id) },
+          ]"
           @click="loadFromHistory(entry)"
           @contextmenu="handleContextMenu(entry, $event)"
         >
+          <label v-if="bulkMode" class="entry-checkbox" @click.stop>
+            <input type="checkbox" :checked="selectedIds.has(entry.id)" @change="toggleSelectEntry(entry.id, $event)" />
+          </label>
           <button
+            v-if="!bulkMode"
             :class="['star-btn', { starred: entry.starred }]"
             @click="toggleStar(entry, $event)"
             title="收藏"
@@ -272,7 +527,74 @@ function showToast(msg: string) {
       <button class="ctx-item" @click="deleteEntry">删除记录</button>
       <button class="ctx-item" @click="toggleStarFromMenu">{{ contextMenu.entry.starred ? '取消收藏' : '收藏' }}</button>
       <button class="ctx-item" @click="copyCurl">复制 cURL</button>
+      <button class="ctx-item" @click="startCompare(contextMenu.entry)">对比</button>
+      <button class="ctx-item ctx-item-primary" @click="resendFromHistory(contextMenu.entry)">重新发送</button>
     </div>
+
+    <!-- Diff comparison modal -->
+    <div v-if="showDiffModal" class="diff-overlay" @click.self="closeDiffModal">
+      <div class="diff-modal">
+        <div class="diff-modal-header">
+          <h3>历史记录对比</h3>
+          <button class="diff-close-btn" @click="closeDiffModal">&times;</button>
+        </div>
+        <div class="diff-summary">
+          <div class="diff-entry-card">
+            <div class="diff-card-label">基准</div>
+            <div class="diff-card-method">{{ diffEntryA?.method }}</div>
+            <div class="diff-card-url">{{ diffEntryA?.url }}</div>
+            <div class="diff-card-meta">
+              <span :class="['history-status', statusColor(diffEntryA?.status ?? 0)]">{{ diffEntryA?.status }}</span>
+              <span>{{ formatDuration(diffEntryA?.duration ?? 0) }}</span>
+              <span>{{ formatSize(diffEntryA?.responseSize ?? 0) }}</span>
+            </div>
+          </div>
+          <div class="diff-arrow">&#8596;</div>
+          <div class="diff-entry-card">
+            <div class="diff-card-label">对比</div>
+            <div class="diff-card-method">{{ diffEntryB?.method }}</div>
+            <div class="diff-card-url">{{ diffEntryB?.url }}</div>
+            <div class="diff-card-meta">
+              <span :class="['history-status', statusColor(diffEntryB?.status ?? 0)]">{{ diffEntryB?.status }}</span>
+              <span>{{ formatDuration(diffEntryB?.duration ?? 0) }}</span>
+              <span>{{ formatSize(diffEntryB?.responseSize ?? 0) }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="diff-body">
+          <div v-if="diffMetaRows.length > 0" class="diff-section">
+            <div class="diff-section-title">请求元信息</div>
+            <table class="diff-table">
+              <thead><tr><th>类型</th><th>路径</th><th>基准</th><th>对比</th></tr></thead>
+              <tbody>
+                <tr v-for="row in diffMetaRows" :key="row.path" :class="`diff-${row.type}`">
+                  <td class="diff-type-cell">{{ row.type === 'added' ? '新增' : row.type === 'removed' ? '删除' : '变更' }}</td>
+                  <td class="diff-path">{{ row.path }}</td>
+                  <td class="diff-value">{{ row.before }}</td>
+                  <td class="diff-value">{{ row.after }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="diff-section">
+            <div class="diff-section-title">请求体差异</div>
+            <div v-if="diffRows.length === 0" class="diff-empty">请求体无可见差异</div>
+            <table v-else class="diff-table">
+              <thead><tr><th>类型</th><th>路径</th><th>基准</th><th>对比</th></tr></thead>
+              <tbody>
+                <tr v-for="row in diffRows" :key="row.path" :class="`diff-${row.type}`">
+                  <td class="diff-type-cell">{{ row.type === 'added' ? '新增' : row.type === 'removed' ? '删除' : '变更' }}</td>
+                  <td class="diff-path">{{ row.path }}</td>
+                  <td class="diff-value">{{ row.before }}</td>
+                  <td class="diff-value">{{ row.after }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <Transition name="toast">
       <div v-if="toast" class="toast-msg">{{ toast }}</div>
     </Transition>
@@ -308,6 +630,7 @@ function showToast(msg: string) {
 .filter-bar {
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
 }
 
 .filter-btn {
@@ -332,8 +655,62 @@ function showToast(msg: string) {
   border-color: var(--primary);
 }
 
+.header-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .clear-btn {
   align-self: flex-end;
+}
+
+.danger-btn {
+  background: var(--error);
+  color: #fff;
+  border-color: var(--error);
+}
+
+.danger-btn:hover {
+  opacity: 0.9;
+}
+
+/* Compare banner */
+.compare-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg-panel));
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-small);
+  color: var(--primary);
+  gap: 8px;
+}
+
+.compare-banner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.compare-cancel {
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.compare-cancel:hover {
+  color: var(--error);
+  background: var(--bg-hover);
 }
 
 .history-list {
@@ -369,6 +746,15 @@ function showToast(msg: string) {
 .history-item:hover {
   background: var(--bg-hover);
   transform: translateX(1px);
+}
+
+.history-item.compare-base {
+  border-left: 3px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, var(--bg-panel));
+}
+
+.history-item.bulk-selected {
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-panel));
 }
 
 .star-btn {
@@ -450,6 +836,49 @@ function showToast(msg: string) {
   color: var(--text-tertiary);
 }
 
+/* Bulk select */
+.bulk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg-panel-elevated);
+  border-bottom: 1px solid var(--divider);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.bulk-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+}
+
+.bulk-checkbox input {
+  cursor: pointer;
+}
+
+.bulk-count {
+  font-size: var(--font-size-small);
+  color: var(--text-tertiary);
+}
+
+.entry-checkbox {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.entry-checkbox input {
+  cursor: pointer;
+}
+
+/* Context menu */
 .context-menu {
   position: fixed;
   background: var(--bg-panel);
@@ -457,7 +886,7 @@ function showToast(msg: string) {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   z-index: 1000;
-  min-width: 120px;
+  min-width: 140px;
   padding: 4px 0;
   overflow: hidden;
 }
@@ -476,6 +905,197 @@ function showToast(msg: string) {
 
 .ctx-item:hover {
   background: var(--bg-hover);
+}
+
+.ctx-item-primary {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.ctx-item-primary:hover {
+  background: var(--primary-soft);
+}
+
+/* Diff modal */
+.diff-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.5);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1003;
+}
+
+.diff-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  width: 720px;
+  max-width: calc(100vw - 28px);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.diff-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.diff-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.diff-close-btn {
+  border: none;
+  background: none;
+  font-size: 20px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.diff-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.diff-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg-panel-elevated);
+}
+
+.diff-entry-card {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  min-width: 0;
+}
+
+.diff-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.diff-card-method {
+  font-weight: 700;
+  font-size: var(--font-size-small);
+  color: var(--primary);
+}
+
+.diff-card-url {
+  font-family: var(--font-code);
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 4px 0;
+}
+
+.diff-card-meta {
+  display: flex;
+  gap: 8px;
+  font-size: var(--font-size-small);
+  color: var(--text-tertiary);
+}
+
+.diff-arrow {
+  font-size: 20px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.diff-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 18px;
+}
+
+.diff-section {
+  margin-bottom: 16px;
+}
+
+.diff-section-title {
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+  background: var(--bg-panel);
+}
+
+.diff-table th,
+.diff-table td {
+  border: 1px solid var(--divider);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  max-width: 280px;
+  word-break: break-word;
+}
+
+.diff-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-panel-elevated);
+  color: var(--text-secondary);
+}
+
+.diff-path {
+  font-family: var(--font-code);
+  color: var(--text-secondary);
+  min-width: 120px;
+}
+
+.diff-type-cell {
+  font-weight: 600;
+  min-width: 40px;
+}
+
+.diff-value {
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.diff-added td { background: color-mix(in srgb, var(--success) 10%, var(--bg-panel)); }
+.diff-removed td { background: color-mix(in srgb, var(--error) 10%, var(--bg-panel)); }
+.diff-changed td { background: color-mix(in srgb, var(--warning) 12%, var(--bg-panel)); }
+
+.diff-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-small);
 }
 
 .toast-msg {

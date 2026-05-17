@@ -424,6 +424,10 @@ async function send() {
   if (!currentUrl.value.trim()) return
   if (!currentApi.value) return
 
+  // Create AbortController for cancellation support
+  const abortController = new AbortController()
+  store.setRequestAbortController(abortController)
+
   store.loading = true
   store.response = null
   store.scriptLogs = []
@@ -538,7 +542,7 @@ async function send() {
 
     const effectiveBody = inferScriptBodyConfig(api.body, body, urlencoded, formdata)
 
-    // Send request
+    // Send request with cancellation signal and streaming callback
     const response = await httpSendRequest({
       method,
       url,
@@ -551,6 +555,10 @@ async function send() {
       corsMode: store.settings.corsMode,
       proxyUrl: store.settings.proxyUrl,
       envVars: effectiveEnvVars,
+      signal: abortController.signal,
+      onStreamingUpdate: (streamingResponse: ResponseData) => {
+        store.response = streamingResponse
+      },
     })
 
     store.response = response
@@ -618,6 +626,7 @@ async function send() {
     postSendAction.value = null
   } finally {
     store.loading = false
+    store.clearRequestAbortController()
   }
 }
 
@@ -775,6 +784,7 @@ onUnmounted(() => {
         <span v-if="store.loading" class="send-spinner"></span>
         {{ store.loading ? '发送中' : '发送' }}
       </button>
+      <button v-if="store.loading" class="btn btn-sm cancel-send-btn" @click="store.cancelCurrentRequest()" title="取消请求">取消</button>
       <div class="action-menu-wrapper">
         <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作">⋯</button>
         <div v-if="showActionMenu" class="action-dropdown" @click.stop>
@@ -1044,6 +1054,25 @@ onUnmounted(() => {
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* Cancel button next to send button */
+.cancel-send-btn {
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--error);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cancel-send-btn:hover {
+  background: var(--error);
+  color: #fff;
 }
 
 .action-menu-wrapper {

@@ -1,4 +1,5 @@
 import type { AuthConfig, BodyConfig, CookieItem, HttpMethod, KvPair, ResponseData } from '@/types'
+import { createDefaultAuthConfig as createDefaultAuthConfigValue } from '@/utils/auth'
 
 export interface ScriptLog {
   level: 'log' | 'warn' | 'error' | 'info' | 'table'
@@ -1917,15 +1918,7 @@ export function createDefaultBodyConfig(): BodyConfig {
 }
 
 export function createDefaultAuthConfig(): AuthConfig {
-  return {
-    type: 'none',
-    bearerToken: '',
-    basicUsername: '',
-    basicPassword: '',
-    apiKeyName: '',
-    apiKeyValue: '',
-    apiKeyIn: 'header',
-  }
+  return createDefaultAuthConfigValue()
 }
 
 export function createDefaultCookies(): CookieItem[] {

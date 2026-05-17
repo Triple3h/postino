@@ -1,8 +1,11 @@
-import type { ApiConfig, ModuleDataSource } from '@/types'
+import Dexie from 'dexie'
+import type { ApiConfig, ModuleDataSource, ModuleSyncLog } from '@/types'
 import { sendRequest as httpSendRequest } from '@/utils/http'
 import { importOpenApi, importOpenApiSpec, listOpenApiOperationMetadata, parseOpenApiSpec, type OpenApiOperationMetadata } from '@/utils/openapi-import'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { createDefaultAuthConfig } from '@/utils/auth'
+import { db } from '@/db'
 
 export const DEFAULT_DATA_SOURCE_SYNC_INTERVAL_MINUTES = 60
 
@@ -23,6 +26,7 @@ export interface DataSourceSyncOptions {
   dataSource?: ModuleDataSource | null
   onLog?: (line: string) => void
   saveWhenEmpty?: boolean
+  syncAction?: ModuleSyncLog['action']
 }
 
 type DataSourceMappedField = 'name' | 'description' | 'folder'
@@ -115,6 +119,36 @@ export function isDataSourceSyncDue(dataSource?: ModuleDataSource | null, at = n
   return next !== null && next <= at
 }
 
+export async function writeModuleSyncLog(log: Omit<ModuleSyncLog, 'id'>): Promise<void> {
+  try {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    await db.moduleSyncLogs.put({ ...log, id })
+  } catch (err) {
+    console.warn('[ApiFix][SyncLog] 写入同步日志失败:', err)
+  }
+}
+
+export async function getModuleSyncLogs(moduleId: string, limit = 10): Promise<ModuleSyncLog[]> {
+  try {
+    return await db.moduleSyncLogs
+      .where('[moduleId+timestamp]')
+      .between([moduleId, Dexie.minKey], [moduleId, Dexie.maxKey])
+      .reverse()
+      .limit(limit)
+      .toArray()
+  } catch {
+    return []
+  }
+}
+
+export async function clearModuleSyncLogs(moduleId: string): Promise<void> {
+  try {
+    await db.moduleSyncLogs.where('moduleId').equals(moduleId).delete()
+  } catch (err) {
+    console.warn('[ApiFix][SyncLog] 清除同步日志失败:', err)
+  }
+}
+
 async function fetchDataSourceText(url: string): Promise<string> {
   const store = useAppStore()
   const response = await httpSendRequest({
@@ -125,7 +159,7 @@ async function fetchDataSourceText(url: string): Promise<string> {
     cookies: [],
     autoCarryCookies: false,
     body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-    auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
+    auth: createDefaultAuthConfig(),
     corsMode: store.settings.corsMode,
     proxyUrl: store.settings.proxyUrl,
     envVars: store.getEnvVariables(),
@@ -425,6 +459,16 @@ export async function syncModuleDataSource(
       } else {
         await workspace.updateModule(moduleId, { dataSource: nextDataSource })
       }
+      await writeModuleSyncLog({
+        moduleId,
+        action: options.syncAction ?? 'manual-sync',
+        status: 'partial',
+        message: result.message,
+        createdCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        timestamp: finishedAt,
+      })
       log(options, result.message)
       return result
     }
@@ -487,11 +531,32 @@ export async function syncModuleDataSource(
       dataSource: syncSuccessDataSource(dataSource, result),
       openapiText: text,
     })
+    await writeModuleSyncLog({
+      moduleId,
+      action: options.syncAction ?? 'manual-sync',
+      status: skipped > 0 && created === 0 && updated === 0 ? 'partial' : 'success',
+      message: result.message,
+      createdCount: created,
+      updatedCount: updated,
+      skippedCount: skipped,
+      timestamp: finishedAt,
+    })
     log(options, result.message)
     return result
   } catch (err) {
+    const finishedAt = now()
     const message = err instanceof Error ? err.message : String(err)
     await workspace.updateModule(moduleId, { dataSource: syncFailureDataSource(dataSource, message) })
+    await writeModuleSyncLog({
+      moduleId,
+      action: options.syncAction ?? 'manual-sync',
+      status: 'error',
+      message: `同步失败：${message}`,
+      createdCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      timestamp: finishedAt,
+    })
     log(options, `同步失败：${message}`)
     throw err
   }

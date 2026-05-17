@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { ApiConfig, Environment, HistoryEntry, Group, Category, Module, InterfaceNode, ModuleDocArtifact, ModuleDataModel, InterfaceTestCase, ModuleScenarioCase, ModuleAuditLog } from '@/types'
+import type { ApiConfig, Environment, HistoryEntry, Group, Category, Module, InterfaceNode, ModuleDocArtifact, ModuleDataModel, InterfaceTestCase, ModuleScenarioCase, ModuleAuditLog, ModuleSyncLog } from '@/types'
 
 export class ApiFixDB extends Dexie {
   apis!: Table<ApiConfig, string>
@@ -15,6 +15,7 @@ export class ApiFixDB extends Dexie {
   interfaceTestCases!: Table<InterfaceTestCase, string>
   moduleScenarioCases!: Table<ModuleScenarioCase, string>
   moduleAuditLogs!: Table<ModuleAuditLog, string>
+  moduleSyncLogs!: Table<ModuleSyncLog, string>
 
   constructor() {
     super('ApiFixDB')
@@ -117,6 +118,23 @@ export class ApiFixDB extends Dexie {
         entry.moduleId = entry.moduleId || node.moduleId
         entry.interfaceId = entry.interfaceId || node.id
       })
+    })
+
+    this.version(8).stores({
+      apis: 'id, name, method, folder, updatedAt',
+      environments: 'id, name',
+      history: 'id, apiId, moduleId, interfaceId, method, status, timestamp, [moduleId+timestamp], [interfaceId+timestamp]',
+      settings: 'key',
+      groups: 'name',
+      categories: 'id, name, order, updatedAt',
+      modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
+      interfaces: 'id, moduleId, parentId, nodeType, apiId, name, method, order, updatedAt',
+      moduleDocs: 'id, moduleId, interfaceId, format, updatedAt',
+      moduleModels: 'id, moduleId, name, updatedAt',
+      interfaceTestCases: 'id, moduleId, interfaceId, lastRunAt, lastPassed, updatedAt',
+      moduleScenarioCases: 'id, moduleId, lastRunAt, lastPassed, updatedAt',
+      moduleAuditLogs: 'id, moduleId, action, createdAt',
+      moduleSyncLogs: 'id, moduleId, timestamp, [moduleId+timestamp]',
     })
   }
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { createDefaultAuthConfig } from '@/utils/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { importOpenApiSpec } from '@/utils/openapi-import'
 import type { ApiConfig, BodyConfig, HttpMethod, KvPair, ModuleExportConfig } from '@/types'
@@ -10,6 +11,153 @@ const workspace = useWorkspaceStore()
 const toast = ref('')
 const processedIds = new Set<string>()
 const SHARE_HASH_PREFIX = 'apifix-share='
+
+// --- Import preview state ---
+interface ImportPreviewItem {
+  api: ApiConfig
+  checked: boolean
+}
+
+type ImportSource = 'share' | 'browser-capture' | 'context-capture'
+
+interface ImportPreviewState {
+  visible: boolean
+  items: ImportPreviewItem[]
+  moduleName: string
+  moduleId: string | null
+  source: ImportSource
+  sourceLabel: string
+  exportConfig: ModuleExportConfig | null
+  payload: unknown
+  pendingImport: PendingImport | null
+  phase: 'preview' | 'importing' | 'success' | 'error'
+  progressCurrent: number
+  progressTotal: number
+  errorMessage: string
+}
+
+const preview = ref<ImportPreviewState>({
+  visible: false,
+  items: [],
+  moduleName: '',
+  moduleId: null,
+  source: 'share',
+  sourceLabel: '',
+  exportConfig: null,
+  payload: null,
+  pendingImport: null,
+  phase: 'preview',
+  progressCurrent: 0,
+  progressTotal: 0,
+  errorMessage: '',
+})
+
+const checkedCount = computed(() => preview.value.items.filter(item => item.checked).length)
+const allChecked = computed(() => preview.value.items.length > 0 && preview.value.items.every(item => item.checked))
+
+function toggleAll() {
+  const next = !allChecked.value
+  preview.value.items.forEach(item => { item.checked = next })
+}
+
+function toggleItem(index: number) {
+  preview.value.items[index].checked = !preview.value.items[index].checked
+}
+
+function cancelImport() {
+  preview.value.visible = false
+  preview.value.items = []
+  preview.value.phase = 'preview'
+  preview.value.errorMessage = ''
+  // If it was a share link, clear the hash so it doesn't re-trigger
+  if (preview.value.source === 'share') {
+    clearShareHash()
+  }
+}
+
+async function confirmImport() {
+  const checkedItems = preview.value.items.filter(item => item.checked)
+  if (checkedItems.length === 0) return
+
+  preview.value.phase = 'importing'
+  preview.value.progressCurrent = 0
+  preview.value.progressTotal = checkedItems.length
+
+  try {
+    const { source, moduleName, moduleId, exportConfig, pendingImport } = preview.value
+
+    if (source === 'share') {
+      // Share import flow
+      const module = moduleId
+        ? workspace.modules.find(m => m.id === moduleId) ?? await workspace.ensureModuleForLegacyGroup(moduleName)
+        : await workspace.ensureModuleForLegacyGroup(moduleName)
+
+      if (exportConfig) {
+        await workspace.updateModule(module.id, {
+          exportConfig: { ...(module.exportConfig ?? {}), ...exportConfig },
+          type: exportConfig.teamRole === 'viewer' ? 'readonly' : module.type,
+          description: module.description || `由 ApiFix 分享链接导入，权限角色：${exportConfig.teamRole}`,
+        })
+      }
+
+      for (const item of checkedItems) {
+        await store.addApi({ ...item.api, folder: item.api.folder || moduleName }, module.id)
+        preview.value.progressCurrent++
+      }
+
+      const firstApi = checkedItems[0].api
+      const interfaceNode = workspace.interfaces.find(i => i.apiId === firstApi.id)
+      workspace.selectInterface(interfaceNode?.id ?? firstApi.id)
+      store.currentApiId = firstApi.id
+    } else {
+      // Browser capture / context capture flow
+      const api = checkedItems[0].api
+      const module = await workspace.ensureModuleForLegacyGroup(api.folder || '浏览器捕获')
+      await store.addApi(api, module.id)
+      preview.value.progressCurrent = 1
+
+      const interfaceNode = workspace.interfaces.find(i => i.apiId === api.id)
+      workspace.selectInterface(interfaceNode?.id ?? api.id)
+      store.currentApiId = api.id
+
+      if (pendingImport) {
+        await clearPendingImport()
+      }
+    }
+
+    preview.value.phase = 'success'
+    setTimeout(() => {
+      preview.value.visible = false
+      preview.value.phase = 'preview'
+    }, 2200)
+  } catch (err) {
+    preview.value.phase = 'error'
+    preview.value.errorMessage = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function retryImport() {
+  preview.value.phase = 'preview'
+  preview.value.errorMessage = ''
+  await confirmImport()
+}
+
+// --- Method badge colors ---
+const METHOD_COLORS: Record<string, string> = {
+  GET: '#10b981',
+  POST: '#3b82f6',
+  PUT: '#f59e0b',
+  DELETE: '#ef4444',
+  PATCH: '#8b5cf6',
+  HEAD: '#6b7280',
+  OPTIONS: '#6b7280',
+}
+
+function methodColor(method: string): string {
+  return METHOD_COLORS[method.toUpperCase()] || '#6b7280'
+}
+
+// --- Existing types and helpers (unchanged) ---
 
 interface HeaderLike {
   key?: string
@@ -228,15 +376,7 @@ function createDefaultApi(partial: Partial<ApiConfig>): ApiConfig {
     params: partial.params || [],
     cookies: partial.cookies || [],
     body: partial.body || { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-    auth: partial.auth || {
-      type: 'none',
-      bearerToken: '',
-      basicUsername: '',
-      basicPassword: '',
-      apiKeyName: '',
-      apiKeyValue: '',
-      apiKeyIn: 'header',
-    },
+    auth: partial.auth || createDefaultAuthConfig(),
     preRequestScript: partial.preRequestScript || '',
     postRequestScript: partial.postRequestScript || '',
     folder: partial.folder || null,
@@ -294,6 +434,8 @@ async function clearPendingImport(): Promise<void> {
   })
 }
 
+// --- Modified consume functions to show preview instead of auto-import ---
+
 async function consumeSharePayload(payload: unknown): Promise<void> {
   const spec = payload as any
   const shareMeta = spec?.['x-apifix-share']
@@ -318,23 +460,23 @@ async function consumeSharePayload(payload: unknown): Promise<void> {
 
   const module = await workspace.ensureModuleForLegacyGroup(moduleName)
   const exportConfig = shareExportConfig(shareMeta)
-  if (exportConfig) {
-    await workspace.updateModule(module.id, {
-      exportConfig: { ...(module.exportConfig ?? {}), ...exportConfig },
-      type: exportConfig.teamRole === 'viewer' ? 'readonly' : module.type,
-      description: module.description || `由 ApiFix 分享链接导入，权限角色：${exportConfig.teamRole}`,
-    })
+
+  // Show preview instead of auto-importing
+  preview.value = {
+    visible: true,
+    items: apis.map(api => ({ api, checked: true })),
+    moduleName,
+    moduleId: module.id,
+    source: 'share',
+    sourceLabel: 'ApiFix 分享链接',
+    exportConfig,
+    payload,
+    pendingImport: null,
+    phase: 'preview',
+    progressCurrent: 0,
+    progressTotal: 0,
+    errorMessage: '',
   }
-  for (const api of apis) {
-    await store.addApi({ ...api, folder: api.folder || moduleName }, module.id)
-  }
-  const firstApi = apis[0]
-  const interfaceNode = workspace.interfaces.find(item => item.apiId === firstApi.id)
-  workspace.selectInterface(interfaceNode?.id ?? firstApi.id)
-  store.currentApiId = firstApi.id
-  toast.value = `已导入分享模块：${moduleName}（${apis.length} 个接口）`
-  setTimeout(() => { toast.value = '' }, 2600)
-  clearShareHash()
 }
 
 async function checkShareHash(): Promise<void> {
@@ -352,14 +494,24 @@ async function consumePendingImport(pending: PendingImport | null): Promise<void
   const api = apiFromPendingImport(pending)
   if (!api) return
 
-  const module = await workspace.ensureModuleForLegacyGroup(api.folder || '浏览器捕获')
-  await store.addApi(api, module.id)
-  const interfaceNode = workspace.interfaces.find(item => item.apiId === api.id)
-  workspace.selectInterface(interfaceNode?.id ?? api.id)
-  store.currentApiId = api.id
-  toast.value = `已导入：${api.name}`
-  setTimeout(() => { toast.value = '' }, 2200)
-  await clearPendingImport()
+  const sourceLabel = pending.request?.url ? '浏览器网络捕获' : '页面上下文捕获'
+
+  // Show preview instead of auto-importing
+  preview.value = {
+    visible: true,
+    items: [{ api, checked: true }],
+    moduleName: api.folder || '浏览器捕获',
+    moduleId: null,
+    source: pending.request?.url ? 'browser-capture' : 'context-capture',
+    sourceLabel,
+    exportConfig: null,
+    payload: null,
+    pendingImport: pending,
+    phase: 'preview',
+    progressCurrent: 0,
+    progressTotal: 0,
+    errorMessage: '',
+  }
 }
 
 async function checkPendingImport(): Promise<void> {
@@ -388,18 +540,136 @@ onMounted(() => {
   checkShareHash()
   window.addEventListener('hashchange', handleHashChange)
   const runtime = typeof chrome !== 'undefined' ? (chrome.runtime as any) : null
-  runtime?.onMessage?.addListener?.(handleRuntimeMessage)
+  runtime?.onMessage?.addListener(handleRuntimeMessage)
 })
 
 onUnmounted(() => {
   window.removeEventListener('hashchange', handleHashChange)
   const runtime = typeof chrome !== 'undefined' ? (chrome.runtime as any) : null
-  runtime?.onMessage?.removeListener?.(handleRuntimeMessage)
+  runtime?.onMessage?.removeListener(handleRuntimeMessage)
 })
 </script>
 
 <template>
+  <!-- Simple toast for non-preview messages -->
   <div v-if="toast" class="pending-import-toast">{{ toast }}</div>
+
+  <!-- Import preview modal -->
+  <Teleport to="body">
+    <div v-if="preview.visible" class="import-preview-overlay" @click.self="cancelImport">
+      <div class="import-preview-modal">
+        <!-- Header -->
+        <div class="import-preview-header">
+          <h3 class="import-preview-title">导入预览</h3>
+          <button class="import-preview-close" @click="cancelImport" aria-label="关闭">&times;</button>
+        </div>
+
+        <!-- Preview phase -->
+        <template v-if="preview.phase === 'preview'">
+          <!-- Source info -->
+          <div class="import-preview-info">
+            <div class="import-info-row">
+              <span class="import-info-label">来源</span>
+              <span class="import-info-value">{{ preview.sourceLabel }}</span>
+            </div>
+            <div class="import-info-row">
+              <span class="import-info-label">目标模块</span>
+              <span class="import-info-value">{{ preview.moduleName }}</span>
+            </div>
+            <div class="import-info-row">
+              <span class="import-info-label">接口数量</span>
+              <span class="import-info-value">{{ preview.items.length }} 个</span>
+            </div>
+          </div>
+
+          <!-- API list with checkboxes -->
+          <div class="import-preview-list">
+            <div class="import-list-header">
+              <label class="import-check-all" @click.prevent="toggleAll">
+                <span class="import-checkbox" :class="{ checked: allChecked }">
+                  <svg v-if="allChecked" viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+                </span>
+                <span>全选 ({{ checkedCount }}/{{ preview.items.length }})</span>
+              </label>
+            </div>
+            <div class="import-list-body">
+              <div
+                v-for="(item, index) in preview.items"
+                :key="item.api.id"
+                class="import-list-item"
+                :class="{ unchecked: !item.checked }"
+                @click="toggleItem(index)"
+              >
+                <span class="import-checkbox" :class="{ checked: item.checked }">
+                  <svg v-if="item.checked" viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+                </span>
+                <span
+                  class="import-method-badge"
+                  :style="{ backgroundColor: methodColor(item.api.method) }"
+                >{{ item.api.method }}</span>
+                <span class="import-api-name">{{ item.api.name }}</span>
+                <span class="import-api-url" :title="item.api.url">{{ item.api.url }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="import-preview-actions">
+            <button class="import-btn import-btn-cancel" @click="cancelImport">取消</button>
+            <button
+              class="import-btn import-btn-confirm"
+              :disabled="checkedCount === 0"
+              @click="confirmImport"
+            >确认导入 ({{ checkedCount }})</button>
+          </div>
+        </template>
+
+        <!-- Importing phase -->
+        <template v-else-if="preview.phase === 'importing'">
+          <div class="import-progress-container">
+            <div class="import-progress-spinner"></div>
+            <div class="import-progress-text">
+              导入中... ({{ preview.progressCurrent }}/{{ preview.progressTotal }})
+            </div>
+            <div class="import-progress-bar">
+              <div
+                class="import-progress-bar-fill"
+                :style="{ width: preview.progressTotal > 0 ? `${(preview.progressCurrent / preview.progressTotal) * 100}%` : '0%' }"
+              ></div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Success phase -->
+        <template v-else-if="preview.phase === 'success'">
+          <div class="import-result-container">
+            <div class="import-result-icon import-result-success">
+              <svg viewBox="0 0 16 16" width="24" height="24" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+            </div>
+            <div class="import-result-text">
+              导入成功，共导入 {{ preview.progressTotal }} 个接口
+            </div>
+          </div>
+        </template>
+
+        <!-- Error phase -->
+        <template v-else-if="preview.phase === 'error'">
+          <div class="import-result-container">
+            <div class="import-result-icon import-result-error">
+              <svg viewBox="0 0 16 16" width="24" height="24" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
+            </div>
+            <div class="import-result-text import-result-error-text">
+              导入失败：{{ preview.errorMessage }}
+            </div>
+            <div class="import-result-actions">
+              <button class="import-btn import-btn-cancel" @click="cancelImport">关闭</button>
+              <button class="import-btn import-btn-retry" @click="retryImport">重试</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -416,5 +686,336 @@ onUnmounted(() => {
   color: var(--text-primary);
   box-shadow: var(--shadow-lg);
   font-size: var(--font-size-body);
+}
+
+/* --- Overlay --- */
+.import-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-panel) 20%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+/* --- Modal --- */
+.import-preview-modal {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+/* --- Header --- */
+.import-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.import-preview-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.import-preview-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.import-preview-close:hover {
+  background: var(--bg-hover);
+}
+
+/* --- Info section --- */
+.import-preview-info {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.import-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.import-info-label {
+  color: var(--text-secondary);
+  min-width: 64px;
+  flex-shrink: 0;
+}
+
+.import-info-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* --- API list --- */
+.import-preview-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.import-list-header {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--bg-subtle);
+}
+
+.import-check-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.import-list-body {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 320px;
+}
+
+.import-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-size: 13px;
+}
+
+.import-list-item:hover {
+  background: var(--bg-hover);
+}
+
+.import-list-item.unchecked {
+  opacity: 0.5;
+}
+
+/* --- Checkbox --- */
+.import-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: all 0.12s;
+  color: white;
+}
+
+.import-checkbox.checked {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+/* --- Method badge --- */
+.import-method-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.import-api-name {
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.import-api-url {
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* --- Actions --- */
+.import-preview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--divider);
+}
+
+.import-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.import-btn-cancel {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.import-btn-cancel:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.import-btn-confirm {
+  background: #10b981;
+  border-color: #10b981;
+  color: #fff;
+}
+
+.import-btn-confirm:hover:not(:disabled) {
+  background: #059669;
+}
+
+.import-btn-confirm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.import-btn-retry {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+}
+
+.import-btn-retry:hover {
+  background: #d97706;
+}
+
+/* --- Progress --- */
+.import-progress-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 16px;
+}
+
+.import-progress-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: #10b981;
+  border-radius: 50%;
+  animation: import-spin 0.8s linear infinite;
+}
+
+@keyframes import-spin {
+  to { transform: rotate(360deg); }
+}
+
+.import-progress-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.import-progress-bar {
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.import-progress-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: #10b981;
+  transition: width 0.2s ease;
+}
+
+/* --- Result --- */
+.import-result-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 16px;
+}
+
+.import-result-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+
+.import-result-success {
+  background: color-mix(in srgb, #10b981 15%, transparent);
+  color: #10b981;
+}
+
+.import-result-error {
+  background: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #ef4444;
+}
+
+.import-result-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.import-result-error-text {
+  color: #ef4444;
+}
+
+.import-result-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
 }
 </style>

@@ -1,4 +1,5 @@
 import type { ApiConfig, HttpMethod, KvPair, BodyConfig, AuthConfig, CookieItem } from '@/types'
+import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -15,7 +16,7 @@ function createDefaultApi(partial: Partial<ApiConfig> = {}): ApiConfig {
     params: partial.params || [],
     cookies: partial.cookies || [],
     body: partial.body || { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-    auth: partial.auth || { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
+    auth: normalizeAuthConfig(partial.auth),
     requestVariables: partial.requestVariables || [],
     preRequestScript: '',
     postRequestScript: '',
@@ -665,15 +666,7 @@ function getBaseUrl(spec: OpenApiSpec): string {
 }
 
 function emptyAuth(): AuthConfig {
-  return {
-    type: 'none',
-    bearerToken: '',
-    basicUsername: '',
-    basicPassword: '',
-    apiKeyName: '',
-    apiKeyValue: '',
-    apiKeyIn: 'header',
-  }
+  return createDefaultAuthConfig()
 }
 
 function resolveOperationAuth(spec: OpenApiSpec, op: OpenApiOperation): AuthConfig {

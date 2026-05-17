@@ -4,8 +4,11 @@ import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import Sidebar from '@/components/sidebar/Sidebar.vue'
 import EditorView from '@/components/editor/EditorView.vue'
+import GlobalSearch from '@/components/common/GlobalSearch.vue'
+import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { generateCurl } from '@/utils/export'
 import { applyViewOpenContext, buildViewContextUrl, clearViewOpenContext, readViewOpenContext, saveViewOpenContext } from '@/utils/view-context'
+import { createDefaultAuthConfig } from '@/utils/auth'
 import type { ApiConfig, HttpMethod } from '@/types'
 
 interface BrowserTab {
@@ -27,6 +30,7 @@ interface CapturedRequest {
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
+useKeyboardShortcuts()
 
 const navCollapsed = ref(false)
 const showCapture = ref(false)
@@ -125,7 +129,7 @@ function capturedToApiConfig(item: CapturedRequest): ApiConfig {
     params: [],
     cookies: [],
     body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-    auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
+    auth: createDefaultAuthConfig(),
     preRequestScript: '',
     postRequestScript: '',
     folder: 'Network 捕获',
@@ -192,6 +196,7 @@ function selectCompactInterface(event: Event) {
 
 function handleSidePanelKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
+  if (event.defaultPrevented || document.querySelector('.search-overlay')) return
   if (showCapture.value) {
     event.preventDefault()
     showCapture.value = false
@@ -276,6 +281,7 @@ onUnmounted(() => {
       </div>
       <div v-if="captureMessage && capturedRequests.length > 0" class="capture-message">{{ captureMessage }}</div>
     </aside>
+    <GlobalSearch />
   </div>
 </template>
 

@@ -4,11 +4,11 @@ import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { generateMarkdownDoc, generateOpenApiSpec, generateOpenApiYamlSpec } from '@/utils/export'
 import { importOpenApi } from '@/utils/openapi-import'
-import { getDataSourceIntervalMinutes, syncModuleDataSource } from '@/utils/data-source-sync'
-import { sendRequest } from '@/utils/http'
+import { getDataSourceIntervalMinutes, syncModuleDataSource, getModuleSyncLogs, clearModuleSyncLogs } from '@/utils/data-source-sync'
+import { sendRequest, sendBackupRequest } from '@/utils/http'
 import { db } from '@/db'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
-import type { ApiConfig, InterfaceTestCase, KvPair, ModuleDataModel, ModuleDataSource, ModuleDocArtifact, ModuleExportConfig, ModuleAuditLog, ModuleScenarioCase, ModuleStats, ModuleType, ModuleVariables, ResponseData } from '@/types'
+import type { ApiConfig, InterfaceTestCase, KvPair, ModuleDataModel, ModuleDataSource, ModuleDocArtifact, ModuleExportConfig, ModuleAuditLog, ModuleScenarioCase, ModuleStats, ModuleSyncLog, ModuleType, ModuleVariables, ResponseData } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -32,6 +32,9 @@ const permissionEditSettings = ref(true)
 const permissionEditVariables = ref(true)
 const permissionSyncDataSource = ref(true)
 const permissionBackup = ref(true)
+const backupStatus = ref<'idle' | 'running' | 'success' | 'error'>('idle')
+const lastBackupAt = ref<number | null>(null)
+const lastBackupMessage = ref('')
 const dataSourceType = ref<ModuleDataSource['type']>('openapi')
 const dataSourceUrl = ref('')
 const dataSourceSyncStrategy = ref<ModuleDataSource['syncStrategy']>('manual')
@@ -48,6 +51,7 @@ const moduleModels = ref<ModuleDataModel[]>([])
 const interfaceTestCases = ref<InterfaceTestCase[]>([])
 const moduleScenarioCases = ref<ModuleScenarioCase[]>([])
 const moduleAuditLogs = ref<ModuleAuditLog[]>([])
+const moduleSyncLogs = ref<ModuleSyncLog[]>([])
 const docDraft = ref({ id: '', title: '', interfaceId: '', format: 'markdown' as ModuleDocArtifact['format'], content: '' })
 const modelDraft = ref({ id: '', name: '', description: '', schemaText: '{\n  \"type\": \"object\",\n  \"properties\": {}\n}' })
 const testCaseDraft = ref({ id: '', interfaceId: '', name: '', expectedStatus: 200, assertionsText: 'status=200' })
@@ -318,6 +322,7 @@ watch(activeModule, (module, previousModule) => {
     activeModuleTab.value = 'overview'
     resetArtifactDrafts()
     void loadModuleArtifacts(module?.id)
+    void loadModuleSyncLogs(module?.id)
   }
   clearMessage()
 }, { immediate: true })
@@ -350,6 +355,14 @@ async function loadModuleArtifacts(moduleId?: string) {
   interfaceTestCases.value = cases.sort((a, b) => b.updatedAt - a.updatedAt)
   moduleScenarioCases.value = scenarios.sort((a, b) => b.updatedAt - a.updatedAt)
   moduleAuditLogs.value = auditLogs.sort((a, b) => b.createdAt - a.createdAt).slice(0, 20)
+}
+
+async function loadModuleSyncLogs(moduleId?: string) {
+  if (!moduleId) {
+    moduleSyncLogs.value = []
+    return
+  }
+  moduleSyncLogs.value = await getModuleSyncLogs(moduleId, 10)
 }
 
 async function recordModuleAudit(action: string, detail: string) {
@@ -710,6 +723,7 @@ async function syncDataSourceNow() {
   try {
     const result = await syncModuleDataSource(module.id, {
       dataSource,
+      syncAction: 'manual-sync',
       onLog: line => dataSourceSyncLog.value.push(line),
     })
     openapiText.value = result.text
@@ -720,6 +734,43 @@ async function syncDataSourceNow() {
     showSaved(`同步失败：${message}`)
   } finally {
     isSyncingDataSource.value = false
+    await loadModuleSyncLogs(module.id)
+  }
+}
+
+async function clearSyncLogs() {
+  const module = activeModule.value
+  if (!module) return
+  await clearModuleSyncLogs(module.id)
+  moduleSyncLogs.value = []
+  showSaved('同步日志已清除')
+}
+
+async function testWebhookSync() {
+  const module = activeModule.value
+  if (!module || isSyncingDataSource.value) return
+  if (!assertModulePermission('syncDataSource', '同步数据源')) return
+  const dataSource = buildDataSource(module.dataSource)
+  if (!dataSource) {
+    showSaved('请先填写数据源 URL')
+    return
+  }
+  isSyncingDataSource.value = true
+  dataSourceSyncLog.value = []
+  try {
+    const result = await syncModuleDataSource(module.id, {
+      dataSource,
+      syncAction: 'webhook-sync',
+      onLog: line => dataSourceSyncLog.value.push(line),
+    })
+    openapiText.value = result.text
+    showSaved(`Webhook 测试同步完成：新增 ${result.created}，更新 ${result.updated}`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    showSaved(`Webhook 测试同步失败：${message}`)
+  } finally {
+    isSyncingDataSource.value = false
+    await loadModuleSyncLogs(module.id)
   }
 }
 
@@ -1382,19 +1433,25 @@ function parseBackupContent(text: string): any | null {
 
 async function fetchRemoteGistBackup(endpoint: string, filename: string): Promise<any | null> {
   if (!/\/gists\/[A-Za-z0-9]+$/.test(endpoint)) return null
-  const response = await fetch(endpoint, {
+  const response = await sendBackupRequest({
+    method: 'GET',
+    url: endpoint,
     headers: { 'Authorization': `Bearer ${exportBackupToken.value.trim()}` },
   })
   if (!response.ok) return null
-  const data = await response.json().catch(() => null)
+  const data = JSON.parse(response.body ?? '{}')
   const content = data?.files?.[filename]?.content
   return typeof content === 'string' ? parseBackupContent(content) : null
 }
 
 async function fetchRemoteWebDavBackup(targetUrl: string, headers: Record<string, string>): Promise<any | null> {
-  const response = await fetch(targetUrl, { method: 'GET', headers })
+  const response = await sendBackupRequest({
+    method: 'GET',
+    url: targetUrl,
+    headers,
+  })
   if (!response.ok) return null
-  return parseBackupContent(await response.text())
+  return parseBackupContent(response.body)
 }
 
 async function resolveBackupPayloadForConflict(remoteBackup: any | null, localBackup: any): Promise<any | null> {
@@ -1423,77 +1480,134 @@ async function backupModule(successMessage?: string) {
   if (backupInProgress) return
   if (!assertModulePermission('backup', '执行备份')) return
   backupInProgress = true
+  backupStatus.value = 'running'
+  let completed = false
   try {
     const module = activeModule.value
     if (!module) return
-  let payload = buildModuleBackupPayload()
-  if (!payload) return
-  let content = JSON.stringify(payload, null, 2)
-  const filename = exportBackupFileName.value.trim() || `${safeFileName(module.name)}.backup.json`
+    let payload = buildModuleBackupPayload()
+    if (!payload) return
+    let content = JSON.stringify(payload, null, 2)
+    const filename = exportBackupFileName.value.trim() || `${safeFileName(module.name)}.backup.json`
 
-  if (exportBackupTarget.value === 'local') {
-    downloadText(filename, content)
-    showSaved('已生成模块备份')
-    return
-  }
-
-  payload = sanitizeBackupPayloadForRemote(payload)
-  content = JSON.stringify(payload, null, 2)
-
-  if (exportBackupTarget.value === 'gist') {
-    if (!exportBackupToken.value.trim()) {
-      showSaved('请先填写 GitHub Token')
+    if (exportBackupTarget.value === 'local') {
+      downloadText(filename, content)
+      lastBackupAt.value = Date.now()
+      lastBackupMessage.value = '已生成本地备份'
+      backupStatus.value = 'success'
+      showSaved('已生成模块备份')
+      completed = true
       return
     }
-    const endpoint = exportBackupEndpoint.value.trim() || 'https://api.github.com/gists'
-    const isUpdate = /\/gists\/[A-Za-z0-9]+$/.test(endpoint)
-    const resolvedPayload = await resolveBackupPayloadForConflict(isUpdate ? await fetchRemoteGistBackup(endpoint, filename) : null, payload)
-    if (!resolvedPayload) return
+
+    payload = sanitizeBackupPayloadForRemote(payload)
+    content = JSON.stringify(payload, null, 2)
+
+    if (exportBackupTarget.value === 'gist') {
+      if (!exportBackupToken.value.trim()) {
+        showSaved('请先填写 GitHub Token')
+        backupStatus.value = 'error'
+        lastBackupMessage.value = '未填写 GitHub Token'
+        return
+      }
+      const endpoint = exportBackupEndpoint.value.trim() || 'https://api.github.com/gists'
+      const isUpdate = /\/gists\/[A-Za-z0-9]+$/.test(endpoint)
+      const resolvedPayload = await resolveBackupPayloadForConflict(isUpdate ? await fetchRemoteGistBackup(endpoint, filename) : null, payload)
+      if (!resolvedPayload) {
+        backupStatus.value = 'error'
+        lastBackupMessage.value = '冲突解决已取消'
+        return
+      }
+      payload = resolvedPayload
+      content = JSON.stringify(payload, null, 2)
+      const response = await sendBackupRequest({
+        method: isUpdate ? 'PATCH' : 'POST',
+        url: endpoint,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${exportBackupToken.value.trim()}`,
+        },
+        body: JSON.stringify({
+          description: `ApiFix Bin backup: ${module.name}`,
+          public: false,
+          files: { [filename]: { content } },
+        }),
+      })
+      if (!response.ok) {
+        let err = `Gist 备份失败：${response.status}`
+        if (response.status === 401) err = 'Gist 备份失败：Token 无效或已过期（401）'
+        else if (response.status === 403) err = 'Gist 备份失败：权限不足（403）'
+        else if (response.status >= 500) err = 'Gist 备份失败：GitHub 服务异常，请稍后重试'
+        showSaved(err)
+        backupStatus.value = 'error'
+        lastBackupMessage.value = err
+        return
+      }
+      const result = JSON.parse(response.body ?? '{}')
+      if (result?.id && !exportBackupEndpoint.value.trim()) {
+        exportBackupEndpoint.value = `https://api.github.com/gists/${result.id}`
+        await saveModuleSettings('Gist 备份成功，已保存地址')
+      } else {
+        showSaved(successMessage || 'Gist 备份成功')
+      }
+      lastBackupAt.value = Date.now()
+      lastBackupMessage.value = successMessage || 'Gist 备份成功'
+      backupStatus.value = 'success'
+      completed = true
+      return
+    }
+
+    if (!exportBackupEndpoint.value.trim()) {
+      showSaved('请先填写 WebDAV 地址')
+      backupStatus.value = 'error'
+      lastBackupMessage.value = '未填写 WebDAV 地址'
+      return
+    }
+    const targetUrl = new URL(filename, exportBackupEndpoint.value.trim().endsWith('/') ? exportBackupEndpoint.value.trim() : `${exportBackupEndpoint.value.trim()}/`).toString()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (exportBackupToken.value.trim()) headers.Authorization = exportBackupToken.value.trim().startsWith('Basic ') || exportBackupToken.value.trim().startsWith('Bearer ')
+      ? exportBackupToken.value.trim()
+      : `Bearer ${exportBackupToken.value.trim()}`
+    const resolvedPayload = await resolveBackupPayloadForConflict(await fetchRemoteWebDavBackup(targetUrl, headers), payload)
+    if (!resolvedPayload) {
+      backupStatus.value = 'error'
+      lastBackupMessage.value = '冲突解决已取消'
+      return
+    }
     payload = resolvedPayload
     content = JSON.stringify(payload, null, 2)
-    const response = await fetch(endpoint, {
-      method: isUpdate ? 'PATCH' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${exportBackupToken.value.trim()}`,
-      },
-      body: JSON.stringify({
-        description: `ApiFix Bin backup: ${module.name}`,
-        public: false,
-        files: { [filename]: { content } },
-      }),
+    const response = await sendBackupRequest({
+      method: 'PUT',
+      url: targetUrl,
+      headers,
+      body: content,
     })
     if (!response.ok) {
-      showSaved(`Gist 备份失败：${response.status}`)
+      let err = `WebDAV 备份失败：${response.status}`
+      if (response.status === 401) err = 'WebDAV 备份失败：认证失败（401）'
+      else if (response.status === 403) err = 'WebDAV 备份失败：权限不足（403）'
+      else if (response.status >= 500) err = 'WebDAV 备份失败：服务器异常，请稍后重试'
+      showSaved(err)
+      backupStatus.value = 'error'
+      lastBackupMessage.value = err
       return
     }
-    const result = await response.json().catch(() => null)
-    if (result?.id && !exportBackupEndpoint.value.trim()) {
-      exportBackupEndpoint.value = `https://api.github.com/gists/${result.id}`
-      await saveModuleSettings('Gist 备份成功，已保存地址')
-    } else {
-      showSaved(successMessage || 'Gist 备份成功')
-    }
-    return
-  }
-
-  if (!exportBackupEndpoint.value.trim()) {
-    showSaved('请先填写 WebDAV 地址')
-    return
-  }
-  const targetUrl = new URL(filename, exportBackupEndpoint.value.trim().endsWith('/') ? exportBackupEndpoint.value.trim() : `${exportBackupEndpoint.value.trim()}/`).toString()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (exportBackupToken.value.trim()) headers.Authorization = exportBackupToken.value.trim().startsWith('Basic ') || exportBackupToken.value.trim().startsWith('Bearer ')
-    ? exportBackupToken.value.trim()
-    : `Bearer ${exportBackupToken.value.trim()}`
-  const resolvedPayload = await resolveBackupPayloadForConflict(await fetchRemoteWebDavBackup(targetUrl, headers), payload)
-  if (!resolvedPayload) return
-  payload = resolvedPayload
-  content = JSON.stringify(payload, null, 2)
-  const response = await fetch(targetUrl, { method: 'PUT', headers, body: content })
-  showSaved(response.ok ? (successMessage || 'WebDAV 备份成功') : `WebDAV 备份失败：${response.status}`)
+    lastBackupAt.value = Date.now()
+    lastBackupMessage.value = successMessage || 'WebDAV 备份成功'
+    backupStatus.value = 'success'
+    completed = true
+    showSaved(successMessage || 'WebDAV 备份成功')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    const err = `备份失败：${msg}`
+    showSaved(err)
+    backupStatus.value = 'error'
+    lastBackupMessage.value = err
   } finally {
     backupInProgress = false
+    if (!completed && backupStatus.value === 'running') {
+      backupStatus.value = 'error'
+    }
   }
 }
 
@@ -2483,6 +2597,11 @@ async function runAllScenarioCases() {
               <span>Webhook 密钥</span>
               <input v-model="dataSourceWebhookSecret" type="password" placeholder="外部触发时需传入 secret" />
             </label>
+            <label v-if="dataSourceSyncStrategy === 'webhook' && activeModule" class="field-row">
+              <span>Webhook 地址</span>
+              <input :value="`apifix://webhook/${activeModule.id}`" readonly />
+            </label>
+            <p v-if="dataSourceSyncStrategy === 'webhook'" class="help-text">外部系统可通过上述标识触发本模块同步；实际集成需对接扩展消息或桌面端接口。点击“测试 Webhook”可本地模拟一次触发。</p>
             <label class="field-row field-row-top">
               <span>字段映射</span>
               <textarea v-model="dataSourceMappingText" rows="3" placeholder="operationId=接口名称"></textarea>
@@ -2500,6 +2619,7 @@ async function runAllScenarioCases() {
             <div class="quick-actions">
               <button class="btn btn-sm btn-primary" @click="saveModuleSettings('数据源已保存')">保存数据源</button>
               <button class="btn btn-sm" @click="syncDataSourceNow" :disabled="isSyncingDataSource">{{ isSyncingDataSource ? '同步中...' : '立即同步' }}</button>
+              <button v-if="dataSourceSyncStrategy === 'webhook'" class="btn btn-sm" @click="testWebhookSync" :disabled="isSyncingDataSource">测试 Webhook</button>
               <button class="btn btn-sm" @click="disconnectDataSource">断开连接</button>
             </div>
           </section>
@@ -2572,6 +2692,32 @@ async function runAllScenarioCases() {
             </div>
           </section>
         </div>
+
+        <section class="settings-card sync-log-section">
+          <div class="section-heading-row">
+            <div>
+              <h3>同步日志</h3>
+              <p>最近 10 条数据源同步记录。</p>
+            </div>
+            <button v-if="moduleSyncLogs.length > 0" class="btn btn-sm" @click="clearSyncLogs">清除日志</button>
+          </div>
+          <div v-if="moduleSyncLogs.length === 0" class="empty-hint">暂无同步日志。</div>
+          <div v-else class="sync-log-list">
+            <div v-for="log in moduleSyncLogs" :key="log.id" class="sync-log-item">
+              <div class="sync-log-meta">
+                <span class="sync-log-time">{{ formatTime(log.timestamp) }}</span>
+                <span class="sync-log-badge action">{{ log.action === 'auto-sync' ? '自动' : log.action === 'webhook-sync' ? 'Webhook' : '手动' }}</span>
+                <span class="sync-log-badge" :class="log.status">{{ log.status === 'success' ? '成功' : log.status === 'error' ? '失败' : '部分' }}</span>
+              </div>
+              <div class="sync-log-message">{{ log.message }}</div>
+              <div v-if="log.createdCount || log.updatedCount || log.skippedCount" class="sync-log-counts">
+                <span v-if="log.createdCount">+{{ log.createdCount }} 新增</span>
+                <span v-if="log.updatedCount">+{{ log.updatedCount }} 更新</span>
+                <span v-if="log.skippedCount">{{ log.skippedCount }} 跳过</span>
+              </div>
+            </div>
+          </div>
+        </section>
       </template>
 
       <template v-else-if="activeModuleTab === 'variables'">
@@ -3127,6 +3273,84 @@ async function runAllScenarioCases() {
   font-size: var(--font-size-small);
   line-height: 1.5;
   word-break: break-all;
+}
+
+.sync-log-section {
+  margin-top: 4px;
+}
+
+.sync-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sync-log-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-subtle);
+  font-size: var(--font-size-small);
+}
+
+.sync-log-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.sync-log-time {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.sync-log-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.sync-log-badge.action {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.sync-log-badge.success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.sync-log-badge.error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.sync-log-badge.partial {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+}
+
+.sync-log-message {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.sync-log-counts {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 .field-row {

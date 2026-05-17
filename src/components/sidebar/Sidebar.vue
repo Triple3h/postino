@@ -54,6 +54,35 @@ const selectedModuleId = computed(() => {
 })
 const contextMenu = ref<{ x: number; y: number; apiId?: string; categoryId?: string; moduleId?: string; folderId?: string } | null>(null)
 
+// --- Inline rename state ---
+const renamingCategoryId = ref<string | null>(null)
+const renamingInput = ref('')
+const renamingModuleId = ref<string | null>(null)
+const renamingModuleInput = ref('')
+
+// --- Color picker state ---
+const colorPickerCategoryId = ref<string | null>(null)
+
+// --- Move-to submenu state ---
+const moveToInterfaceId = ref<string | null>(null)
+
+// --- Toast state ---
+const toast = ref('')
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(msg: string) {
+  toast.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = ''; toastTimer = null }, 1800)
+}
+
+// --- Preset colors for category color picker ---
+const PRESET_COLORS = [
+  '#6366f1', '#3b82f6', '#0ea5e9', '#14b8a6',
+  '#10b981', '#f59e0b', '#ef4444', '#ec4899',
+  '#8b5cf6', '#64748b',
+]
+
 
 function clampSidebarWidth(width: number): number {
   return Math.max(200, Math.min(400, Math.round(width)))
@@ -264,7 +293,7 @@ async function createNewApi(parentFolderId: string | null = null) {
     params: [],
     cookies: [],
     body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-    auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' as const },
+    auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' as const, digestUsername: '', digestPassword: '', oauth2GrantType: 'authorization_code' as const, oauth2AccessTokenUrl: '', oauth2ClientId: '', oauth2ClientSecret: '', oauth2Scope: '', oauth2Token: '', oauth2Username: '', oauth2Password: '' },
     preRequestScript: '',
     postRequestScript: '',
     folder: null,
@@ -864,6 +893,176 @@ function closeContextMenu() {
   contextMenu.value = null
 }
 
+// --- Category rename ---
+function startRenameCategory(categoryId: string) {
+  const category = workspace.categories.find(item => item.id === categoryId)
+  if (!category) return
+  renamingCategoryId.value = categoryId
+  renamingInput.value = category.name
+  closeContextMenu()
+}
+
+function confirmRenameCategory() {
+  const id = renamingCategoryId.value
+  if (!id) return
+  const newName = renamingInput.value.trim()
+  if (!newName) { renamingCategoryId.value = null; return }
+  workspace.updateCategory(id, { name: newName })
+  renamingCategoryId.value = null
+}
+
+function cancelRenameCategory() {
+  renamingCategoryId.value = null
+}
+
+// --- Module rename ---
+function startRenameModule(moduleId: string) {
+  const module = workspace.modules.find(item => item.id === moduleId)
+  if (!module) return
+  renamingModuleId.value = moduleId
+  renamingModuleInput.value = module.name
+  closeContextMenu()
+}
+
+function confirmRenameModule() {
+  const id = renamingModuleId.value
+  if (!id) return
+  const newName = renamingModuleInput.value.trim()
+  if (!newName) { renamingModuleId.value = null; return }
+  workspace.updateModule(id, { name: newName })
+  renamingModuleId.value = null
+}
+
+function cancelRenameModule() {
+  renamingModuleId.value = null
+}
+
+// --- Category color picker ---
+function selectCategoryColor(color: string) {
+  const id = colorPickerCategoryId.value
+  if (!id) return
+  workspace.updateCategory(id, { color })
+  colorPickerCategoryId.value = null
+  closeContextMenu()
+}
+
+function cancelColorPicker() {
+  colorPickerCategoryId.value = null
+  closeContextMenu()
+}
+
+// --- Duplicate module ---
+async function duplicateModuleFromContext(moduleId: string) {
+  closeContextMenu()
+  const result = await workspace.duplicateModule(moduleId)
+  if (result) {
+    showToast(`已复制模块：${result.name}`)
+    openModule(result.id)
+  }
+}
+
+// --- Interface: send request ---
+function sendInterfaceRequest(apiId: string) {
+  selectApi(apiId)
+  closeContextMenu()
+  window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+}
+
+// --- Interface: copy cURL ---
+async function copyInterfaceCurl(apiId: string) {
+  const api = store.apis[apiId]
+  if (!api) { closeContextMenu(); return }
+  const curl = generateCurl(api, store.getEnvVariables())
+  await navigator.clipboard.writeText(curl)
+  closeContextMenu()
+  showToast('已复制 cURL')
+}
+
+// --- Interface: move to module ---
+function showMoveToSubmenu(apiId: string) {
+  moveToInterfaceId.value = apiId
+}
+
+async function moveInterfaceToModule(targetModuleId: string) {
+  const apiId = moveToInterfaceId.value
+  if (!apiId) return
+  const interfaceNode = workspace.interfaces.find(item => item.apiId === apiId || item.id === apiId)
+  if (!interfaceNode) return
+  await workspace.moveInterfaceNode(interfaceNode.id, targetModuleId, null)
+  moveToInterfaceId.value = null
+  closeContextMenu()
+  showToast('已移动接口')
+}
+
+function cancelMoveTo() {
+  moveToInterfaceId.value = null
+  closeContextMenu()
+}
+
+// --- Double-click to enter settings ---
+function handleCategoryDblClick(categoryId: string) {
+  workspace.selectCategory(categoryId)
+  store.currentApiId = null
+  store.response = null
+}
+
+function handleModuleDblClick(moduleId: string) {
+  workspace.selectModule(moduleId)
+  store.currentApiId = null
+  store.response = null
+}
+
+// --- Method color map for collapsed mode dots ---
+const METHOD_COLORS: Record<string, string> = {
+  get: '#10b981',
+  post: '#f59e0b',
+  put: '#3b82f6',
+  delete: '#ef4444',
+  patch: '#8b5cf6',
+  head: '#64748b',
+  options: '#64748b',
+}
+
+function getMethodColor(method: string): string {
+  return METHOD_COLORS[method.toLowerCase()] ?? '#64748b'
+}
+
+function getCategoryColorForModule(moduleId: string): string {
+  const module = workspace.modules.find(m => m.id === moduleId)
+  if (!module) return '#6366f1'
+  const category = workspace.categories.find(c => c.id === module.categoryId)
+  return category?.color || '#6366f1'
+}
+
+// --- Category module count ---
+function getCategoryModuleCount(categoryId: string): number {
+  return workspace.modules.filter(m => m.categoryId === categoryId).length
+}
+
+// --- Collapsed mode: expand sidebar and focus search ---
+function expandAndFocusSearch() {
+  sidebarCollapsed.value = false
+  requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLInputElement>('.sidebar-search')
+    input?.focus()
+  })
+}
+
+// --- Bottom bar actions ---
+async function handleNewCategory() {
+  const category = await workspace.addCategory('新分组')
+  openCategory(category.id)
+  startRenameCategory(category.id)
+}
+
+function handleOpenEnvVars() {
+  window.dispatchEvent(new CustomEvent('apifix:open-env-panel'))
+}
+
+function handleRecycleBin() {
+  showToast('回收站功能开发中')
+}
+
 function handleModuleDragStart(event: DragEvent, moduleId: string) {
   draggingModuleId.value = moduleId
   event.dataTransfer?.setData('text/plain', moduleId)
@@ -1124,7 +1323,7 @@ async function doImport() {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="搜索接口 / URL / 方法"
+          placeholder="搜索接口 / URL / 方法 (Ctrl+K)"
           class="sidebar-search"
         />
       </label>
@@ -1140,8 +1339,9 @@ async function doImport() {
       <div v-for="category in sidebarTree" :key="category.id" class="category-section">
         <div
           :class="['category-header', { selected: selectedCategoryId === category.id, 'drop-target': isDropTarget('category', category.id) }]"
+          :title="sidebarCollapsed ? category.name : undefined"
           @click="openCategory(category.id)"
-          @dblclick="openCategory(category.id)"
+          @dblclick="handleCategoryDblClick(category.id)"
           @contextmenu="handleCategoryContextMenu($event, category.id)"
           @dragover.prevent="markDropTarget('category', category.id)"
           @dragleave="clearDropTarget"
@@ -1149,15 +1349,31 @@ async function doImport() {
         >
           <span class="expand-icon" @click.stop="toggleExpanded(getCategoryStorageKey(category.id))">{{ isExpanded(getCategoryStorageKey(category.id)) ? '▼' : '▶' }}</span>
           <span class="category-color" :style="{ backgroundColor: category.color || '#6366f1' }"></span>
-          <span class="category-name">{{ category.name }}</span>
+          <span class="collapsed-badge category-collapsed-badge" :style="{ backgroundColor: category.color || '#6366f1' }">{{ category.name.charAt(0) }}</span>
+          <template v-if="renamingCategoryId === category.id">
+            <input
+              class="rename-input"
+              v-model="renamingInput"
+              @keydown.enter="confirmRenameCategory"
+              @keydown.escape="cancelRenameCategory"
+              @blur="confirmRenameCategory"
+              @click.stop
+              autofocus
+            />
+          </template>
+          <template v-else>
+            <span class="category-name">{{ category.name }}</span>
+          </template>
+          <span v-if="getCategoryModuleCount(category.id) > 0" class="count-badge category-count-badge">{{ getCategoryModuleCount(category.id) }}</span>
         </div>
         <template v-if="isExpanded(getCategoryStorageKey(category.id))">
           <div v-for="module in category.modules" :key="module.id" class="group-section">
             <div
               :class="['group-header', { selected: selectedModuleId === module.id, 'drop-target': isDropTarget('module-root', module.id) }]"
+              :title="sidebarCollapsed ? module.name : undefined"
               draggable="true"
               @click="openModule(module.id)"
-              @dblclick="openModule(module.id)"
+              @dblclick="handleModuleDblClick(module.id)"
               @contextmenu="handleModuleContextMenu($event, module.id)"
               @dragstart="handleModuleDragStart($event, module.id)"
               @dragend="clearDragState"
@@ -1166,8 +1382,23 @@ async function doImport() {
               @drop="dropNodeToModuleRoot($event, module.id)"
             >
               <span class="expand-icon" @click.stop="toggleExpanded(getModuleStorageKey(module.id))">{{ isExpanded(getModuleStorageKey(module.id)) ? '▼' : '▶' }}</span>
-              <span class="group-name">{{ module.name }}</span>
+              <span class="collapsed-badge module-collapsed-badge" :style="{ backgroundColor: getCategoryColorForModule(module.id) }">{{ module.name.charAt(0) }}</span>
+              <template v-if="renamingModuleId === module.id">
+                <input
+                  class="rename-input"
+                  v-model="renamingModuleInput"
+                  @keydown.enter="confirmRenameModule"
+                  @keydown.escape="cancelRenameModule"
+                  @blur="confirmRenameModule"
+                  @click.stop
+                  autofocus
+                />
+              </template>
+              <template v-else>
+                <span class="group-name">{{ module.name }}</span>
+              </template>
               <span class="group-count">{{ module.requestCount }}</span>
+              <span v-if="module.interfaces.length > 0" class="count-badge module-count-badge">{{ module.interfaces.length }}</span>
               <span class="module-actions">
                 <button title="发送模块全部请求" :disabled="batchSendingModuleId === module.id" @click="quickSendModule($event, module.id)">▶</button>
                 <button title="复制模块 cURL" @click="copyModuleCurl($event, module.id)">cURL</button>
@@ -1188,6 +1419,7 @@ async function doImport() {
                   }
                 ]"
                 :style="{ paddingLeft: (isFolderNode(row.node) ? 30 : 44) + row.depth * 14 + 'px' }"
+                :title="sidebarCollapsed ? (getInterfaceApi(row.node)?.name ?? row.node.name) : undefined"
                 draggable="true"
                 @click="isFolderNode(row.node) ? toggleExpanded(getNodeStorageKey(row.node.id)) : selectApi(row.node.apiId)"
                 @contextmenu="isFolderNode(row.node) ? handleFolderContextMenu($event, row.node.id) : handleApiContextMenu($event, row.node.apiId)"
@@ -1207,6 +1439,7 @@ async function doImport() {
                   <span :class="['method-badge', (getInterfaceApi(row.node)?.method ?? row.node.method).toLowerCase()]">
                     {{ getInterfaceApi(row.node)?.method ?? row.node.method }}
                   </span>
+                  <span class="method-dot" :style="{ backgroundColor: getMethodColor(getInterfaceApi(row.node)?.method ?? row.node.method) }"></span>
                   <span class="api-copy">
                     <span class="api-name">{{ getInterfaceApi(row.node)?.name ?? row.node.name }}</span>
                     <span class="api-url">{{ getInterfaceApi(row.node)?.url ?? row.node.url }}</span>
@@ -1232,27 +1465,79 @@ async function doImport() {
       class="context-menu"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
-      <button v-if="contextMenu.apiId && compareBaseApiId !== contextMenu.apiId" class="context-item" @click="selectCompareBaseFromContext(contextMenu.apiId)">选为对比基准</button>
-      <button v-if="contextMenu.apiId && compareBaseApiId && compareBaseApiId !== contextMenu.apiId" class="context-item" @click="openApiCompareFromContext(contextMenu.apiId)">与基准对比差异</button>
-      <button v-if="contextMenu.apiId && compareBaseApiId === contextMenu.apiId" class="context-item" @click="clearCompareBaseFromContext()">取消对比基准</button>
-      <button v-if="contextMenu.apiId" class="context-item" @click="deleteApi(contextMenu.apiId); closeContextMenu()">删除请求</button>
-      <button v-if="contextMenu.categoryId" class="context-item" @click="openCategory(contextMenu.categoryId); closeContextMenu()">分组设置</button>
-      <button v-if="contextMenu.categoryId" class="context-item" @click="addModule(contextMenu.categoryId); closeContextMenu()">新建模块</button>
-      <button v-if="contextMenu.categoryId" class="context-item" @click="deleteCategory(contextMenu.categoryId); closeContextMenu()">删除分组</button>
-      <button v-if="contextMenu.moduleId" class="context-item" @click="openModule(contextMenu.moduleId); closeContextMenu()">模块设置</button>
-      <button v-if="contextMenu.moduleId" class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'serial')">发送全部（串行）</button>
-      <button v-if="contextMenu.moduleId" class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'parallel')">发送全部（并行）</button>
-      <button v-if="contextMenu.moduleId" class="context-item" @click="copyModuleCurlFromContext(contextMenu.moduleId)">复制模块 cURL</button>
-      <button v-if="contextMenu.moduleId" class="context-item" @click="moveModuleToCategoryFromContext(contextMenu.moduleId)">移动到大类</button>
-      <button v-if="contextMenu.moduleId" class="context-item" @click="addFolder(contextMenu.moduleId); closeContextMenu()">新建文件夹</button>
-      <button v-if="contextMenu.moduleId" class="context-item" @click="deleteModule(contextMenu.moduleId); closeContextMenu()">删除模块</button>
-      <button v-if="contextMenu.folderId" class="context-item" @click="createNewApi(contextMenu.folderId); closeContextMenu()">新建请求</button>
-      <button v-if="contextMenu.folderId" class="context-item" @click="addFolder(undefined, contextMenu.folderId); closeContextMenu()">新建子文件夹</button>
-      <button v-if="contextMenu.folderId" class="context-item" :disabled="batchSendingFolderId === contextMenu.folderId" @click="runFolderBatchFromContext(contextMenu.folderId, 'serial')">批量发送（串行）</button>
-      <button v-if="contextMenu.folderId" class="context-item" :disabled="batchSendingFolderId === contextMenu.folderId" @click="runFolderBatchFromContext(contextMenu.folderId, 'parallel')">批量发送（并行）</button>
-      <button v-if="contextMenu.folderId" class="context-item" @click="openFolderSettings(contextMenu.folderId)">文件夹设置</button>
-      <button v-if="contextMenu.folderId" class="context-item" @click="editFolderPreScript(contextMenu.folderId); closeContextMenu()">编辑前置脚本</button>
-      <button v-if="contextMenu.folderId" class="context-item" @click="deleteFolder(contextMenu.folderId); closeContextMenu()">删除文件夹</button>
+      <!-- API / Interface context items -->
+      <template v-if="contextMenu.apiId">
+        <button class="context-item" @click="sendInterfaceRequest(contextMenu.apiId)">发送请求</button>
+        <button class="context-item" @click="copyInterfaceCurl(contextMenu.apiId)">复制 cURL</button>
+        <button class="context-item" @click="showMoveToSubmenu(contextMenu.apiId)">移动到...</button>
+        <div v-if="moveToInterfaceId === contextMenu.apiId" class="context-submenu">
+          <div v-for="cat in sidebarTree" :key="cat.id" class="context-submenu-group">
+            <div class="context-submenu-label">{{ cat.name }}</div>
+            <button
+              v-for="mod in cat.modules"
+              :key="mod.id"
+              class="context-submenu-item"
+              @click="moveInterfaceToModule(mod.id)"
+            >{{ mod.name }}</button>
+          </div>
+          <button class="context-item context-submenu-cancel" @click="cancelMoveTo">取消</button>
+        </div>
+        <div class="context-divider"></div>
+        <button v-if="compareBaseApiId !== contextMenu.apiId" class="context-item" @click="selectCompareBaseFromContext(contextMenu.apiId)">选为对比基准</button>
+        <button v-if="compareBaseApiId && compareBaseApiId !== contextMenu.apiId" class="context-item" @click="openApiCompareFromContext(contextMenu.apiId)">与基准对比差异</button>
+        <button v-if="compareBaseApiId === contextMenu.apiId" class="context-item" @click="clearCompareBaseFromContext()">取消对比基准</button>
+        <div class="context-divider"></div>
+        <button class="context-item" @click="deleteApi(contextMenu.apiId); closeContextMenu()">删除请求</button>
+      </template>
+
+      <!-- Category context items -->
+      <template v-if="contextMenu.categoryId">
+        <button class="context-item" @click="startRenameCategory(contextMenu.categoryId)">重命名</button>
+        <button class="context-item" @click="colorPickerCategoryId = contextMenu.categoryId">修改颜色</button>
+        <div v-if="colorPickerCategoryId === contextMenu.categoryId" class="color-picker-row">
+          <button
+            v-for="color in PRESET_COLORS"
+            :key="color"
+            class="color-dot"
+            :style="{ backgroundColor: color }"
+            @click="selectCategoryColor(color)"
+          ></button>
+          <button class="context-item context-submenu-cancel" @click="cancelColorPicker">取消</button>
+        </div>
+        <button class="context-item" @click="openCategory(contextMenu.categoryId); closeContextMenu()">分组设置</button>
+        <button class="context-item" @click="addModule(contextMenu.categoryId); closeContextMenu()">新建模块</button>
+        <div class="context-divider"></div>
+        <button class="context-item" @click="deleteCategory(contextMenu.categoryId); closeContextMenu()">删除分组</button>
+      </template>
+
+      <!-- Module context items -->
+      <template v-if="contextMenu.moduleId">
+        <button class="context-item" @click="startRenameModule(contextMenu.moduleId)">重命名</button>
+        <button class="context-item" @click="duplicateModuleFromContext(contextMenu.moduleId)">复制模块</button>
+        <button class="context-item" @click="openModule(contextMenu.moduleId); closeContextMenu()">模块设置</button>
+        <div class="context-divider"></div>
+        <button class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'serial')">发送全部（串行）</button>
+        <button class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'parallel')">发送全部（并行）</button>
+        <button class="context-item" @click="copyModuleCurlFromContext(contextMenu.moduleId)">复制模块 cURL</button>
+        <button class="context-item" @click="moveModuleToCategoryFromContext(contextMenu.moduleId)">移动到大类</button>
+        <div class="context-divider"></div>
+        <button class="context-item" @click="addFolder(contextMenu.moduleId); closeContextMenu()">新建文件夹</button>
+        <div class="context-divider"></div>
+        <button class="context-item" @click="deleteModule(contextMenu.moduleId); closeContextMenu()">删除模块</button>
+      </template>
+
+      <!-- Folder context items -->
+      <template v-if="contextMenu.folderId">
+        <button class="context-item" @click="createNewApi(contextMenu.folderId); closeContextMenu()">新建请求</button>
+        <button class="context-item" @click="addFolder(undefined, contextMenu.folderId); closeContextMenu()">新建子文件夹</button>
+        <div class="context-divider"></div>
+        <button class="context-item" :disabled="batchSendingFolderId === contextMenu.folderId" @click="runFolderBatchFromContext(contextMenu.folderId, 'serial')">批量发送（串行）</button>
+        <button class="context-item" :disabled="batchSendingFolderId === contextMenu.folderId" @click="runFolderBatchFromContext(contextMenu.folderId, 'parallel')">批量发送（并行）</button>
+        <button class="context-item" @click="openFolderSettings(contextMenu.folderId)">文件夹设置</button>
+        <button class="context-item" @click="editFolderPreScript(contextMenu.folderId); closeContextMenu()">编辑前置脚本</button>
+        <div class="context-divider"></div>
+        <button class="context-item" @click="deleteFolder(contextMenu.folderId); closeContextMenu()">删除文件夹</button>
+      </template>
     </div>
 
     <!-- Folder Settings Modal -->
@@ -1347,7 +1632,43 @@ async function doImport() {
         </div>
       </div>
     </div>
-    <div v-if="!sidebarCollapsed" class="sidebar-resizer" title="拖拽调整侧栏宽度" @mousedown.stop="startSidebarResize"></div>
+    <div v-if="!sidebarCollapsed" class="sidebar-resizer" title="拖拽调整侧栏宽度" @mousedown.stop="startSidebarResize">
+      <div class="resizer-grip">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+    <!-- Collapsed mode vertical toolbar -->
+    <div v-if="sidebarCollapsed" class="collapsed-toolbar">
+      <button class="collapsed-toolbar-btn" title="新建请求" @click="createNewApi()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+      <button class="collapsed-toolbar-btn" title="新建文件夹" @click="addFolder()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h4l1.5 1.5H14v8H2V4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="collapsed-toolbar-btn" title="搜索 (Ctrl+K)" @click="expandAndFocusSearch">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <!-- Sidebar Bottom Bar -->
+    <div class="sidebar-bottom-bar">
+      <button class="bottom-bar-btn" @click="handleNewCategory" title="新建大类">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span v-if="!sidebarCollapsed">新建大类</span>
+      </button>
+      <button class="bottom-bar-btn" @click="handleOpenEnvVars" title="环境变量">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2l-4 6 4 6h4l4-6-4-6H6z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
+        <span v-if="!sidebarCollapsed">环境变量</span>
+      </button>
+      <button class="bottom-bar-btn" @click="handleRecycleBin" title="回收站">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v4M10 7v4M4 4l.7 8.5a1 1 0 001 .9h4.6a1 1 0 001-.9L12 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span v-if="!sidebarCollapsed">回收站</span>
+      </button>
+    </div>
+
+    <!-- Toast notification -->
+    <Transition name="toast">
+      <div v-if="toast" class="sidebar-toast">{{ toast }}</div>
+    </Transition>
   </div>
 </template>
 
@@ -1380,10 +1701,33 @@ async function doImport() {
   height: 100%;
   cursor: col-resize;
   background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resizer-grip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.resizer-grip span {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
 }
 
 .sidebar-resizer:hover {
   background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.sidebar-resizer:hover .resizer-grip {
+  opacity: 1;
 }
 
 .sidebar.collapsed {
@@ -1466,8 +1810,20 @@ async function doImport() {
 .sidebar.collapsed .api-copy,
 .sidebar.collapsed .api-actions,
 .sidebar.collapsed .module-actions,
-.sidebar.collapsed .script-dot {
+.sidebar.collapsed .script-dot,
+.sidebar.collapsed .bottom-bar-btn span,
+.sidebar.collapsed .category-color,
+.sidebar.collapsed .method-badge,
+.sidebar.collapsed .count-badge {
   display: none;
+}
+
+.sidebar.collapsed .collapsed-badge {
+  display: flex;
+}
+
+.sidebar.collapsed .method-dot {
+  display: block;
 }
 
 .sidebar.collapsed .collapse-btn {
@@ -1612,6 +1968,66 @@ async function doImport() {
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow: 0 0 0 2px var(--bg-sidebar);
+}
+
+/* Collapsed mode first-letter badge */
+.collapsed-badge {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.category-collapsed-badge {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.module-collapsed-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* Method color dot for collapsed mode */
+.method-dot {
+  display: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Count badges for category/module */
+.count-badge {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  background: var(--bg-secondary);
+  border-radius: 999px;
+  min-width: 18px;
+  padding: 0 5px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.category-count-badge {
+  margin-left: auto;
+}
+
+.module-count-badge {
+  margin-left: 2px;
 }
 
 .category-name,
@@ -2009,5 +2425,191 @@ async function doImport() {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  font-weight: inherit;
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.context-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--divider);
+}
+
+.context-submenu {
+  padding: 4px 0 0 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.context-submenu-group {
+  margin-bottom: 2px;
+}
+
+.context-submenu-label {
+  padding: 4px 12px;
+  font-size: var(--font-size-small);
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.context-submenu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px 6px 20px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--font-size-body);
+  border: none;
+}
+
+.context-submenu-item:hover {
+  background: var(--bg-hover);
+}
+
+.context-submenu-cancel {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-small);
+}
+
+.color-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  align-items: center;
+}
+
+.color-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+  padding: 0;
+  background: none;
+}
+
+.color-dot:hover {
+  border-color: var(--text-primary);
+  transform: scale(1.18);
+}
+
+/* Collapsed mode vertical toolbar */
+.collapsed-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--divider);
+  background: var(--bg-panel-elevated);
+  flex-shrink: 0;
+}
+
+.collapsed-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.collapsed-toolbar-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.sidebar-bottom-bar {
+  display: flex;
+  gap: 2px;
+  padding: 8px 8px;
+  border-top: 1px solid var(--divider);
+  background: var(--bg-panel-elevated);
+  flex-shrink: 0;
+}
+
+.sidebar.collapsed .sidebar-bottom-bar {
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+}
+
+.bottom-bar-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
+}
+
+.sidebar.collapsed .bottom-bar-btn {
+  flex: none;
+  justify-content: center;
+  padding: 6px;
+}
+
+.bottom-bar-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.sidebar-toast {
+  position: absolute;
+  bottom: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-elevated);
+  color: var(--text-primary);
+  font-size: var(--font-size-small);
+  box-shadow: var(--shadow-lg);
+  z-index: 10;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
 }
 </style>

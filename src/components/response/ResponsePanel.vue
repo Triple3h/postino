@@ -14,6 +14,18 @@ const bodyMode = ref('tree')
 const searchQuery = ref('')
 const previousResponse = ref<ResponseData | null>(null)
 
+const isStreaming = computed(() => store.response?.isStreaming === true)
+const isCancelled = computed(() => store.response?.cancelled === true)
+const chunkCount = computed(() => store.response?.chunks?.length ?? 0)
+const streamTypeLabel = computed(() => {
+  if (!store.response?.streamType) return ''
+  return store.response.streamType === 'sse' ? 'SSE' : 'NDJSON'
+})
+
+function cancelRequest() {
+  store.cancelCurrentRequest()
+}
+
 const responseTabs = [
   { key: 'body', label: 'Body' },
   { key: 'headers', label: 'Headers' },
@@ -568,10 +580,162 @@ function exportResponseHtmlReport() {
 
 <template>
   <div class="response-panel">
+    <!-- Loading state with cancel button -->
     <div v-if="store.loading && !store.response" class="response-empty response-loading">
       <span class="response-spinner"></span>
       <h3>请求发送中</h3>
       <p>正在等待服务器响应，稍后会自动展示状态、耗时和响应体。</p>
+      <button class="cancel-request-btn" @click="cancelRequest">取消请求</button>
+    </div>
+    <!-- Streaming state: response arrived but still receiving chunks -->
+    <div v-else-if="store.loading && store.response && isStreaming" class="response-content">
+      <div class="response-status-bar">
+        <span :class="['status-code', statusClass]">
+          {{ store.response.status }} {{ store.response.statusText }}
+        </span>
+        <span :class="['response-meta', durationClass]">{{ store.response.duration }}ms</span>
+        <span class="response-meta">{{ sizeFormatted }}</span>
+        <span class="streaming-indicator">
+          <span class="streaming-dot"></span>
+          {{ streamTypeLabel }} 流式接收中... ({{ chunkCount }} 个数据块)
+        </span>
+        <div class="response-actions">
+          <button class="cancel-request-btn-inline" @click="cancelRequest">取消请求</button>
+        </div>
+      </div>
+      <div class="response-tabs">
+        <button
+          v-for="tab in responseTabs"
+          :key="tab.key"
+          :class="['resp-tab-btn', { active: activeTab === tab.key }]"
+          @click="activeTab = tab.key"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <div class="response-body-area">
+        <div v-if="activeTab === 'body'" class="resp-body">
+          <div class="body-mode-bar">
+            <button :class="['mode-btn', { active: bodyMode === 'pretty' }]" @click="bodyMode = 'pretty'">Pretty</button>
+            <button :class="['mode-btn', { active: bodyMode === 'raw' }]" @click="bodyMode = 'raw'">Raw</button>
+            <span class="streaming-chunk-badge">{{ chunkCount }} chunks</span>
+          </div>
+          <CodeMirrorEditor
+            v-if="bodyMode === 'pretty'"
+            :model-value="formattedBody"
+            :language="responseLanguage"
+            :readonly="true"
+            class="response-cm-pretty"
+          />
+          <pre v-if="bodyMode === 'raw'" class="response-raw">{{ store.response.body }}</pre>
+        </div>
+        <div v-if="activeTab === 'headers'" class="resp-headers">
+          <table class="headers-table">
+            <thead>
+              <tr><th>Key</th><th>Value</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="h in headerEntries" :key="h.key">
+                <td class="header-key">{{ h.key }}</td>
+                <td class="header-value">{{ h.value }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="activeTab === 'cookies'" class="resp-headers">
+          <table v-if="cookieEntries.length > 0" class="headers-table">
+            <thead>
+              <tr><th>Name</th><th>Value</th><th>Attrs</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in cookieEntries" :key="c.key">
+                <td class="header-key">{{ c.key }}</td>
+                <td class="header-value">{{ c.value }}</td>
+                <td class="header-value">{{ c.attrs }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="console-empty">响应未暴露 Set-Cookie Header，或当前浏览器环境不可读取。</div>
+        </div>
+        <div v-if="activeTab === 'actual'" class="resp-body">
+          <CodeMirrorEditor
+            :model-value="actualRequestText"
+            language="json"
+            :readonly="true"
+            class="response-cm-pretty"
+          />
+        </div>
+      </div>
+    </div>
+    <!-- Cancelled state with partial data: show response content with cancelled banner -->
+    <div v-else-if="isCancelled && store.response?.body" class="response-content">
+      <div class="response-status-bar">
+        <span class="status-code cancelled-status">
+          {{ store.response.status || 0 }} 请求已取消
+        </span>
+        <span :class="['response-meta', durationClass]">{{ store.response.duration }}ms</span>
+        <span class="response-meta">{{ sizeFormatted }}</span>
+        <span class="stream-completed-badge cancelled-badge">
+          已取消 (已接收 {{ chunkCount }} 个数据块)
+        </span>
+        <div class="response-actions">
+          <button class="resp-action-btn" @click="copyResponse">复制响应</button>
+          <button class="resp-action-btn" @click="saveResponse">⬇ 保存</button>
+        </div>
+      </div>
+      <div class="response-tabs">
+        <button
+          v-for="tab in responseTabs"
+          :key="tab.key"
+          :class="['resp-tab-btn', { active: activeTab === tab.key }]"
+          @click="activeTab = tab.key"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <div class="response-body-area">
+        <div v-if="activeTab === 'body'" class="resp-body">
+          <div class="body-mode-bar">
+            <button :class="['mode-btn', { active: bodyMode === 'pretty' }]" @click="bodyMode = 'pretty'">Pretty</button>
+            <button :class="['mode-btn', { active: bodyMode === 'raw' }]" @click="bodyMode = 'raw'">Raw</button>
+          </div>
+          <CodeMirrorEditor
+            v-if="bodyMode === 'pretty'"
+            :model-value="formattedBody"
+            :language="responseLanguage"
+            :readonly="true"
+            class="response-cm-pretty"
+          />
+          <pre v-if="bodyMode === 'raw'" class="response-raw">{{ store.response.body }}</pre>
+        </div>
+        <div v-if="activeTab === 'headers'" class="resp-headers">
+          <table class="headers-table">
+            <thead>
+              <tr><th>Key</th><th>Value</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="h in headerEntries" :key="h.key">
+                <td class="header-key">{{ h.key }}</td>
+                <td class="header-value">{{ h.value }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="activeTab === 'actual'" class="resp-body">
+          <CodeMirrorEditor
+            :model-value="actualRequestText"
+            language="json"
+            :readonly="true"
+            class="response-cm-pretty"
+          />
+        </div>
+      </div>
+    </div>
+    <!-- Cancelled state with no data -->
+    <div v-else-if="isCancelled" class="response-empty response-cancelled">
+      <div class="cancelled-icon">&#9888;</div>
+      <h3>请求已取消</h3>
+      <p>请求在发送过程中被手动取消。</p>
     </div>
     <div v-else-if="!store.response" class="response-empty">
       <div class="empty-orb">↯</div>
@@ -585,7 +749,10 @@ function exportResponseHtmlReport() {
         </span>
         <span :class="['response-meta', durationClass]">{{ store.response.duration }}ms</span>
         <span class="response-meta">{{ sizeFormatted }}</span>
-        <span class="response-meta content-type-meta" :title="responseContentTypeLabel">
+        <span v-if="store.response.streamCompleted" class="stream-completed-badge">
+          {{ streamTypeLabel }} 流式接收完成 ({{ chunkCount }} 个数据块)
+        </span>
+        <span v-else class="response-meta content-type-meta" :title="responseContentTypeLabel">
           响应头: {{ responseContentTypeLabel }}
         </span>
         <div class="response-actions">
@@ -849,6 +1016,134 @@ function exportResponseHtmlReport() {
   border-top-color: var(--primary);
   background: var(--bg-panel);
   animation: spin 0.9s linear infinite;
+}
+
+/* Cancel request button (in loading empty state) */
+.cancel-request-btn {
+  margin-top: 8px;
+  padding: 6px 18px;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--error);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cancel-request-btn:hover {
+  background: var(--error);
+  color: #fff;
+}
+
+/* Cancel request button (inline in status bar during streaming) */
+.cancel-request-btn-inline {
+  padding: 3px 10px;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--error);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cancel-request-btn-inline:hover {
+  background: var(--error);
+  color: #fff;
+}
+
+/* Streaming indicator in status bar */
+.streaming-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--info);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 10%, var(--bg-panel));
+}
+
+.streaming-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--info);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* Stream completed badge in status bar */
+.stream-completed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--success);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 10%, var(--bg-panel));
+}
+
+/* Chunk count badge in body mode bar */
+.streaming-chunk-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--info);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 10%, var(--bg-panel));
+}
+
+/* Cancelled state */
+.response-cancelled {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  color: var(--text-secondary);
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--warning) 12%, transparent), transparent 36%),
+    var(--bg-code);
+}
+
+.cancelled-icon {
+  font-size: 32px;
+  color: var(--warning);
+}
+
+.response-cancelled h3 {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.response-cancelled p {
+  max-width: 360px;
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
+
+/* Cancelled status badge in status bar */
+.cancelled-status {
+  color: var(--warning) !important;
+}
+
+.cancelled-badge {
+  color: var(--warning) !important;
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-panel)) !important;
 }
 
 .response-content {

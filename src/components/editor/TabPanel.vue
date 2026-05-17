@@ -7,6 +7,7 @@ import BodyEditor from '@/components/editor/BodyEditor.vue'
 import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
+import { createDefaultAuthConfig } from '@/utils/auth'
 import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem } from '@/types'
 
 const store = useAppStore()
@@ -308,7 +309,7 @@ function formatLogTime(ts: number): string {
       </div>
       <div v-if="activeTab === 'auth'" class="tab-inner">
         <AuthConfig
-          :model-value="currentApi?.auth || { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' }"
+          :model-value="currentApi?.auth || createDefaultAuthConfig()"
           @update:model-value="updateAuth"
           :readonly="isReadonlyModule"
         />

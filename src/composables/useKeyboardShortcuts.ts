@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useSettings } from '@/composables/useSettings'
 import { SHORTCUT_ACTIONS, getEffectiveShortcuts, matchesShortcut } from '@/utils/shortcuts'
+import { createDefaultAuthConfig } from '@/utils/auth'
 import type { ApiConfig, AppShortcutAction, HttpMethod } from '@/types'
 
 export function useKeyboardShortcuts() {
@@ -35,7 +36,7 @@ export function useKeyboardShortcuts() {
       params: [],
       cookies: [],
       body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-      auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
+      auth: createDefaultAuthConfig(),
       preRequestScript: '',
       postRequestScript: '',
       requestVariables: [],
@@ -56,6 +57,8 @@ export function useKeyboardShortcuts() {
       return
     }
     if (action === 'sendCurrentRequest') {
+      // Skip send when global search is open to avoid double-dispatch
+      if (document.querySelector('.search-overlay')) return
       window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
       return
     }

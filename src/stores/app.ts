@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import type { ApiConfig, Category, Environment, HistoryEntry, InterfaceNode, Module as ApiModule, ResponseData, AppSettings, Group } from '@/types'
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 import { db } from '@/db'
 import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
 import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
+import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -17,15 +18,7 @@ const defaultSettings: AppSettings = {
 }
 
 function defaultAuth(): ApiConfig['auth'] {
-  return {
-    type: 'none',
-    bearerToken: '',
-    basicUsername: '',
-    basicPassword: '',
-    apiKeyName: '',
-    apiKeyValue: '',
-    apiKeyIn: 'header',
-  }
+  return createDefaultAuthConfig()
 }
 
 function defaultBody(raw = '', contentType = ''): ApiConfig['body'] {
@@ -50,7 +43,7 @@ function starterApi(input: Pick<ApiConfig, 'id' | 'name' | 'method' | 'url'> & P
     params: input.params || [],
     cookies: input.cookies || [],
     body: input.body || defaultBody(),
-    auth: input.auth || defaultAuth(),
+    auth: normalizeAuthConfig(input.auth),
     requestVariables: input.requestVariables || [],
     preRequestScript: input.preRequestScript || '',
     postRequestScript: input.postRequestScript || '',
@@ -190,6 +183,7 @@ export const useAppStore = defineStore('app', () => {
   const scriptVisualizations = ref<ScriptVisualization[]>([])
   const scriptTests = ref<ScriptTestResult[]>([])
   const autoCarryCookies = ref(false)
+  const requestAbortController = shallowRef<AbortController | null>(null)
 
   let initialized = false
 
@@ -225,6 +219,7 @@ export const useAppStore = defineStore('app', () => {
 
       const apiMap: Record<string, ApiConfig> = {}
       for (const api of apiList) {
+        api.auth = normalizeAuthConfig(api.auth)
         apiMap[api.id] = api
       }
       apis.value = apiMap
@@ -273,6 +268,7 @@ export const useAppStore = defineStore('app', () => {
     const api = apis.value[id]
     if (api) {
       const merged = { ...updates, updatedAt: Date.now() }
+      if (updates.auth) merged.auth = normalizeAuthConfig(updates.auth)
       Object.assign(api, merged)
       db.apis.update(id, merged).catch(e => console.error('Failed to update API in IndexedDB:', e))
       useWorkspaceStore().syncInterfaceFromApi(api).catch(e => console.error('Failed to sync interface in IndexedDB:', e))
@@ -280,6 +276,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function addApi(api: ApiConfig, moduleId?: string | null, parentId: string | null = null): Promise<void> {
+    api.auth = normalizeAuthConfig(api.auth)
     apis.value[api.id] = api
     try {
       await db.apis.put(api)
@@ -397,13 +394,31 @@ export const useAppStore = defineStore('app', () => {
     await db.settings.bulkPut(entries)
   }
 
+  function setRequestAbortController(controller: AbortController | null): void {
+    requestAbortController.value = controller
+  }
+
+  function clearRequestAbortController(controller?: AbortController): void {
+    if (!controller || requestAbortController.value === controller) {
+      requestAbortController.value = null
+    }
+  }
+
+  function cancelCurrentRequest(): void {
+    const controller = requestAbortController.value
+    if (!controller || controller.signal.aborted) return
+    controller.abort(new DOMException('Request cancelled', 'AbortError'))
+  }
+
   return {
     apis, groups, groupOrder, currentApiId, activeTab,
     response, loading, environments, currentEnvId,
     history, settings, expandedFolders, scriptLogs, scriptVisualizations, scriptTests, autoCarryCookies,
+    requestAbortController,
     init, getCurrentApi, updateApi, addApi, deleteApi,
     addHistory, toggleStar, deleteHistoryEntry, clearHistory,
     upsertEnvironment, deleteEnvironment,
     getEnvVariables, saveGroupOrder, saveSettings,
+    setRequestAbortController, clearRequestAbortController, cancelCurrentRequest,
   }
 })

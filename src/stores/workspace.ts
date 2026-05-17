@@ -668,6 +668,132 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeSelectionId.value = null
   }
 
+  async function duplicateModule(moduleId: string): Promise<ApiModule | null> {
+    const source = modules.value.find(item => item.id === moduleId)
+    if (!source) return null
+
+    const now = Date.now()
+    const newModuleId = `module:${now}:${Math.random().toString(36).slice(2)}`
+    const newName = `${source.name} (副本)`
+
+    const newModule: ApiModule = {
+      ...source,
+      id: newModuleId,
+      name: newName,
+      stats: defaultModuleStats(),
+      meta: { createdAt: now, updatedAt: now, version: MODEL_VERSION },
+      order: nextOrder(modules.value.filter(item => item.categoryId === source.categoryId)),
+      createdAt: now,
+      updatedAt: now,
+    }
+    const normalized = normalizeModule(newModule)
+
+    // Collect all interface nodes belonging to the source module
+    const sourceInterfaces = interfaces.value.filter(item => item.moduleId === moduleId)
+    const parentIdMapping = new Map<string, string>()
+    const newApiConfigs: ApiConfig[] = []
+
+    // Build new interface nodes, preserving folder structure via parentId mapping
+    const newInterfaceNodes: InterfaceNode[] = []
+    for (const sourceNode of sourceInterfaces) {
+      const newNodeId = `interface:${now}:${Math.random().toString(36).slice(2)}`
+      parentIdMapping.set(sourceNode.id, newNodeId)
+
+      let newApiId = sourceNode.apiId
+      // For request nodes, create a copy of the ApiConfig
+      if ((sourceNode.nodeType ?? 'request') === 'request' && sourceNode.apiId) {
+        const sourceApi = await db.apis.get(sourceNode.apiId)
+        if (sourceApi) {
+          const copiedApiId = `api:${now}:${Math.random().toString(36).slice(2)}`
+          const copiedApi: ApiConfig = {
+            ...sourceApi,
+            id: copiedApiId,
+            name: sourceNode.name === sourceApi.name ? `${sourceApi.name} (副本)` : sourceApi.name,
+            createdAt: now,
+            updatedAt: now,
+          }
+          newApiConfigs.push(copiedApi)
+          newApiId = copiedApiId
+        }
+      }
+
+      newInterfaceNodes.push({
+        ...sourceNode,
+        id: newNodeId,
+        moduleId: newModuleId,
+        apiId: newApiId,
+        parentId: sourceNode.parentId ? (parentIdMapping.get(sourceNode.parentId) ?? null) : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
+
+    // Persist everything in a transaction
+    await db.transaction('rw', db.modules, db.interfaces, db.apis, async () => {
+      await db.modules.put(normalized)
+      if (newApiConfigs.length > 0) {
+        await db.apis.bulkPut(newApiConfigs)
+      }
+      await db.interfaces.bulkPut(newInterfaceNodes)
+    })
+
+    // Update reactive state
+    modules.value = sortByOrder([...modules.value, normalized])
+    interfaces.value = sortByOrder([...interfaces.value, ...newInterfaceNodes])
+
+    // Select the new module
+    selectModule(newModuleId)
+
+    return normalized
+  }
+
+  async function duplicateInterface(interfaceOrApiId: string): Promise<InterfaceNode | null> {
+    const sourceNode = interfaces.value.find(
+      item => item.id === interfaceOrApiId || item.apiId === interfaceOrApiId,
+    )
+    if (!sourceNode || (sourceNode.nodeType ?? 'request') !== 'request') return null
+
+    const now = Date.now()
+    const newNodeId = `interface:${now}:${Math.random().toString(36).slice(2)}`
+    const newApiId = `api:${now}:${Math.random().toString(36).slice(2)}`
+
+    // Copy the ApiConfig
+    const sourceApi = await db.apis.get(sourceNode.apiId)
+    if (!sourceApi) return null
+
+    const copiedApi: ApiConfig = {
+      ...sourceApi,
+      id: newApiId,
+      name: `${sourceApi.name} (副本)`,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const newNode: InterfaceNode = {
+      ...sourceNode,
+      id: newNodeId,
+      apiId: newApiId,
+      name: `${sourceNode.name} (副本)`,
+      order: nextOrder(interfaces.value.filter(
+        item => item.moduleId === sourceNode.moduleId && (item.parentId ?? null) === (sourceNode.parentId ?? null),
+      )),
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await db.transaction('rw', db.interfaces, db.apis, async () => {
+      await db.apis.put(copiedApi)
+      await db.interfaces.put(newNode)
+    })
+
+    interfaces.value = sortByOrder([...interfaces.value, newNode])
+
+    // Select the new interface
+    selectInterface(newNodeId)
+
+    return newNode
+  }
+
   async function deleteModule(moduleId: string): Promise<void> {
     await db.transaction('rw', db.modules, db.interfaces, async () => {
       await db.modules.delete(moduleId)
@@ -729,5 +855,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     clearSelection,
     deleteModule,
     deleteCategory,
+    duplicateModule,
+    duplicateInterface,
   }
 })

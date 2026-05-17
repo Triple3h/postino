@@ -5,6 +5,8 @@ export interface KvPair {
   value: string
   enabled: boolean
   description?: string
+  type?: 'text' | 'file'
+  fileName?: string
 }
 
 export interface BodyConfig {
@@ -17,13 +19,23 @@ export interface BodyConfig {
 }
 
 export interface AuthConfig {
-  type: 'none' | 'bearer' | 'basic' | 'apikey'
+  type: 'none' | 'bearer' | 'basic' | 'apikey' | 'digest' | 'oauth2'
   bearerToken: string
   basicUsername: string
   basicPassword: string
   apiKeyName: string
   apiKeyValue: string
   apiKeyIn: 'header' | 'query'
+  digestUsername: string
+  digestPassword: string
+  oauth2GrantType: 'authorization_code' | 'client_credentials' | 'password'
+  oauth2AccessTokenUrl: string
+  oauth2ClientId: string
+  oauth2ClientSecret: string
+  oauth2Scope: string
+  oauth2Token: string
+  oauth2Username: string
+  oauth2Password: string
 }
 
 export interface CookieItem {
@@ -94,6 +106,22 @@ export interface ResponseData {
   method: HttpMethod
   requestHeaders: Record<string, string>
   requestBody: string | null
+  timestamp: number
+  isStreaming?: boolean
+  streamType?: 'sse' | 'ndjson'
+  chunks?: ResponseStreamChunk[]
+  finalBody?: string
+  streamCompleted?: boolean
+  cancelled?: boolean
+}
+
+export interface ResponseStreamChunk {
+  id: string
+  type: 'sse' | 'ndjson'
+  raw: string
+  data: string
+  event?: string
+  json?: unknown
   timestamp: number
 }
 
@@ -297,6 +325,18 @@ export interface ModuleScenarioCase {
   }
   createdAt: number
   updatedAt: number
+}
+
+export interface ModuleSyncLog {
+  id: string
+  moduleId: string
+  action: 'auto-sync' | 'manual-sync' | 'webhook-sync'
+  status: 'success' | 'error' | 'partial'
+  message: string
+  createdCount: number
+  updatedCount: number
+  skippedCount: number
+  timestamp: number
 }
 
 export interface ModuleAuditLog {

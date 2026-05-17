@@ -1,4 +1,5 @@
 import type { ApiConfig, HttpMethod, KvPair, BodyConfig, AuthConfig, CookieItem } from '@/types'
+import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -14,7 +15,7 @@ function createDefaultApi(partial: Partial<ApiConfig> = {}): ApiConfig {
     params: partial.params || [],
     cookies: partial.cookies || [],
     body: partial.body || { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-    auth: partial.auth || { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
+    auth: normalizeAuthConfig(partial.auth),
     requestVariables: partial.requestVariables || [],
     preRequestScript: partial.preRequestScript || '',
     postRequestScript: partial.postRequestScript || '',
@@ -303,15 +304,7 @@ function postmanAuthValue(auth: PostmanAuth | undefined, group: keyof PostmanAut
 }
 
 function parsePostmanAuth(auth: PostmanAuth | undefined): AuthConfig {
-  const empty: AuthConfig = {
-    type: 'none',
-    bearerToken: '',
-    basicUsername: '',
-    basicPassword: '',
-    apiKeyName: '',
-    apiKeyValue: '',
-    apiKeyIn: 'header',
-  }
+  const empty: AuthConfig = createDefaultAuthConfig()
   if (!auth?.type || auth.type === 'noauth') return empty
   if (auth.type === 'bearer') return { ...empty, type: 'bearer', bearerToken: postmanAuthValue(auth, 'bearer', 'token') }
   if (auth.type === 'basic') {

@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { sendRequest as httpSendRequest } from '@/utils/http'
 import { generateCurl } from '@/utils/export'
 import { buildViewContextUrl, saveViewOpenContext, type ViewOpenContext } from '@/utils/view-context'
+import { createDefaultAuthConfig } from '@/utils/auth'
 import type { HistoryEntry, HttpMethod, Module, ResponseData } from '@/types'
 
 const store = useAppStore()
@@ -149,7 +150,7 @@ async function send() {
         binaryFile: null,
         contentType: bodyType === 'json' ? 'application/json' : bodyType === 'raw' ? 'text/plain' : '',
       },
-      auth: { type: 'none', bearerToken: '', basicUsername: '', basicPassword: '', apiKeyName: '', apiKeyValue: '', apiKeyIn: 'header' },
+      auth: createDefaultAuthConfig(),
       corsMode: store.settings.corsMode,
       proxyUrl: store.settings.proxyUrl,
       envVars: store.getEnvVariables(),
