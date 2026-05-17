@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useSettings } from '@/composables/useSettings'
 import { SHORTCUT_ACTIONS, getEffectiveShortcuts, matchesShortcut } from '@/utils/shortcuts'
 import { createDefaultAuthConfig } from '@/utils/auth'
+import { generateCurl } from '@/utils/export'
 import type { ApiConfig, AppShortcutAction, HttpMethod } from '@/types'
 
 export function useKeyboardShortcuts() {
@@ -87,6 +88,17 @@ export function useKeyboardShortcuts() {
     }
     if (action === 'toggleDocMode') {
       window.dispatchEvent(new CustomEvent('apifix:toggle-doc-mode'))
+      return
+    }
+    if (action === 'formatJsonBody') {
+      window.dispatchEvent(new CustomEvent('apifix:format-json-body'))
+      return
+    }
+    if (action === 'copyCurrentCurl') {
+      const api = store.getCurrentApi()
+      if (api) {
+        void navigator.clipboard.writeText(generateCurl(api, store.getEnvVariables()))
+      }
     }
   }
 

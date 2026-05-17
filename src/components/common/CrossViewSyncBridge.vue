@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
+const SHOW_SYNC_UI = false
 
 // ---------------------------------------------------------------------------
 // User Identity
@@ -342,6 +343,7 @@ function scopeLabel(scope: SyncMessage['scope']): string {
 }
 
 function showSyncToast(message: string): void {
+  if (!SHOW_SYNC_UI) return
   syncToast.value = message
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { syncToast.value = '' }, 2600)
@@ -421,6 +423,11 @@ function handleSyncMessage(message: SyncMessage): void {
       const fields = buildConflictFields(message.scope, localSnap, remoteSnap)
       if (fields.length === 0) {
         showSyncToast(`已同步另一视图的${scopeLabel(message.scope)}更新`)
+        setSyncStatus('connected', '已同步', 3000)
+        return
+      }
+      if (!SHOW_SYNC_UI) {
+        void reloadSharedState(message.scope)
         setSyncStatus('connected', '已同步', 3000)
         return
       }
@@ -578,10 +585,10 @@ onUnmounted(() => {
 
 <template>
   <!-- Sync Toast -->
-  <div v-if="syncToast" class="cross-sync-toast">{{ syncToast }}</div>
+  <div v-if="SHOW_SYNC_UI && syncToast" class="cross-sync-toast">{{ syncToast }}</div>
 
   <!-- Remote Presence Panel -->
-  <div v-if="Object.keys(remoteActivities).length" class="remote-presence-panel">
+  <div v-if="SHOW_SYNC_UI && Object.keys(remoteActivities).length" class="remote-presence-panel">
     <div class="presence-title">协同光标</div>
     <div v-for="item in remoteActivities" :key="item.senderId" class="presence-row">
       <div class="presence-user">
@@ -598,6 +605,7 @@ onUnmounted(() => {
 
   <!-- Sync Status Indicator -->
   <div
+    v-if="SHOW_SYNC_UI"
     class="sync-status-indicator"
     :style="{ '--dot-color': syncStatusDotColor }"
     @click="showSyncTooltip = !showSyncTooltip"
@@ -640,7 +648,7 @@ onUnmounted(() => {
 
   <!-- Conflict Resolution Modal (Teleport to body) -->
   <Teleport to="body">
-    <div v-if="conflictInfo.visible" class="conflict-modal-mask" @click.self="dismissConflict">
+    <div v-if="SHOW_SYNC_UI && conflictInfo.visible" class="conflict-modal-mask" @click.self="dismissConflict">
       <section class="conflict-modal">
         <header class="conflict-modal-header">
           <div>

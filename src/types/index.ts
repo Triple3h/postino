@@ -134,6 +134,8 @@ export type AppShortcutAction =
   | 'toggleRightPanel'
   | 'toggleHistory'
   | 'toggleDocMode'
+  | 'formatJsonBody'
+  | 'copyCurrentCurl'
 
 export interface AppSettings {
   corsMode: 'cors' | 'proxy' | 'no-cors'

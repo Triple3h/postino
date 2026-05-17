@@ -27,6 +27,7 @@ const bulkText = ref('')
 // --- Import dialog ---
 const showImportDialog = ref(false)
 const importText = ref('')
+const showActionsMenu = ref(false)
 
 // --- Drag and drop ---
 const dragIndex = ref<number | null>(null)
@@ -120,6 +121,7 @@ function exitBulkMode() {
 }
 
 function toggleBulkMode() {
+  showActionsMenu.value = false
   if (bulkMode.value) {
     exitBulkMode()
   } else {
@@ -191,6 +193,7 @@ function parseBulkText(text: string): KvPair[] {
 // ========== Sort Rows ==========
 
 function sortRows() {
+  showActionsMenu.value = false
   rows.value.sort((a, b) => {
     const keyA = a.key.toLowerCase()
     const keyB = b.key.toLowerCase()
@@ -202,6 +205,7 @@ function sortRows() {
 // ========== Import from Text ==========
 
 function openImportDialog() {
+  showActionsMenu.value = false
   importText.value = ''
   showImportDialog.value = true
 }
@@ -356,31 +360,17 @@ const duplicateKeyIndices = computed(() => {
     <!-- Header row with action buttons -->
     <div class="kv-toolbar">
       <div class="kv-toolbar-left">
-        <button
-          class="toolbar-btn"
-          :class="{ active: bulkMode }"
-          @click="toggleBulkMode"
-          :disabled="readonly"
-          title="批量编辑"
-        >
-          批量编辑
+        <button class="toolbar-btn add-inline-btn" @click="addRow" :disabled="readonly || bulkMode">+ 添加参数</button>
+      </div>
+      <div class="kv-toolbar-menu" @click.stop>
+        <button class="toolbar-btn" :class="{ active: bulkMode || showActionsMenu }" @click="showActionsMenu = !showActionsMenu" :disabled="readonly" title="更多表格操作">
+          批量编辑 ▾
         </button>
-        <button
-          class="toolbar-btn"
-          @click="sortRows"
-          :disabled="readonly || bulkMode"
-          title="按键名排序"
-        >
-          排序
-        </button>
-        <button
-          class="toolbar-btn"
-          @click="openImportDialog"
-          :disabled="readonly || bulkMode"
-          title="从文本导入"
-        >
-          导入
-        </button>
+        <div v-if="showActionsMenu" class="kv-action-dropdown">
+          <button class="kv-action-item" @click="toggleBulkMode">{{ bulkMode ? '完成批量编辑' : '批量编辑' }}</button>
+          <button class="kv-action-item" @click="sortRows" :disabled="bulkMode">按键名排序</button>
+          <button class="kv-action-item" @click="openImportDialog" :disabled="bulkMode">从文本导入</button>
+        </div>
       </div>
     </div>
 
@@ -508,7 +498,7 @@ const duplicateKeyIndices = computed(() => {
       class="btn btn-sm add-row-btn"
       @click="addRow"
       :disabled="readonly"
-    >+ 添加行</button>
+    >+ 添加参数</button>
 
     <!-- Import dialog -->
     <Teleport to="body">
@@ -568,6 +558,10 @@ const duplicateKeyIndices = computed(() => {
   gap: 4px;
 }
 
+.kv-toolbar-menu {
+  position: relative;
+}
+
 .toolbar-btn {
   height: 24px;
   padding: 0 8px;
@@ -595,6 +589,45 @@ const duplicateKeyIndices = computed(() => {
 
 .toolbar-btn:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.add-inline-btn {
+  border-style: dashed;
+  color: var(--primary);
+}
+
+.kv-action-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 35;
+  min-width: 136px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.kv-action-item {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-small);
+}
+
+.kv-action-item:hover:not(:disabled) {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.kv-action-item:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 

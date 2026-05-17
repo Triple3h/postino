@@ -1027,6 +1027,21 @@ function getMethodColor(method: string): string {
   return METHOD_COLORS[method.toLowerCase()] ?? '#64748b'
 }
 
+function getApiDisplayPath(node: InterfaceNode): string {
+  const url = getInterfaceApi(node)?.url ?? node.url ?? ''
+  const trimmed = url.trim()
+  if (!trimmed) return '/'
+  const templatePath = trimmed.match(/^\{\{[^}]+\}\}(.*)$/)?.[1]
+  if (templatePath !== undefined) return templatePath || '/'
+  if (trimmed.startsWith('/')) return trimmed
+  try {
+    const parsed = new URL(trimmed)
+    return `${parsed.pathname || '/'}${parsed.search}`
+  } catch {
+    return trimmed
+  }
+}
+
 function getCategoryColorForModule(moduleId: string): string {
   const module = workspace.modules.find(m => m.id === moduleId)
   if (!module) return '#6366f1'
@@ -1323,7 +1338,7 @@ async function doImport() {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="搜索接口 / URL / 方法 (Ctrl+K)"
+          placeholder="搜索接口、模块、变量..."
           class="sidebar-search"
         />
       </label>
@@ -1397,7 +1412,7 @@ async function doImport() {
               <template v-else>
                 <span class="group-name">{{ module.name }}</span>
               </template>
-              <span class="group-count">{{ module.requestCount }}</span>
+              <span class="group-count">· {{ module.requestCount }}</span>
               <span v-if="module.interfaces.length > 0" class="count-badge module-count-badge">{{ module.interfaces.length }}</span>
               <span class="module-actions">
                 <button title="发送模块全部请求" :disabled="batchSendingModuleId === module.id" @click="quickSendModule($event, module.id)">▶</button>
@@ -1441,8 +1456,8 @@ async function doImport() {
                   </span>
                   <span class="method-dot" :style="{ backgroundColor: getMethodColor(getInterfaceApi(row.node)?.method ?? row.node.method) }"></span>
                   <span class="api-copy">
+                    <span class="api-url api-path">{{ getApiDisplayPath(row.node) }}</span>
                     <span class="api-name">{{ getInterfaceApi(row.node)?.name ?? row.node.name }}</span>
-                    <span class="api-url">{{ getInterfaceApi(row.node)?.url ?? row.node.url }}</span>
                   </span>
                   <span class="api-actions">
                     <button title="快速发送" @click="quickSendApi($event, row.node.apiId)">▶</button>
@@ -1998,9 +2013,8 @@ async function doImport() {
   opacity: 0.85;
 }
 
-/* Method color dot for collapsed mode */
 .method-dot {
-  display: none;
+  display: block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -2042,10 +2056,8 @@ async function doImport() {
   font-size: var(--font-size-small);
   color: var(--primary);
   font-weight: 700;
-  background: var(--primary-soft);
-  border-radius: 999px;
-  min-width: 22px;
-  padding: 1px 6px;
+  min-width: 26px;
+  padding: 1px 0;
   text-align: center;
 }
 
@@ -2180,11 +2192,20 @@ async function doImport() {
   white-space: nowrap;
 }
 
-.api-url {
-  margin-top: 2px;
-  color: var(--text-tertiary);
-  font-family: var(--font-code);
+.api-name {
+  color: var(--text-secondary);
   font-size: 10px;
+}
+
+.api-url {
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.api-path {
+  margin-bottom: 2px;
 }
 
 .sidebar-empty {

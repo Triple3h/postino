@@ -3159,10 +3159,12 @@ async function runAllScenarioCases() {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: color-mix(in srgb, var(--bg-base) 88%, transparent);
-  backdrop-filter: blur(14px);
-  padding-bottom: 10px;
+  margin: -24px -24px 16px;
+  padding: 18px 24px 14px;
+  background:
+    linear-gradient(180deg, var(--bg-panel-elevated), var(--bg-base));
   border-bottom: 1px solid var(--divider);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--bg-base) 72%, transparent);
 }
 
 .eyebrow {
@@ -3198,10 +3200,15 @@ async function runAllScenarioCases() {
 }
 
 .settings-tabs {
+  position: sticky;
+  top: 78px;
+  z-index: 4;
   display: flex;
   gap: 4px;
-  margin: 0 0 14px;
+  margin: -16px -24px 16px;
+  padding: 8px 24px 0;
   border-bottom: 1px solid var(--divider);
+  background: var(--bg-base);
 }
 
 .settings-tabs button {

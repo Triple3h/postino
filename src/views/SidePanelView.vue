@@ -392,6 +392,13 @@ onUnmounted(() => {
   min-width: var(--sidebar-collapsed);
 }
 
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover) {
+  width: 220px !important;
+  min-width: 220px;
+  z-index: 20;
+  box-shadow: var(--shadow-lg);
+}
+
 .sidepanel-layout.sidepanel-xs :deep(.sidebar-title > div),
 .sidepanel-layout.sidepanel-xs :deep(.search-shell),
 .sidepanel-layout.sidepanel-xs :deep(.sidebar-actions),
@@ -404,6 +411,19 @@ onUnmounted(() => {
 .sidepanel-layout.sidepanel-xs :deep(.module-actions),
 .sidepanel-layout.sidepanel-xs :deep(.resizer) {
   display: none !important;
+}
+
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .sidebar-title > div),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .search-shell),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .sidebar-actions),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .category-name),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .group-name),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .group-count),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .folder-name),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .api-copy),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .api-actions),
+.sidepanel-layout.sidepanel-xs :deep(.sidebar:hover .module-actions) {
+  display: flex !important;
 }
 
 .sidepanel-layout.sidepanel-sm :deep(.sidebar) {

@@ -14,6 +14,8 @@ const store = useAppStore()
 const workspace = useWorkspaceStore()
 const activeTab = ref('params')
 const tabPanelRef = ref<HTMLElement | null>(null)
+const showScriptMenu = ref(false)
+const showAdvancedMenu = ref(false)
 
 const currentApi = computed(() => store.getCurrentApi())
 const currentModule = computed(() => {
@@ -26,12 +28,15 @@ const tabs = [
   { key: 'params', label: 'Params' },
   { key: 'body', label: 'Body' },
   { key: 'headers', label: 'Headers' },
-  { key: 'cookies', label: 'Cookies' },
   { key: 'auth', label: 'Auth' },
+  { key: 'cookies', label: 'Cookies' },
   { key: 'variables', label: '请求变量' },
   { key: 'pre-script', label: '前置脚本' },
   { key: 'post-script', label: '后置脚本' },
 ]
+const primaryTabs = tabs.filter(tab => ['params', 'body', 'headers', 'auth'].includes(tab.key))
+const scriptTabs = tabs.filter(tab => ['pre-script', 'post-script'].includes(tab.key))
+const advancedTabs = tabs.filter(tab => ['cookies', 'variables'].includes(tab.key))
 
 function updateParams(params: KvPair[]) {
   if (isReadonlyModule.value) return
@@ -102,6 +107,16 @@ interface EditorCursorDetail {
 
 function activeTabLabel(): string {
   return tabs.find(tab => tab.key === activeTab.value)?.label || activeTab.value
+}
+
+function selectTab(key: string) {
+  activeTab.value = key
+  showScriptMenu.value = false
+  showAdvancedMenu.value = false
+}
+
+function isInGroup(group: Array<{ key: string; label: string }>): boolean {
+  return group.some(tab => tab.key === activeTab.value)
 }
 
 function selectionSnippet(text: string, start: number, end: number): string {
@@ -261,13 +276,39 @@ function formatLogTime(ts: number): string {
   <div ref="tabPanelRef" class="tab-panel" @focusin="handleSelectionActivity" @pointerdown="handleSelectionActivity" @keyup="handleSelectionActivity" @mouseup="handleSelectionActivity" @input="handleSelectionActivity">
     <div class="tab-header">
       <button
-        v-for="tab in tabs"
+        v-for="tab in primaryTabs"
         :key="tab.key"
         :class="['tab-btn', { active: activeTab === tab.key }]"
-        @click="activeTab = tab.key"
+        @click="selectTab(tab.key)"
       >
         {{ tab.label }}
       </button>
+      <div class="tab-menu-wrap">
+        <button :class="['tab-btn', { active: isInGroup(scriptTabs) }]" @click="showScriptMenu = !showScriptMenu; showAdvancedMenu = false">
+          脚本 ▾
+        </button>
+        <div v-if="showScriptMenu" class="tab-dropdown">
+          <button
+            v-for="tab in scriptTabs"
+            :key="tab.key"
+            :class="['tab-menu-item', { active: activeTab === tab.key }]"
+            @click="selectTab(tab.key)"
+          >{{ tab.label }}</button>
+        </div>
+      </div>
+      <div class="tab-menu-wrap">
+        <button :class="['tab-btn', { active: isInGroup(advancedTabs) }]" @click="showAdvancedMenu = !showAdvancedMenu; showScriptMenu = false">
+          高级 ▾
+        </button>
+        <div v-if="showAdvancedMenu" class="tab-dropdown">
+          <button
+            v-for="tab in advancedTabs"
+            :key="tab.key"
+            :class="['tab-menu-item', { active: activeTab === tab.key }]"
+            @click="selectTab(tab.key)"
+          >{{ tab.label }}</button>
+        </div>
+      </div>
     </div>
     <div class="tab-content">
       <div v-if="activeTab === 'params'" class="tab-inner">
@@ -404,6 +445,7 @@ function formatLogTime(ts: number): string {
   border-bottom: 1px solid var(--border);
   padding: 8px 12px 0;
   background: var(--bg-panel-elevated);
+  overflow: visible;
 }
 
 .tab-btn {
@@ -430,6 +472,42 @@ function formatLogTime(ts: number): string {
   background: var(--bg-panel);
   border-color: var(--border);
   box-shadow: 0 -2px 0 var(--primary) inset;
+}
+
+.tab-menu-wrap {
+  position: relative;
+}
+
+.tab-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 132px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.tab-menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-small);
+  font-weight: 700;
+}
+
+.tab-menu-item:hover,
+.tab-menu-item.active {
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .tab-content {

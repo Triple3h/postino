@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { BodyConfig, KvPair } from '@/types'
 import KvEditor from '@/components/common/KvEditor.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
@@ -99,6 +99,15 @@ function transformJsonBody(compact = false) {
     rawMessage.value = `JSON 解析失败：${err instanceof Error ? err.message : String(err)}`
   }
 }
+
+function handleFormatJsonShortcut() {
+  if (props.modelValue.type === 'json' || props.modelValue.contentType === 'application/json') {
+    transformJsonBody(false)
+  }
+}
+
+onMounted(() => window.addEventListener('apifix:format-json-body', handleFormatJsonShortcut))
+onUnmounted(() => window.removeEventListener('apifix:format-json-body', handleFormatJsonShortcut))
 
 
 function insertDynamicToken(token: string) {

@@ -36,8 +36,15 @@ const showCodeGenPanel = ref(false)
 const showActionMenu = ref(false)
 const showMethodMenu = ref(false)
 const postSendAction = ref<null | 'download' | 'codegen'>(null)
+const showCancelButton = ref(false)
+let cancelRevealTimer: ReturnType<typeof setTimeout> | null = null
 
 const envVars = computed(() => store.getEnvVariables())
+const canRetry = computed(() => !store.loading && Boolean(store.response && (store.response.status === 0 || store.response.status >= 400)))
+const sendButtonLabel = computed(() => {
+  if (store.loading) return '发送中'
+  return canRetry.value ? '重试' : '发送'
+})
 const baseUrlOptions = computed(() => {
   const keywordPattern = /(base|url|host|origin|endpoint|api)/i
   return Object.entries(envVars.value)
@@ -75,6 +82,7 @@ type UrlHighlightSegment = {
   text: string
   variable?: boolean
   resolved?: boolean
+  preview?: string
 }
 
 function splitUrlForHighlight(url: string, vars: Record<string, string>): UrlHighlightSegment[] {
@@ -90,6 +98,7 @@ function splitUrlForHighlight(url: string, vars: Record<string, string>): UrlHig
       text: match[0],
       variable: true,
       resolved: expression.startsWith('$') || Object.prototype.hasOwnProperty.call(vars, expression),
+      preview: expression.startsWith('$') ? '动态变量' : vars[expression],
     })
     lastIndex = match.index + match[0].length
   }
@@ -100,6 +109,10 @@ function splitUrlForHighlight(url: string, vars: Record<string, string>): UrlHig
 
 function syncUrlScroll() {
   urlScrollLeft.value = urlInputRef.value?.scrollLeft ?? 0
+}
+
+function toggleWorkspaceControls() {
+  window.dispatchEvent(new CustomEvent('apifix:toggle-workspace-controls'))
 }
 
 function handleUrlInput() {
@@ -427,6 +440,9 @@ async function send() {
   // Create AbortController for cancellation support
   const abortController = new AbortController()
   store.setRequestAbortController(abortController)
+  showCancelButton.value = false
+  if (cancelRevealTimer) clearTimeout(cancelRevealTimer)
+  cancelRevealTimer = setTimeout(() => { showCancelButton.value = true }, 1000)
 
   store.loading = true
   store.response = null
@@ -626,6 +642,11 @@ async function send() {
     postSendAction.value = null
   } finally {
     store.loading = false
+    showCancelButton.value = false
+    if (cancelRevealTimer) {
+      clearTimeout(cancelRevealTimer)
+      cancelRevealTimer = null
+    }
     store.clearRequestAbortController()
   }
 }
@@ -655,6 +676,11 @@ function openExport() {
 function openCodeGen() {
   showActionMenu.value = false
   showCodeGenPanel.value = true
+}
+
+function saveCurrentApi() {
+  if (!currentApi.value || isReadonlyModule.value) return
+  store.updateApi(currentApi.value.id, { updatedAt: Date.now() })
 }
 
 
@@ -698,6 +724,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('apifix:send-current-request', handleGlobalSend)
   window.removeEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
+  if (cancelRevealTimer) clearTimeout(cancelRevealTimer)
 })
 </script>
 
@@ -707,6 +734,16 @@ onUnmounted(() => {
       <span class="request-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
       <span>{{ currentApi?.name || '未命名请求' }}</span>
       <small>Enter 发送 · 支持 &#123;&#123;变量&#125;&#125;</small>
+      <div class="request-context-actions" @click.stop>
+        <label class="top-env-picker" title="当前环境">
+          <span>环境</span>
+          <select v-model="store.currentEnvId">
+            <option v-if="store.environments.length === 0" :value="null">无环境</option>
+            <option v-for="env in store.environments" :key="env.id" :value="env.id">{{ env.name }}</option>
+          </select>
+        </label>
+        <button class="btn btn-sm workspace-toggle-btn" title="打开工具抽屉 / 工作台设置" @click="toggleWorkspaceControls">工具</button>
+      </div>
     </div>
     <div class="request-bar">
       <div class="method-picker" @click.stop>
@@ -764,6 +801,7 @@ onUnmounted(() => {
               v-for="(segment, index) in highlightedUrlSegments"
               :key="`${index}-${segment.text}`"
               :class="{ 'url-var-token': segment.variable, unresolved: segment.variable && !segment.resolved }"
+              :title="segment.variable ? (segment.resolved ? segment.preview : '未定义变量，点击右侧工具抽屉管理') : undefined"
             >{{ segment.text }}</span>
           </div>
           <input
@@ -780,11 +818,12 @@ onUnmounted(() => {
           />
         </div>
       </div>
-      <button class="btn btn-primary send-btn" @click="send" :disabled="store.loading || !currentUrl.trim()">
+      <button class="btn btn-primary send-btn" :class="{ retry: canRetry }" @click="send" :disabled="store.loading || !currentUrl.trim()">
         <span v-if="store.loading" class="send-spinner"></span>
-        {{ store.loading ? '发送中' : '发送' }}
+        {{ sendButtonLabel }}
       </button>
-      <button v-if="store.loading" class="btn btn-sm cancel-send-btn" @click="store.cancelCurrentRequest()" title="取消请求">取消</button>
+      <button class="btn btn-sm save-request-btn" @click="saveCurrentApi" :disabled="isReadonlyModule || !currentApi" title="Ctrl+S 保存">保存</button>
+      <button v-if="store.loading && showCancelButton" class="btn btn-sm cancel-send-btn" @click="store.cancelCurrentRequest()" title="取消请求">取消</button>
       <div class="action-menu-wrapper">
         <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作">⋯</button>
         <div v-if="showActionMenu" class="action-dropdown" @click.stop>
@@ -837,6 +876,36 @@ onUnmounted(() => {
   margin-bottom: 8px;
   color: var(--text-primary);
   font-weight: 700;
+}
+
+.request-context-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.top-env-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+}
+
+.top-env-picker select {
+  width: 168px;
+  height: 28px;
+  padding: 3px 28px 3px 8px;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: var(--font-size-small);
+}
+
+.workspace-toggle-btn {
+  min-height: 28px;
 }
 
 .request-context small {
@@ -1047,6 +1116,12 @@ onUnmounted(() => {
   transform: scale(1.02);
 }
 
+.send-btn.retry {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+}
+
 .send-spinner {
   width: 12px;
   height: 12px;
@@ -1054,6 +1129,11 @@ onUnmounted(() => {
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+.save-request-btn {
+  height: 38px;
+  border-radius: var(--radius-xl);
 }
 
 /* Cancel button next to send button */

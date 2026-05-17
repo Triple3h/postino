@@ -44,7 +44,7 @@ const recentModules = computed(() => {
     .map(moduleId => workspace.modules.find(item => item.id === moduleId))
     .filter((module): module is NonNullable<typeof module> => Boolean(module))
   const fallback = workspace.modules.filter(module => !usedModuleIds.has(module.id))
-  return [...recentlyUsed, ...fallback].slice(0, 4)
+  return [...recentlyUsed, ...fallback].slice(0, 3)
 })
 
 const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
@@ -412,10 +412,6 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
           <strong>{{ module.name }}</strong>
           <small>{{ moduleInterfaceCount(module.id) }} 接口</small>
         </button>
-        <button class="module-card more-card" @click="openFullPage">
-          <strong>+ 更多</strong>
-          <small>打开完整版</small>
-        </button>
       </div>
     </section>
 
@@ -484,15 +480,27 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 
 <style scoped>
 .popup-view {
-  padding: 14px;
-  width: 800px;
-  height: 600px;
-  min-width: 360px;
-  max-width: 800px;
+  padding: 12px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   overflow: auto;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 0% 0%, var(--primary-soft), transparent 34%),
     var(--bg-base);
+}
+
+:global(body.popup-mode) {
+  width: 800px;
+  height: 600px;
+  overflow: hidden;
+}
+
+:global(body.popup-mode #app) {
+  width: 800px;
+  height: 600px;
+  overflow: hidden;
 }
 
 .popup-header,
@@ -513,6 +521,7 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .popup-search-wrap {
@@ -621,12 +630,12 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 .module-cards {
   display: flex;
   gap: 8px;
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .module-card {
-  width: 130px;
-  min-width: 130px;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 68px;
   text-align: left;
   border: 1px solid var(--border);
@@ -649,16 +658,13 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
   color: var(--text-tertiary);
 }
 
-.more-card {
-  color: var(--primary);
-}
-
 .quick-actions,
 .popup-input,
 .popup-footer {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .btn-fullscreen {
@@ -693,7 +699,8 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 }
 
 .url-input {
-  flex: 1;
+  flex: 1 1 180px;
+  min-width: 0;
   height: 32px;
   font-size: var(--font-size-body);
   font-family: var(--font-code);
@@ -730,6 +737,7 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 .response-status {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 6px 8px;
   background: var(--bg-sidebar);
@@ -798,6 +806,7 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 
 .history-url {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -811,6 +820,7 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 .history-actions {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .history-actions button {
@@ -848,14 +858,26 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 
 @media (max-width: 520px) {
   .popup-view {
-    width: 100vw;
-    height: 100vh;
+    padding: 10px;
   }
 
-  .quick-actions,
-  .popup-input,
-  .popup-footer {
-    flex-wrap: wrap;
+  .quick-actions .btn {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    padding-inline: 8px;
+  }
+
+  .url-input {
+    flex-basis: 100%;
+    order: 2;
+  }
+
+  .popup-footer button {
+    margin-left: 0;
+  }
+
+  .popup-history .history-status {
+    display: none;
   }
 }
 </style>

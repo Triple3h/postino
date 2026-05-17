@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useWorkspaceStore } from '@/stores/workspace'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 import JsonTreeViewer from '@/components/common/JsonTreeViewer.vue'
 import { responseBodyToBlob, responseContentType, responseDataUrl, responseFileExtension } from '@/utils/binary-response'
 import { generateMarkdownDoc } from '@/utils/export'
-import type { ResponseData } from '@/types'
+import type { HistoryEntry, ResponseData } from '@/types'
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 
 const store = useAppStore()
+const workspace = useWorkspaceStore()
 const activeTab = ref('body')
 const bodyMode = ref('tree')
 const searchQuery = ref('')
@@ -21,6 +23,7 @@ const streamTypeLabel = computed(() => {
   if (!store.response?.streamType) return ''
   return store.response.streamType === 'sse' ? 'SSE' : 'NDJSON'
 })
+const recentHistory = computed(() => store.history.slice(0, 5))
 
 function cancelRequest() {
   store.cancelCurrentRequest()
@@ -336,6 +339,50 @@ function levelLabel(level: ScriptLog['level']): string {
 
 function formatMessage(args: string[]): string {
   return args.join(' ')
+}
+
+function historyDisplayPath(entry: HistoryEntry): string {
+  const trimmed = entry.url.trim()
+  if (!trimmed) return '/'
+  const templatePath = trimmed.match(/^\{\{[^}]+\}\}(.*)$/)?.[1]
+  if (templatePath !== undefined) return templatePath || '/'
+  if (trimmed.startsWith('/')) return trimmed
+  try {
+    const parsed = new URL(trimmed)
+    return `${parsed.pathname || '/'}${parsed.search}`
+  } catch {
+    return trimmed
+  }
+}
+
+function relativeHistoryTime(timestamp: number): string {
+  const diff = Date.now() - timestamp
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`
+  return `${Math.floor(diff / 86_400_000)}天前`
+}
+
+function historyStatusClass(status: number): string {
+  if (status >= 200 && status < 300) return 'success'
+  if (status >= 300 && status < 400) return 'redirect'
+  if (status >= 400 && status < 500) return 'client-error'
+  if (status >= 500 || status === 0) return 'server-error'
+  return ''
+}
+
+function loadHistoryEntry(entry: HistoryEntry) {
+  const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
+  workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
+  store.currentApiId = entry.apiId
+}
+
+function resendHistoryEntry(entry: HistoryEntry, event: MouseEvent) {
+  event.stopPropagation()
+  loadHistoryEntry(entry)
+  window.setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+  }, 0)
 }
 
 
@@ -738,9 +785,32 @@ function exportResponseHtmlReport() {
       <p>请求在发送过程中被手动取消。</p>
     </div>
     <div v-else-if="!store.response" class="response-empty">
-      <div class="empty-orb">↯</div>
-      <h3>响应预览区</h3>
-      <p>发送请求后在此查看 Body、Headers 与脚本 Console。</p>
+      <template v-if="recentHistory.length > 0">
+        <div class="recent-history-panel">
+          <div class="recent-history-title">
+            <span>🕐 最近发送</span>
+            <small>点击复用，或按 Ctrl+Enter 发送当前请求</small>
+          </div>
+          <button
+            v-for="entry in recentHistory"
+            :key="entry.id"
+            class="recent-history-item"
+            @click="loadHistoryEntry(entry)"
+          >
+            <span :class="['method-badge', entry.method.toLowerCase()]">{{ entry.method }}</span>
+            <code>{{ historyDisplayPath(entry) }}</code>
+            <span :class="['recent-status', historyStatusClass(entry.status)]">{{ entry.status }}</span>
+            <span class="recent-duration">{{ entry.duration }}ms</span>
+            <span class="recent-time">{{ relativeHistoryTime(entry.timestamp) }}</span>
+            <span class="recent-send" @click="resendHistoryEntry(entry, $event)">▶</span>
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <div class="empty-orb">↯</div>
+        <h3>响应预览区</h3>
+        <p>发送请求后在此查看 Body、Headers 与脚本 Console。</p>
+      </template>
     </div>
     <div v-else class="response-content">
       <div class="response-status-bar">
@@ -965,6 +1035,9 @@ function exportResponseHtmlReport() {
 <style scoped>
 .response-panel {
   height: 320px;
+  min-height: 180px;
+  max-height: min(70vh, 640px);
+  resize: vertical;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -995,6 +1068,88 @@ function exportResponseHtmlReport() {
   max-width: 360px;
   color: var(--text-tertiary);
   line-height: 1.6;
+}
+
+.recent-history-panel {
+  width: min(760px, calc(100% - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
+  box-shadow: var(--shadow-sm);
+  text-align: left;
+}
+
+.recent-history-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.recent-history-title small {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.recent-history-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.recent-history-item:hover {
+  border-color: var(--primary);
+  background: var(--bg-hover);
+}
+
+.recent-history-item code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+}
+
+.recent-status,
+.recent-duration,
+.recent-time {
+  font-size: var(--font-size-small);
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.recent-status.success { color: var(--success); }
+.recent-status.redirect { color: var(--info); }
+.recent-status.client-error { color: var(--warning); }
+.recent-status.server-error { color: var(--error); }
+
+.recent-duration,
+.recent-time {
+  color: var(--text-tertiary);
+}
+
+.recent-send {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-size: 11px;
 }
 
 .empty-orb,
