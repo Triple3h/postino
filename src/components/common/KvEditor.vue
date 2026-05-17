@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { Trash2, X } from '@lucide/vue'
 import type { KvPair } from '@/types'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
@@ -474,7 +475,7 @@ const duplicateKeyIndices = computed(() => {
           />
         </div>
         <div class="kv-col kv-col-action">
-          <button class="btn-icon" @click="removeRow(i)" :disabled="readonly" title="删除">&times;</button>
+          <button class="btn-icon" @click="removeRow(i)" :disabled="readonly" title="删除"><Trash2 :size="14" /></button>
         </div>
       </div>
     </div>
@@ -506,7 +507,7 @@ const duplicateKeyIndices = computed(() => {
         <div class="import-dialog">
           <div class="import-dialog-header">
             <span>从文本导入</span>
-            <button class="btn-icon" @click="closeImportDialog" title="关闭">&times;</button>
+            <button class="btn-icon" @click="closeImportDialog" title="关闭"><X :size="14" /></button>
           </div>
           <div class="import-dialog-body">
             <textarea

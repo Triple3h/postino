@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { ArrowDownLeft, BarChart3, Boxes, FileJson2, FileText, Link2, Lock, PackageOpen, Puzzle, Settings, Trash2 } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { generateMarkdownDoc, generateOpenApiSpec, generateOpenApiYamlSpec } from '@/utils/export'
@@ -113,11 +114,17 @@ const variableRows = ref<VariableRow[]>([])
 const variableImportInput = ref<HTMLInputElement | null>(null)
 const variableRenameDraft = ref({ from: '', to: '' })
 
-const moduleTypes: Array<{ value: ModuleType; icon: string; title: string; desc: string }> = [
-  { value: 'generic', icon: '🟦', title: '通用 API', desc: '通过可视化表单设计、调试和维护接口。' },
-  { value: 'openapi-yaml', icon: '📄', title: 'OpenAPI YAML', desc: '面向已有 Swagger/OpenAPI 文档的 YAML/JSON 编辑模式。' },
-  { value: 'readonly', icon: '🔒', title: '只读模式', desc: '禁止手动修改，适合通过导入或同步更新的接口。' },
+const moduleTypes: Array<{ value: ModuleType; title: string; desc: string }> = [
+  { value: 'generic', title: '通用 API', desc: '通过可视化表单设计、调试和维护接口。' },
+  { value: 'openapi-yaml', title: 'OpenAPI YAML', desc: '面向已有 Swagger/OpenAPI 文档的 YAML/JSON 编辑模式。' },
+  { value: 'readonly', title: '只读模式', desc: '禁止手动修改，适合通过导入或同步更新的接口。' },
 ]
+
+const moduleTypeIcons = {
+  generic: Boxes,
+  'openapi-yaml': FileText,
+  readonly: Lock,
+} as const
 
 const activeCategory = computed(() => workspace.activeCategory)
 const activeModule = computed(() => workspace.activeModule)
@@ -2399,7 +2406,7 @@ async function runAllScenarioCases() {
 
       <template v-if="activeModuleTab === 'overview'">
         <section class="settings-card">
-          <h3>📊 统计</h3>
+          <h3><BarChart3 :size="18" /> 统计</h3>
           <div class="stat-grid stat-grid-large">
             <div><strong>{{ moduleStats.interfaceCount }}</strong><span>接口数</span></div>
             <div><strong>{{ moduleStats.docCount }}</strong><span>文档数</span></div>
@@ -2528,7 +2535,7 @@ async function runAllScenarioCases() {
         </section>
 
         <section class="settings-card">
-          <h3>🧩 模块类型</h3>
+          <h3><Puzzle :size="18" /> 模块类型</h3>
           <div class="type-card-list">
             <button
               v-for="item in moduleTypes"
@@ -2536,14 +2543,14 @@ async function runAllScenarioCases() {
               :class="['type-card', { active: moduleType === item.value }]"
               @click="setModuleType(item.value)"
             >
-              <span class="type-icon">{{ item.icon }}</span>
+              <span class="type-icon"><component :is="moduleTypeIcons[item.value]" :size="24" /></span>
               <span><strong>{{ item.title }}</strong><small>{{ item.desc }}</small></span>
             </button>
           </div>
         </section>
 
         <section v-if="moduleType === 'openapi-yaml'" class="settings-card">
-          <h3>📄 OpenAPI YAML / JSON 编辑</h3>
+          <h3><FileJson2 :size="18" /> OpenAPI YAML / JSON 编辑</h3>
           <p>直接维护 OpenAPI 文本；也可以从当前可视化接口生成 YAML/JSON，或把编辑器中的 OpenAPI 同步回当前模块。</p>
           <div class="quick-actions">
             <button class="btn btn-sm" @click="writeModuleOpenApiText('yaml')">从当前接口生成 YAML</button>
@@ -2567,7 +2574,7 @@ async function runAllScenarioCases() {
 
         <div class="overview-grid">
           <section class="settings-card">
-            <h3>🔗 绑定数据源</h3>
+            <h3><Link2 :size="18" /> 绑定数据源</h3>
             <p>绑定 Swagger/OpenAPI/自定义接口来源，手动同步会拉取 OpenAPI JSON 并按 Method + URL 增量更新模块接口。</p>
             <label class="field-row">
               <span>来源类型</span>
@@ -2624,7 +2631,7 @@ async function runAllScenarioCases() {
             </div>
           </section>
           <section class="settings-card muted-card">
-            <h3>📦 导出/备份 API 规格</h3>
+            <h3><PackageOpen :size="18" /> 导出/备份 API 规格</h3>
             <p>配置模块默认导出格式与本地自动备份偏好；云端目标保留为后续接入点。</p>
             <label class="field-row">
               <span>默认格式</span>
@@ -2747,10 +2754,10 @@ async function runAllScenarioCases() {
               <input v-model="row.remote" type="text" placeholder="团队共享值" />
               <div class="local-value-cell">
                 <input v-model="row.local" type="text" placeholder="本地覆盖值" />
-                <button class="btn btn-icon" title="使用远程值" @click="useRemoteAsLocal(index)">↙</button>
+                <button class="btn btn-icon" title="使用远程值" @click="useRemoteAsLocal(index)"><ArrowDownLeft :size="14" /></button>
               </div>
               <input v-model="row.description" type="text" placeholder="用途说明" />
-              <button class="btn btn-icon danger" title="删除变量" @click="deleteVariableRow(index)">🗑</button>
+              <button class="btn btn-icon danger" title="删除变量" @click="deleteVariableRow(index)"><Trash2 :size="14" /></button>
             </div>
             <button class="add-row-btn" @click="addVariableRow">+ 添加变量</button>
           </div>
@@ -3085,7 +3092,7 @@ async function runAllScenarioCases() {
     </template>
 
     <div v-else class="settings-empty">
-      <div class="empty-icon">⚙️</div>
+      <div class="empty-icon"><Settings :size="34" /></div>
       <h2>选择分组或模块进行设置</h2>
       <p>点击左侧分组或模块即可进入对应设置页；点击具体接口则回到请求编辑器。</p>
     </div>
@@ -3245,6 +3252,9 @@ async function runAllScenarioCases() {
 }
 
 .settings-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: var(--font-size-title);
   margin-bottom: 12px;
 }

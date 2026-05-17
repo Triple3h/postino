@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { X } from '@lucide/vue'
 import type { ApiConfig } from '@/types'
 import { generatePythonRequests, generateJavaScriptFetch, generateJavaScriptAxios, generateJavaHttpClient } from '@/utils/export'
 
@@ -75,7 +76,7 @@ async function copyToClipboard() {
     <div class="modal-content">
       <div class="modal-header">
         <h3>代码生成</h3>
-        <button class="btn-icon close-btn" @click="close" title="关闭">×</button>
+        <button class="btn-icon close-btn" @click="close" title="关闭"><X :size="16" /></button>
       </div>
       <div class="lang-selector">
         <label>语言：</label>

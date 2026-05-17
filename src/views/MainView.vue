@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Monitor, Moon, Puzzle, Settings, Sun } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import Sidebar from '@/components/sidebar/Sidebar.vue'
@@ -420,7 +421,7 @@ onUnmounted(() => {
             <button class="btn btn-sm" @click="showRightPanel = false">关闭</button>
           </header>
           <section v-if="showWorkspaceControls" class="inspector-card workspace-controls-card">
-            <h3>⚙️ 工作台设置</h3>
+            <h3><Settings :size="16" /> 工作台设置</h3>
             <div class="inspector-actions-grid">
               <button class="btn btn-sm" @click="showDocMode = !showDocMode" :class="{ active: showDocMode }">
                 {{ showDocMode ? '编辑视图' : '文档视图' }}
@@ -430,7 +431,10 @@ onUnmounted(() => {
               </button>
               <button class="btn btn-sm" @click="openShortcutSettings">快捷键</button>
               <button class="btn btn-sm theme-btn" @click="toggleTheme">
-                {{ settings.theme === 'dark' ? '☀️ Light' : settings.theme === 'light' ? '🌙 Dark' : '💻 System' }}
+                <Sun v-if="settings.theme === 'dark'" :size="14" />
+                <Moon v-else-if="settings.theme === 'light'" :size="14" />
+                <Monitor v-else :size="14" />
+                {{ settings.theme === 'dark' ? 'Light' : settings.theme === 'light' ? 'Dark' : 'System' }}
               </button>
             </div>
             <label class="inspector-field">
@@ -454,7 +458,7 @@ onUnmounted(() => {
             <button class="btn btn-sm inspector-full-btn" @click="showRightPanel = false" title="Ctrl+Shift+R">隐藏右侧面板</button>
           </section>
           <section class="inspector-card">
-            <h3>🧩 模块设置</h3>
+            <h3><Puzzle :size="16" /> 模块设置</h3>
             <div class="inspector-line"><span>模块</span><strong>{{ currentModule?.name || '未选择' }}</strong></div>
             <div class="inspector-line"><span>类型</span><strong>{{ currentModule?.moduleType?.mode || currentModule?.type || '-' }}</strong></div>
             <div class="inspector-line"><span>数据源</span><strong>{{ currentModule?.dataSource?.url ? '已绑定' : '未绑定' }}</strong></div>
@@ -777,6 +781,9 @@ onUnmounted(() => {
 }
 
 .inspector-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--font-size-title);
   margin-bottom: 10px;
 }
@@ -784,6 +791,12 @@ onUnmounted(() => {
 .workspace-controls-card {
   display: grid;
   gap: 10px;
+}
+
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .inspector-actions-grid {

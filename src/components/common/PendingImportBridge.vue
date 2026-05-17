@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { Check, X, XCircle } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -561,7 +562,7 @@ onUnmounted(() => {
         <!-- Header -->
         <div class="import-preview-header">
           <h3 class="import-preview-title">导入预览</h3>
-          <button class="import-preview-close" @click="cancelImport" aria-label="关闭">&times;</button>
+          <button class="import-preview-close" @click="cancelImport" aria-label="关闭"><X :size="16" /></button>
         </div>
 
         <!-- Preview phase -->
@@ -587,7 +588,7 @@ onUnmounted(() => {
             <div class="import-list-header">
               <label class="import-check-all" @click.prevent="toggleAll">
                 <span class="import-checkbox" :class="{ checked: allChecked }">
-                  <svg v-if="allChecked" viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+                  <Check v-if="allChecked" :size="12" />
                 </span>
                 <span>全选 ({{ checkedCount }}/{{ preview.items.length }})</span>
               </label>
@@ -601,7 +602,7 @@ onUnmounted(() => {
                 @click="toggleItem(index)"
               >
                 <span class="import-checkbox" :class="{ checked: item.checked }">
-                  <svg v-if="item.checked" viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+                  <Check v-if="item.checked" :size="12" />
                 </span>
                 <span
                   class="import-method-badge"
@@ -644,7 +645,7 @@ onUnmounted(() => {
         <template v-else-if="preview.phase === 'success'">
           <div class="import-result-container">
             <div class="import-result-icon import-result-success">
-              <svg viewBox="0 0 16 16" width="24" height="24" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+              <Check :size="24" />
             </div>
             <div class="import-result-text">
               导入成功，共导入 {{ preview.progressTotal }} 个接口
@@ -656,7 +657,7 @@ onUnmounted(() => {
         <template v-else-if="preview.phase === 'error'">
           <div class="import-result-container">
             <div class="import-result-icon import-result-error">
-              <svg viewBox="0 0 16 16" width="24" height="24" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
+              <XCircle :size="24" />
             </div>
             <div class="import-result-text import-result-error-text">
               导入失败：{{ preview.errorMessage }}

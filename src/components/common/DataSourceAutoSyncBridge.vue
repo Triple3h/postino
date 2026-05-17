@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { Check, LoaderCircle, X, XCircle } from '@lucide/vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isDataSourceSyncDue, syncModuleDataSource, type DataSourceSyncResult } from '@/utils/data-source-sync'
 import type { ModuleSyncLog } from '@/types'
@@ -249,18 +250,9 @@ onUnmounted(() => {
 <template>
   <!-- Sync status indicator -->
   <div v-if="latestSyncStatus" class="sync-status-indicator" :class="latestSyncStatus.status">
-    <!-- Syncing: spinning icon -->
-    <svg v-if="latestSyncStatus.status === 'syncing'" class="sync-icon sync-spinning" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-      <path d="M8 1.5a6.5 6.5 0 1 0 6.5 6.5.75.75 0 0 1 1.5 0 8 8 0 1 1-8-8 .75.75 0 0 1 0 1.5Z"/>
-    </svg>
-    <!-- Success: checkmark -->
-    <svg v-else-if="latestSyncStatus.status === 'success'" class="sync-icon sync-success" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-      <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/>
-    </svg>
-    <!-- Error: X mark -->
-    <svg v-else-if="latestSyncStatus.status === 'error'" class="sync-icon sync-error" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-      <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
-    </svg>
+    <LoaderCircle v-if="latestSyncStatus.status === 'syncing'" class="sync-icon sync-spinning" :size="14" />
+    <Check v-else-if="latestSyncStatus.status === 'success'" class="sync-icon sync-success" :size="14" />
+    <XCircle v-else-if="latestSyncStatus.status === 'error'" class="sync-icon sync-error" :size="14" />
     <span class="sync-status-label">{{ latestSyncStatus.moduleName }}</span>
   </div>
 
@@ -281,7 +273,7 @@ onUnmounted(() => {
             @click="retryModuleSync(toast.moduleId!); removeToast(toast.id)"
           >重试</button>
         </div>
-        <button class="sync-toast-dismiss" @click="removeToast(toast.id)" aria-label="关闭">&times;</button>
+        <button class="sync-toast-dismiss" @click="removeToast(toast.id)" aria-label="关闭"><X :size="14" /></button>
       </div>
     </TransitionGroup>
   </div>

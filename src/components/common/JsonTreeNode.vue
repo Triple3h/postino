@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ChevronRight } from '@lucide/vue'
 
 const props = defineProps<{
   data: unknown
@@ -133,9 +134,7 @@ const typeBadgeMap: Record<string, string> = {
         :class="{ expanded }"
         @click="onToggle"
       >
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <path d="M3 1L7 5L3 9" fill="currentColor" />
-        </svg>
+        <ChevronRight :size="12" />
       </span>
       <span v-else class="toggle-placeholder" />
 

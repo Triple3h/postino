@@ -1,5 +1,25 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import {
+  Box,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  FilePlus2,
+  FileText,
+  Folder,
+  Globe2,
+  MoreVertical,
+  PackagePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Search,
+  Settings,
+  Trash2,
+  Upload,
+  Zap,
+} from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { importCurl, importHar, importPostman } from '@/utils/import'
@@ -987,7 +1007,7 @@ async function setCategoryIconFromContext(categoryId: string) {
   const icon = await dialog.prompt({
     title: '设置分组图标',
     message: '输入 1 个 Emoji 或 1-2 个字符；留空则恢复自动首字图标。',
-    placeholder: '例如：🚀',
+    placeholder: '例如：AP',
     defaultValue: category.icon ?? '',
     confirmText: '保存',
   })
@@ -1002,7 +1022,7 @@ async function setModuleIconFromContext(moduleId: string) {
   const icon = await dialog.prompt({
     title: '设置模块图标',
     message: '输入 1 个 Emoji 或 1-2 个字符；留空则恢复自动首字图标。',
-    placeholder: '例如：📦',
+    placeholder: '例如：API',
     defaultValue: module.icon ?? '',
     confirmText: '保存',
   })
@@ -1502,17 +1522,17 @@ async function doImport() {
   <div class="sidebar" :class="{ collapsed: sidebarCollapsed, resizing: resizingSidebar }" :style="{ width: sidebarCollapsed ? undefined : sidebarWidth + 'px' }" @click="handleSidebarRootClick">
     <div class="sidebar-header">
       <div class="sidebar-title">
-        <span class="sidebar-logo">⚡</span>
+        <span class="sidebar-logo"><Zap :size="18" /></span>
         <div>
           <strong>接口目录</strong>
           <small>{{ workspace.categories.length }} 分组 · {{ workspace.modules.length }} 模块</small>
         </div>
         <button class="collapse-btn" :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'" @click.stop="toggleSidebarCollapsed">
-          {{ sidebarCollapsed ? '›' : '‹' }}
+          <component :is="sidebarCollapsed ? PanelLeftOpen : PanelLeftClose" :size="16" />
         </button>
       </div>
       <label class="search-shell">
-        <span>⌕</span>
+        <Search :size="15" />
         <input
           v-model="searchQuery"
           type="text"
@@ -1522,7 +1542,7 @@ async function doImport() {
       </label>
     </div>
     <div class="sidebar-actions">
-      <button class="btn btn-sm btn-primary" @click="createNewApi()">+ 请求</button>
+      <button class="btn btn-sm btn-primary" @click="createNewApi()"><FilePlus2 :size="14" /> 请求</button>
       <button class="btn btn-sm" title="新建顶层分组" @click="addGroup">新增大类</button>
     </div>
     <div class="sidebar-content">
@@ -1537,7 +1557,10 @@ async function doImport() {
           @dragleave="clearDropTarget"
           @drop="handleCategoryDrop($event, category.id)"
         >
-          <span class="expand-icon" @click.stop="toggleExpanded(getCategoryStorageKey(category.id))">{{ isExpanded(getCategoryStorageKey(category.id)) ? '▼' : '▶' }}</span>
+          <button class="expand-icon" type="button" @click.stop="toggleExpanded(getCategoryStorageKey(category.id))">
+            <ChevronDown v-if="isExpanded(getCategoryStorageKey(category.id))" :size="14" />
+            <ChevronRight v-else :size="14" />
+          </button>
           <span class="category-color" :style="{ backgroundColor: category.color || '#6366f1' }"></span>
           <span class="node-kind category-kind">分组</span>
           <span class="collapsed-badge category-collapsed-badge" :style="navIconStyle(category.icon, category.color || '#6366f1')">{{ getCategoryNavIcon(category) }}</span>
@@ -1574,7 +1597,10 @@ async function doImport() {
               @mouseenter="showCollapsedModulePreview($event, module.id)"
               @mouseleave="scheduleHideCollapsedModulePreview"
             >
-              <span class="expand-icon" @click.stop="toggleExpanded(getModuleStorageKey(module.id))">{{ isExpanded(getModuleStorageKey(module.id)) ? '▼' : '▶' }}</span>
+              <button class="expand-icon" type="button" @click.stop="toggleExpanded(getModuleStorageKey(module.id))">
+                <ChevronDown v-if="isExpanded(getModuleStorageKey(module.id))" :size="14" />
+                <ChevronRight v-else :size="14" />
+              </button>
               <span class="node-kind module-kind">模块</span>
               <span class="collapsed-badge module-collapsed-badge" :style="navIconStyle(module.icon, getCategoryColorForModule(module.id))">{{ getModuleNavIcon(module) }}</span>
               <template v-if="renamingModuleId === module.id">
@@ -1619,7 +1645,10 @@ async function doImport() {
                 @drop="dropNodeOnRow($event, row.node)"
               >
                 <template v-if="isFolderNode(row.node)">
-                  <span class="expand-icon">{{ isExpanded(getNodeStorageKey(row.node.id)) ? '▼' : '▶' }}</span>
+                  <span class="expand-icon">
+                    <ChevronDown v-if="isExpanded(getNodeStorageKey(row.node.id))" :size="14" />
+                    <ChevronRight v-else :size="14" />
+                  </span>
                   <span class="node-kind folder-kind">文件夹</span>
                   <span class="folder-name">{{ row.node.name }}</span>
                   <span v-if="row.node.preRequestScript || row.node.preScript" class="script-dot" title="有文件夹前置脚本">●</span>
@@ -1682,7 +1711,7 @@ async function doImport() {
       <template v-if="contextMenu.categoryId">
         <button class="context-item" @click="startRenameCategory(contextMenu.categoryId)">重命名</button>
         <button class="context-item" @click="colorPickerCategoryId = contextMenu.categoryId">修改颜色</button>
-        <button class="context-item" @click="setCategoryIconFromContext(contextMenu.categoryId)">设置 Emoji 图标</button>
+        <button class="context-item" @click="setCategoryIconFromContext(contextMenu.categoryId)">设置导航图标</button>
         <div v-if="colorPickerCategoryId === contextMenu.categoryId" class="color-picker-row">
           <button
             v-for="color in PRESET_COLORS"
@@ -1703,7 +1732,7 @@ async function doImport() {
       <template v-if="contextMenu.moduleId">
         <button class="context-item" @click="startRenameModule(contextMenu.moduleId)">重命名</button>
         <button class="context-item" @click="duplicateModuleFromContext(contextMenu.moduleId)">复制模块</button>
-        <button class="context-item" @click="setModuleIconFromContext(contextMenu.moduleId)">设置 Emoji 图标</button>
+        <button class="context-item" @click="setModuleIconFromContext(contextMenu.moduleId)">设置导航图标</button>
         <button class="context-item" @click="openModule(contextMenu.moduleId); closeContextMenu()">模块设置</button>
         <div class="context-divider"></div>
         <button class="context-item" @click="addFolder(contextMenu.moduleId); closeContextMenu()">新建文件夹</button>
@@ -1851,36 +1880,36 @@ async function doImport() {
     <div class="sidebar-bottom-bar" :class="{ collapsed: sidebarCollapsed }">
       <template v-if="!sidebarCollapsed">
         <button class="bottom-bar-btn" @click="handleOpenEnvVars" title="环境变量">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2l-4 6 4 6h4l4-6-4-6H6z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
+          <Globe2 :size="16" />
           <span>环境变量</span>
         </button>
         <button class="bottom-bar-btn" @click="handleRecycleBin" title="回收站">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v4M10 7v4M4 4l.7 8.5a1 1 0 001 .9h4.6a1 1 0 001-.9L12 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <Trash2 :size="16" />
           <span>回收站</span>
         </button>
       </template>
       <template v-else>
         <div class="collapsed-menu-wrap">
-          <button class="collapsed-more-btn" title="更多操作" @click.stop="toggleCollapsedMore">⋮</button>
+          <button class="collapsed-more-btn" title="更多操作" @click.stop="toggleCollapsedMore"><MoreVertical :size="17" /></button>
           <div v-if="collapsedMoreOpen" class="collapsed-popover more-popover" @click.stop>
-            <button @click="openGlobalSearch">🔍 全局搜索 <kbd>Ctrl K</kbd></button>
+            <button @click="openGlobalSearch"><span><Search :size="15" /> 全局搜索</span><kbd>Ctrl K</kbd></button>
             <div class="collapsed-menu-divider"></div>
-            <button @click="handleOpenEnvVars(); closeCollapsedMenus()">🌍 环境变量</button>
-            <button @click="openWorkspaceSettings">⚙️ 工作台设置</button>
-            <button @click="handleRecycleBin(); closeCollapsedMenus()">🗑️ 回收站</button>
+            <button @click="handleOpenEnvVars(); closeCollapsedMenus()"><span><Globe2 :size="15" /> 环境变量</span></button>
+            <button @click="openWorkspaceSettings"><span><Settings :size="15" /> 工作台设置</span></button>
+            <button @click="handleRecycleBin(); closeCollapsedMenus()"><span><Trash2 :size="15" /> 回收站</span></button>
             <div class="collapsed-menu-divider"></div>
-            <button @click="openImportModalFromCollapsed">📥 导入数据</button>
-            <button @click="exportWorkspaceData">📤 导出数据</button>
+            <button @click="openImportModalFromCollapsed"><span><Download :size="15" /> 导入数据</span></button>
+            <button @click="exportWorkspaceData"><span><Upload :size="15" /> 导出数据</span></button>
           </div>
         </div>
         <div class="collapsed-menu-wrap">
-          <button class="collapsed-fab" title="新建" @click.stop="toggleCollapsedCreate">＋</button>
+          <button class="collapsed-fab" title="新建" @click.stop="toggleCollapsedCreate"><Plus :size="18" /></button>
           <div v-if="collapsedCreateOpen" class="collapsed-popover create-popover" @click.stop>
-            <button @click="createNewApi(); closeCollapsedMenus()">📄 新建请求</button>
-            <button @click="addModule(); closeCollapsedMenus()">📦 新建模块</button>
-            <button @click="addFolder(); closeCollapsedMenus()">📁 新建文件夹</button>
-            <button @click="handleNewCategory(); closeCollapsedMenus()">🗂️ 新建分组</button>
-            <button @click="openImportModalFromCollapsed">📥 导入</button>
+            <button @click="createNewApi(); closeCollapsedMenus()"><span><FileText :size="15" /> 新建请求</span></button>
+            <button @click="addModule(); closeCollapsedMenus()"><span><Box :size="15" /> 新建模块</span></button>
+            <button @click="addFolder(); closeCollapsedMenus()"><span><Folder :size="15" /> 新建文件夹</span></button>
+            <button @click="handleNewCategory(); closeCollapsedMenus()"><span><PackagePlus :size="15" /> 新建分组</span></button>
+            <button @click="openImportModalFromCollapsed"><span><Download :size="15" /> 导入</span></button>
           </div>
         </div>
       </template>
@@ -1975,6 +2004,9 @@ async function doImport() {
 
 .collapse-btn {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
   border: 1px solid var(--border);
@@ -2141,6 +2173,10 @@ async function doImport() {
 
 .sidebar-actions .btn {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   font-size: var(--font-size-small);
 }
 
@@ -2223,9 +2259,17 @@ async function doImport() {
 }
 
 .expand-icon {
-  font-size: 10px;
-  width: 14px;
-  text-align: center;
+  width: 16px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
 }
 
 .category-color {
@@ -2900,6 +2944,14 @@ async function doImport() {
   padding: 8px 10px;
   font-size: var(--font-size-body);
   text-align: left;
+}
+
+
+.collapsed-popover button > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
 .collapsed-popover button:hover,

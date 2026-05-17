@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { Clock3, Play, TriangleAlert } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
@@ -780,7 +781,7 @@ function exportResponseHtmlReport() {
     </div>
     <!-- Cancelled state with no data -->
     <div v-else-if="isCancelled" class="response-empty response-cancelled">
-      <div class="cancelled-icon">&#9888;</div>
+      <div class="cancelled-icon"><TriangleAlert :size="34" /></div>
       <h3>请求已取消</h3>
       <p>请求在发送过程中被手动取消。</p>
     </div>
@@ -788,7 +789,7 @@ function exportResponseHtmlReport() {
       <template v-if="recentHistory.length > 0">
         <div class="recent-history-panel">
           <div class="recent-history-title">
-            <span>🕐 最近发送</span>
+            <span><Clock3 :size="15" /> 最近发送</span>
             <small>点击复用，或按 Ctrl+Enter 发送当前请求</small>
           </div>
           <button
@@ -802,7 +803,7 @@ function exportResponseHtmlReport() {
             <span :class="['recent-status', historyStatusClass(entry.status)]">{{ entry.status }}</span>
             <span class="recent-duration">{{ entry.duration }}ms</span>
             <span class="recent-time">{{ relativeHistoryTime(entry.timestamp) }}</span>
-            <span class="recent-send" @click="resendHistoryEntry(entry, $event)">▶</span>
+            <span class="recent-send" @click="resendHistoryEntry(entry, $event)"><Play :size="13" /></span>
           </button>
         </div>
       </template>
@@ -1089,6 +1090,12 @@ function exportResponseHtmlReport() {
   gap: 12px;
   color: var(--text-primary);
   font-weight: 800;
+}
+
+.recent-history-title span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .recent-history-title small {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { Search } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -487,7 +488,7 @@ onUnmounted(() => {
             class="search-result recent-item"
             @click="clickRecentSearch(query)"
           >
-            <span class="recent-icon">&#x1F50D;</span>
+            <span class="recent-icon"><Search :size="14" /></span>
             <span class="result-name">{{ query }}</span>
           </div>
         </template>

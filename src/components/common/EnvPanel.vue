@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { ChevronDown, Sprout, Trash2 } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useDialog } from '@/composables/useDialog'
 import type { Environment, EnvVariable } from '@/types'
@@ -86,7 +87,7 @@ function selectEnv(id: string) {
 <template>
   <div class="env-panel">
     <button class="btn btn-sm env-toggle" @click="showEnvPanel = !showEnvPanel">
-      {{ currentEnv?.name || '无环境' }} ▼
+      {{ currentEnv?.name || '无环境' }} <ChevronDown :size="14" />
     </button>
 
     <div v-if="showEnvPanel" class="env-dropdown">
@@ -96,7 +97,7 @@ function selectEnv(id: string) {
       </div>
 
       <div v-if="store.environments.length === 0" class="env-empty-state">
-        <div class="empty-icon">🌱</div>
+        <div class="empty-icon"><Sprout :size="30" /></div>
         <strong>还没有环境</strong>
         <p>创建测试、预发或生产环境后，就可以在 URL、Header、Body 中使用 <code>&#123;&#123;变量名&#125;&#125;</code>。</p>
         <button class="btn btn-sm btn-primary" @click="addEnvironment">+ 新建环境</button>
@@ -111,7 +112,7 @@ function selectEnv(id: string) {
         >
           <span class="env-name">{{ env.name }}</span>
           <span class="env-var-count">{{ env.variables.length }} 个变量</span>
-          <button class="btn-icon" @click.stop="deleteEnvironment(env.id)" title="删除">×</button>
+          <button class="btn-icon" @click.stop="deleteEnvironment(env.id)" title="删除"><Trash2 :size="14" /></button>
         </div>
         <button class="btn btn-sm add-env-btn" @click="addEnvironment">+ 新建环境</button>
       </div>
@@ -138,7 +139,7 @@ function selectEnv(id: string) {
               class="var-value"
               @input="updateVariable(i, 'value', ($event.target as HTMLInputElement).value)"
             />
-            <button class="btn-icon" @click="removeVariable(i)" title="删除">×</button>
+            <button class="btn-icon" @click="removeVariable(i)" title="删除"><Trash2 :size="14" /></button>
           </div>
         </div>
       </div>

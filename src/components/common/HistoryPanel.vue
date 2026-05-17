@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { X } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { generateCurl } from '@/utils/export'
@@ -536,7 +537,7 @@ function escapeHtml(value: string): string {
       <div class="diff-modal">
         <div class="diff-modal-header">
           <h3>历史记录对比</h3>
-          <button class="diff-close-btn" @click="closeDiffModal">&times;</button>
+          <button class="diff-close-btn" @click="closeDiffModal" aria-label="关闭"><X :size="16" /></button>
         </div>
         <div class="diff-summary">
           <div class="diff-entry-card">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Maximize2, Menu, RefreshCw, Search, X } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import Sidebar from '@/components/sidebar/Sidebar.vue'
@@ -230,7 +231,7 @@ onUnmounted(() => {
 <template>
   <div ref="layoutEl" class="sidepanel-layout" :class="[{ collapsed: navCollapsed }, panelSizeClass]">
     <div class="sidepanel-topbar">
-      <button class="icon-btn" title="折叠导航" @click="navCollapsed = !navCollapsed">≡</button>
+      <button class="icon-btn" title="折叠导航" @click="navCollapsed = !navCollapsed"><Menu :size="16" /></button>
       <strong>ApiFix Side Panel</strong>
       <label v-if="panelSizeClass === 'sidepanel-sm' && compactInterfaceOptions.length > 0" class="compact-interface-picker" title="窄侧栏接口选择">
         <span>接口</span>
@@ -246,9 +247,9 @@ onUnmounted(() => {
         </select>
       </label>
       <div class="topbar-actions">
-        <button class="icon-btn" title="捕获当前页请求" @click="openCapturePanel">🔍</button>
-        <button class="icon-btn" title="刷新捕获/标签" @click="refreshCapturedRequests(); refreshTargetTabs()" :disabled="!showCapture || captureLoading">↻</button>
-        <button class="icon-btn" title="展开全屏" @click="openFullPage">⛶</button>
+        <button class="icon-btn" title="捕获当前页请求" @click="openCapturePanel"><Search :size="16" /></button>
+        <button class="icon-btn" title="刷新捕获/标签" @click="refreshCapturedRequests(); refreshTargetTabs()" :disabled="!showCapture || captureLoading"><RefreshCw :size="16" :class="{ spinning: captureLoading }" /></button>
+        <button class="icon-btn" title="展开全屏" @click="openFullPage"><Maximize2 :size="16" /></button>
       </div>
     </div>
 
@@ -260,7 +261,7 @@ onUnmounted(() => {
     <aside v-if="showCapture" class="capture-panel">
       <div class="capture-header">
         <strong>Network 捕获</strong>
-        <button class="icon-btn" @click="showCapture = false">×</button>
+        <button class="icon-btn" aria-label="关闭捕获面板" @click="showCapture = false"><X :size="16" /></button>
       </div>
       <div v-if="captureLoading" class="capture-empty">加载中...</div>
       <div v-else-if="captureMessage && capturedRequests.length === 0" class="capture-empty">{{ captureMessage }}</div>
@@ -374,6 +375,14 @@ onUnmounted(() => {
 .icon-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .sidepanel-main {

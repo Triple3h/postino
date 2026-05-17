@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ArrowRight, BarChart3, FlaskConical, FolderClock, Maximize2, Search, Settings } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { sendRequest as httpSendRequest } from '@/utils/http'
@@ -373,7 +374,7 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
     <div class="popup-header">
       <div class="popup-search-wrap">
         <label class="popup-search">
-          <span>🔍</span>
+          <Search :size="15" />
           <input
             v-model="searchQuery"
             type="search"
@@ -399,14 +400,12 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
         <div v-else-if="searchQuery" class="search-popover empty">未找到匹配接口</div>
       </div>
       <button class="btn-fullscreen" title="打开全屏页" @click="openFullPage">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M2 6V3a1 1 0 0 1 1-1h3M10 2h3a1 1 0 0 1 1 1v3M14 10v3a1 1 0 0 1-1 1h-3M6 14H3a1 1 0 0 1-1-1v-3"/>
-        </svg>
+        <Maximize2 :size="16" />
       </button>
     </div>
 
     <section v-if="recentModules.length > 0" class="recent-modules">
-      <div class="section-title">📂 最近访问模块</div>
+      <div class="section-title"><FolderClock :size="15" /> 最近访问模块</div>
       <div class="module-cards">
         <button v-for="module in recentModules" :key="module.id" class="module-card" @click="loadModule(module.id)">
           <strong>{{ module.name }}</strong>
@@ -456,7 +455,7 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
     <div v-else-if="loading" class="popup-response popup-loading">请求发送中...</div>
 
     <div v-if="recentHistory.length > 0" class="popup-history">
-      <h3>🧪 最近历史</h3>
+      <h3><FlaskConical :size="16" /> 最近历史</h3>
       <div v-for="entry in recentHistory" :key="entry.id" class="history-item" @click="loadFromHistory(entry)">
         <span :class="['method-badge', entry.method.toLowerCase()]">{{ entry.method }}</span>
         <span class="history-url">{{ entry.url }}</span>
@@ -469,10 +468,10 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
     </div>
 
     <div class="popup-footer">
-      <span>⚙️ 设置</span>
-      <span>🌐 环境: {{ store.environments.find(env => env.id === store.currentEnvId)?.name || '默认' }}</span>
-      <span>📊 统计: {{ workspace.modules.length }} 模块 / {{ workspace.interfaces.filter(item => (item.nodeType ?? 'request') !== 'folder').length }} 接口</span>
-      <button @click="openFullPage">打开完整版 →</button>
+      <span><Settings :size="14" /> 设置</span>
+      <span><FlaskConical :size="14" /> 环境: {{ store.environments.find(env => env.id === store.currentEnvId)?.name || '默认' }}</span>
+      <span><BarChart3 :size="14" /> 统计: {{ workspace.modules.length }} 模块 / {{ workspace.interfaces.filter(item => (item.nodeType ?? 'request') !== 'folder').length }} 接口</span>
+      <button @click="openFullPage">打开完整版 <ArrowRight :size="14" /></button>
     </div>
     <div v-if="toast" class="popup-toast">{{ toast }}</div>
   </div>
@@ -623,6 +622,9 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 }
 
 .section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 750;
   margin-bottom: 8px;
 }
@@ -782,6 +784,9 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 }
 
 .popup-history h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--font-size-title);
   font-weight: 600;
   margin-bottom: 6px;
@@ -838,7 +843,16 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
   border-color: var(--primary);
 }
 
+.popup-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .popup-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin-left: auto;
   color: var(--primary);
   background: transparent;
@@ -872,7 +886,13 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
     order: 2;
   }
 
-  .popup-footer button {
+  .popup-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.popup-footer button {
     margin-left: 0;
   }
 

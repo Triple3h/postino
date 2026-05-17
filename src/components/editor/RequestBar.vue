@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { Lock } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { sendRequest as httpSendRequest } from '@/utils/http'
@@ -882,7 +883,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <div v-if="isReadonlyModule" class="readonly-hint">🔒 当前模块为只读模式：可发送请求，但接口定义只能通过导入/同步更新。</div>
+    <div v-if="isReadonlyModule" class="readonly-hint"><Lock :size="15" /> 当前模块为只读模式：可发送请求，但接口定义只能通过导入/同步更新。</div>
   </div>
 
   <ExportPanel
@@ -1334,6 +1335,15 @@ onUnmounted(() => {
 
 .action-item:hover {
   background: var(--bg-hover);
+}
+
+.readonly-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
 }
 
 @keyframes spin {

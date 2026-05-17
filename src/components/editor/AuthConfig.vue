@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { X } from '@lucide/vue'
 import type { AuthConfig } from '@/types'
 
 const props = defineProps<{
@@ -189,7 +190,7 @@ async function fetchOAuth2Token() {
         <label>Access Token</label>
         <div class="token-field">
           <input type="text" :value="auth.oauth2Token" :disabled="readonly" @input="update({ oauth2Token: ($event.target as HTMLInputElement).value })" placeholder="手动输入或自动获取的 Token" />
-          <button v-if="auth.oauth2Token" class="btn-clear-token" :disabled="readonly" @click="update({ oauth2Token: '' })" title="清除 Token">&times;</button>
+          <button v-if="auth.oauth2Token" class="btn-clear-token" :disabled="readonly" @click="update({ oauth2Token: '' })" title="清除 Token"><X :size="14" /></button>
         </div>
       </div>
       <div v-if="auth.oauth2Token" class="field-hint">

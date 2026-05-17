@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
+import { AlertTriangle, Pencil } from '@lucide/vue'
 import { dialogState, resolveDialog } from '@/composables/useDialog'
 
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -19,7 +20,8 @@ watch(() => dialogState.visible, async visible => {
       <div v-if="dialogState.visible" class="dialog-overlay" @click.self="resolveDialog(false)">
         <div class="dialog-card" role="dialog" aria-modal="true" :aria-labelledby="'app-dialog-title'">
           <div class="dialog-icon" :class="{ danger: dialogState.danger }">
-            {{ dialogState.kind === 'prompt' ? '✎' : '!' }}
+            <Pencil v-if="dialogState.kind === 'prompt'" :size="18" />
+            <AlertTriangle v-else :size="18" />
           </div>
           <div class="dialog-body">
             <h3 id="app-dialog-title">{{ dialogState.title }}</h3>
