@@ -118,12 +118,6 @@ function buildExtension() {
     cpDir(iconsDir, join(DIST_EXTENSION, 'icons'))
   }
 
-  // 复制 sandbox.html (如果 public 目录有)
-  const publicSandbox = join(ROOT, 'public', 'sandbox.html')
-  if (existsSync(publicSandbox) && !existsSync(join(DIST_EXTENSION, 'sandbox.html'))) {
-    copyFileSync(publicSandbox, join(DIST_EXTENSION, 'sandbox.html'))
-  }
-
   logSuccess(`Chrome 扩展已打包到 dist-extension/`)
 }
 
