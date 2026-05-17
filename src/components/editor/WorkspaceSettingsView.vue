@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ArrowDownLeft, ArrowRight, BarChart3, BookOpen, Boxes, BrickWall, CheckCircle2, ClipboardList, FileJson2, FileText, Link2, Lock, PackageOpen, Puzzle, ReceiptText, RefreshCw, Settings, Trash2, TrendingUp, Wrench, Zap } from '@lucide/vue'
+import { ArrowDownLeft, ArrowRight, BarChart3, Boxes, FileJson2, FileText, Link2, Lock, PackageOpen, Puzzle, ReceiptText, Settings, Trash2, TrendingUp, Wrench, Zap } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { generateMarkdownDoc, generateOpenApiSpec, generateOpenApiYamlSpec } from '@/utils/export'
+import { generateOpenApiSpec, generateOpenApiYamlSpec } from '@/utils/export'
 import { importOpenApi } from '@/utils/openapi-import'
 import { getDataSourceIntervalMinutes, syncModuleDataSource, getModuleSyncLogs, clearModuleSyncLogs } from '@/utils/data-source-sync'
-import { sendRequest, sendBackupRequest } from '@/utils/http'
+import { sendBackupRequest } from '@/utils/http'
 import { db } from '@/db'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
-import type { ApiConfig, InterfaceTestCase, KvPair, ModuleDataModel, ModuleDataSource, ModuleDocArtifact, ModuleExportConfig, ModuleAuditLog, ModuleScenarioCase, ModuleStats, ModuleSyncLog, ModuleType, ModuleVariables, ResponseData } from '@/types'
+import type { ApiConfig, KvPair, ModuleDataSource, ModuleExportConfig, ModuleAuditLog, ModuleStats, ModuleSyncLog, ModuleType, ModuleVariables } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -21,7 +21,6 @@ const moduleName = ref('')
 const moduleCategoryId = ref('')
 const moduleDescription = ref('')
 const moduleType = ref<ModuleType>('generic')
-const exportFormat = ref<ModuleExportConfig['format']>('openapi3')
 const exportAutoBackup = ref(false)
 const exportBackupTarget = ref<NonNullable<ModuleExportConfig['backupTarget']>>('local')
 const exportBackupEndpoint = ref('')
@@ -43,20 +42,12 @@ const dataSourceSyncIntervalMinutes = ref(60)
 const dataSourceWebhookSecret = ref('')
 const dataSourceMappingText = ref('operationId=接口名称\nsummary=接口描述\ntags[0]=文件夹分类')
 const openapiText = ref('')
-const activeModuleTab = ref<'overview' | 'variables' | 'artifacts' | 'settings'>('overview')
+const activeModuleTab = ref<'overview' | 'variables' | 'settings'>('overview')
 const saveMessage = ref('')
 const isSyncingDataSource = ref(false)
 const dataSourceSyncLog = ref<string[]>([])
-const moduleDocs = ref<ModuleDocArtifact[]>([])
-const moduleModels = ref<ModuleDataModel[]>([])
-const interfaceTestCases = ref<InterfaceTestCase[]>([])
-const moduleScenarioCases = ref<ModuleScenarioCase[]>([])
 const moduleAuditLogs = ref<ModuleAuditLog[]>([])
 const moduleSyncLogs = ref<ModuleSyncLog[]>([])
-const docDraft = ref({ id: '', title: '', interfaceId: '', format: 'markdown' as ModuleDocArtifact['format'], content: '' })
-const modelDraft = ref({ id: '', name: '', description: '', schemaText: '{\n  \"type\": \"object\",\n  \"properties\": {}\n}' })
-const testCaseDraft = ref({ id: '', interfaceId: '', name: '', expectedStatus: 200, assertionsText: 'status=200' })
-const extractorDraft = ref({ variable: '', sourceType: 'json' as 'json' | 'header' | 'body', path: '$.data.token' })
 const bulkEditDraft = ref({
   target: 'headers' as 'headers' | 'params',
   operation: 'upsert' as 'upsert' | 'addMissing' | 'replaceExisting' | 'remove',
@@ -65,8 +56,6 @@ const bulkEditDraft = ref({
   enabled: true,
   onlyEnabledRequests: false,
 })
-const runningCaseId = ref<string | null>(null)
-const runningScenarioId = ref<string | null>(null)
 let messageTimer: ReturnType<typeof setTimeout> | null = null
 let backupInProgress = false
 
@@ -90,18 +79,6 @@ const backupConflictPreview = ref<{
   resolve: (decision: BackupConflictDecision) => void
 } | null>(null)
 
-interface ScenarioDraftStep {
-  caseId: string
-  enabled: boolean
-  continueOnFailure: boolean
-}
-
-function createEmptyScenarioDraft() {
-  return { id: '', name: '', description: '', selectedCaseId: '', steps: [] as ScenarioDraftStep[], continueOnFailure: false }
-}
-
-const scenarioDraft = ref(createEmptyScenarioDraft())
-
 interface VariableRow {
   key: string
   remote: string
@@ -116,7 +93,7 @@ const variableRenameDraft = ref({ from: '', to: '' })
 
 const moduleTypes: Array<{ value: ModuleType; title: string; desc: string }> = [
   { value: 'generic', title: '通用 API', desc: '通过可视化表单设计、调试和维护接口。' },
-  { value: 'openapi-yaml', title: 'OpenAPI YAML', desc: '面向已有 Swagger/OpenAPI 文档的 YAML/JSON 编辑模式。' },
+  { value: 'openapi-yaml', title: 'OpenAPI YAML', desc: '面向已有 Swagger/OpenAPI 规格的 YAML/JSON 编辑模式。' },
   { value: 'readonly', title: '只读模式', desc: '禁止手动修改，适合通过导入或同步更新的接口。' },
 ]
 
@@ -181,31 +158,9 @@ const openapiPreviewError = computed(() => {
   return '未识别到有效的 OpenAPI/Swagger paths。'
 })
 
-const moduleStats = computed(() => {
-  const coveredInterfaceIds = new Set(interfaceTestCases.value.map(item => item.interfaceId))
-  const scenarioCoveredInterfaceIds = new Set(
-    moduleScenarioCases.value.flatMap(scenario => scenario.steps.map(step => step.interfaceId)),
-  )
-  const interfaceCount = selectedModuleInterfaceCount.value
-  const coveredCount = moduleInterfaces.value.filter(item => coveredInterfaceIds.has(item.id)).length
-  const scenarioCoveredCount = moduleInterfaces.value.filter(item => scenarioCoveredInterfaceIds.has(item.id)).length
-  const caseCoverageNumber = interfaceCount > 0 ? Math.round((coveredCount / interfaceCount) * 100) : 0
-  const sceneCoverageNumber = interfaceCount > 0 ? Math.round((scenarioCoveredCount / interfaceCount) * 100) : 0
-  const uncoveredInterfaceCount = Math.max(0, interfaceCount - coveredCount)
-  return {
-    interfaceCount,
-    docCount: moduleDocs.value.length,
-    modelCount: moduleModels.value.length,
-    caseTotal: interfaceTestCases.value.length,
-    caseCoverage: `${caseCoverageNumber}%`,
-    caseCoverageNumber,
-    sceneCaseTotal: moduleScenarioCases.value.length,
-    sceneCoverage: `${sceneCoverageNumber}%`,
-    sceneCoverageNumber,
-    avgCasePerInterface: interfaceCount > 0 ? (interfaceTestCases.value.length / interfaceCount).toFixed(1) : '0.0',
-    uncoveredInterfaceCount,
-  }
-})
+const moduleStats = computed(() => ({
+  interfaceCount: selectedModuleInterfaceCount.value,
+}))
 
 const moduleActivityTrend = computed(() => {
   const module = activeModule.value
@@ -301,7 +256,6 @@ watch(activeModule, (module, previousModule) => {
   moduleCategoryId.value = module?.categoryId ?? ''
   moduleDescription.value = module?.description ?? ''
   moduleType.value = module?.type ?? 'generic'
-  exportFormat.value = module?.exportConfig?.format ?? 'openapi3'
   exportAutoBackup.value = module?.exportConfig?.autoBackup ?? false
   exportBackupTarget.value = module?.exportConfig?.backupTarget ?? 'local'
   exportBackupEndpoint.value = module?.exportConfig?.backupEndpoint ?? ''
@@ -327,40 +281,18 @@ watch(activeModule, (module, previousModule) => {
   variableRows.value = moduleVariablesToRows(module?.variables)
   if (moduleChanged) {
     activeModuleTab.value = 'overview'
-    resetArtifactDrafts()
-    void loadModuleArtifacts(module?.id)
+    void loadModuleAuditLogs(module?.id)
     void loadModuleSyncLogs(module?.id)
   }
   clearMessage()
 }, { immediate: true })
 
-function resetArtifactDrafts() {
-  docDraft.value = { id: '', title: '', interfaceId: '', format: 'markdown', content: '' }
-  modelDraft.value = { id: '', name: '', description: '', schemaText: '{\n  \"type\": \"object\",\n  \"properties\": {}\n}' }
-  testCaseDraft.value = { id: '', interfaceId: '', name: '', expectedStatus: 200, assertionsText: 'status=200' }
-  scenarioDraft.value = createEmptyScenarioDraft()
-}
-
-async function loadModuleArtifacts(moduleId?: string) {
+async function loadModuleAuditLogs(moduleId?: string) {
   if (!moduleId) {
-    moduleDocs.value = []
-    moduleModels.value = []
-    interfaceTestCases.value = []
-    moduleScenarioCases.value = []
     moduleAuditLogs.value = []
     return
   }
-  const [docs, models, cases, scenarios, auditLogs] = await Promise.all([
-    db.moduleDocs.where('moduleId').equals(moduleId).toArray(),
-    db.moduleModels.where('moduleId').equals(moduleId).toArray(),
-    db.interfaceTestCases.where('moduleId').equals(moduleId).toArray(),
-    db.moduleScenarioCases.where('moduleId').equals(moduleId).toArray(),
-    db.moduleAuditLogs.where('moduleId').equals(moduleId).toArray(),
-  ])
-  moduleDocs.value = docs.sort((a, b) => b.updatedAt - a.updatedAt)
-  moduleModels.value = models.sort((a, b) => b.updatedAt - a.updatedAt)
-  interfaceTestCases.value = cases.sort((a, b) => b.updatedAt - a.updatedAt)
-  moduleScenarioCases.value = scenarios.sort((a, b) => b.updatedAt - a.updatedAt)
+  const auditLogs = await db.moduleAuditLogs.where('moduleId').equals(moduleId).toArray()
   moduleAuditLogs.value = auditLogs.sort((a, b) => b.createdAt - a.createdAt).slice(0, 20)
 }
 
@@ -389,25 +321,9 @@ async function recordModuleAudit(action: string, detail: string) {
 function buildModuleStatsSnapshot(): ModuleStats {
   return {
     interfaceCount: moduleStats.value.interfaceCount,
-    docCount: moduleStats.value.docCount,
-    modelCount: moduleStats.value.modelCount,
-    testCaseTotal: moduleStats.value.caseTotal,
-    testCaseCoverage: moduleStats.value.caseCoverageNumber,
-    sceneCaseTotal: moduleStats.value.sceneCaseTotal,
-    sceneCaseCoverage: moduleStats.value.sceneCoverageNumber,
-    avgCasePerInterface: Number(moduleStats.value.avgCasePerInterface),
-    uncoveredInterfaceCount: moduleStats.value.uncoveredInterfaceCount,
   }
 }
 
-async function refreshArtifacts(message?: string) {
-  await loadModuleArtifacts(activeModule.value?.id)
-  const module = activeModule.value
-  if (module) {
-    await workspace.updateModule(module.id, { stats: buildModuleStatsSnapshot() })
-  }
-  if (message) showSaved(message)
-}
 
 function clearMessage() {
   if (messageTimer) {
@@ -599,7 +515,7 @@ function moduleModeFromType(type: ModuleType): 'visual' | 'yaml' | 'readonly' {
 
 function buildExportConfig(): ModuleExportConfig {
   return {
-    format: exportFormat.value,
+    format: 'openapi3',
     autoBackup: exportAutoBackup.value,
     backupTarget: exportBackupTarget.value,
     backupEndpoint: exportBackupEndpoint.value.trim(),
@@ -630,10 +546,6 @@ function assertModulePermission(action: ModulePermissionAction, label: string): 
   if (hasModulePermission(action)) return true
   showSaved(`当前权限不允许${label}`)
   return false
-}
-
-function newArtifactId(prefix: string): string {
-  return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`
 }
 
 function buildDataSource(existing?: ModuleDataSource | null): ModuleDataSource | null {
@@ -1073,92 +985,6 @@ function downloadText(filename: string, content: string, type = 'application/jso
 }
 
 
-function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function renderPairsTable(title: string, pairs: Array<{ key: string; value: string; enabled: boolean; description?: string }>): string {
-  const enabled = pairs.filter(item => item.enabled && item.key)
-  if (enabled.length === 0) return ''
-  return `<section><h3>${escapeHtml(title)}</h3><table><thead><tr><th>Key</th><th>Value</th><th>Description</th></tr></thead><tbody>${enabled.map(item => `<tr><td><code>${escapeHtml(item.key)}</code></td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.description ?? '')}</td></tr>`).join('')}</tbody></table></section>`
-}
-
-function renderApiHtml(api: ApiConfig): string {
-  const bodyHtml = api.body.type === 'none'
-    ? ''
-    : `<section><h3>Request Body · ${escapeHtml(api.body.type)}</h3>${api.body.raw ? `<pre>${escapeHtml(api.body.raw)}</pre>` : renderPairsTable(api.body.type === 'form' ? 'Form Data' : 'Urlencoded', api.body.type === 'form' ? api.body.formData : api.body.urlEncoded)}</section>`
-  return `<article class="api-card">
-    <header><span class="method ${api.method.toLowerCase()}">${api.method}</span><div><h2>${escapeHtml(api.name)}</h2><code>${escapeHtml(api.url)}</code></div></header>
-    ${api.description ? `<p class="api-description">${escapeHtml(api.description)}</p>` : ''}
-    ${renderPairsTable('Query Parameters', api.params)}
-    ${renderPairsTable('Headers', api.headers)}
-    ${renderPairsTable('Cookies', api.cookies)}
-    ${bodyHtml}
-  </article>`
-}
-
-function buildModuleHtmlSite(moduleName: string, apis: ApiConfig[]): string {
-  const docHtml = moduleDocs.value.length
-    ? `<section class="docs"><h2>模块文档</h2>${moduleDocs.value.map(doc => `<article><h3>${escapeHtml(doc.title)}</h3><pre>${escapeHtml(doc.content)}</pre></article>`).join('')}</section>`
-    : ''
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(moduleName)} API Docs</title>
-  <style>
-    :root { color-scheme: light dark; --bg:#f8fafc; --panel:#fff; --text:#0f172a; --muted:#64748b; --border:#e2e8f0; --primary:#4f46e5; }
-    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
-    main { max-width:1080px; margin:0 auto; padding:32px 18px 56px; }
-    .hero, .api-card, .docs article { background:var(--panel); border:1px solid var(--border); border-radius:18px; box-shadow:0 12px 30px rgba(15,23,42,.08); }
-    .hero { padding:28px; margin-bottom:18px; }
-    .hero h1 { margin:0 0 8px; font-size:32px; }
-    .hero p { margin:0; color:var(--muted); }
-    .api-card { margin:14px 0; overflow:hidden; }
-    .api-card > header { display:flex; gap:14px; align-items:flex-start; padding:18px; border-bottom:1px solid var(--border); }
-    .api-card h2 { margin:0 0 6px; font-size:20px; }
-    code, pre { font-family:"SFMono-Regular",Consolas,monospace; }
-    .method { min-width:70px; color:#fff; border-radius:10px; padding:7px 10px; text-align:center; font-weight:800; background:var(--primary); }
-    .method.get { background:#16a34a; } .method.post { background:#2563eb; } .method.put { background:#d97706; } .method.delete { background:#dc2626; } .method.patch { background:#7c3aed; }
-    section { padding:0 18px 18px; }
-    section h3 { margin:16px 0 8px; color:var(--muted); font-size:15px; }
-    table { width:100%; border-collapse:collapse; font-size:14px; }
-    th,td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
-    th { background:rgba(148,163,184,.12); }
-    pre { margin:0; padding:12px; overflow:auto; white-space:pre-wrap; border:1px solid var(--border); border-radius:12px; background:rgba(148,163,184,.12); }
-    .docs { padding:0; margin:18px 0; }
-    .docs article { padding:18px; margin:12px 0; }
-    @media (prefers-color-scheme: dark) { :root { --bg:#020617; --panel:#0f172a; --text:#e2e8f0; --muted:#94a3b8; --border:#1e293b; } }
-  </style>
-</head>
-<body>
-  <main>
-    <section class="hero"><h1>${escapeHtml(moduleName)}</h1><p>由 ApiFix Bin Pro 导出的单文件 API 文档站 · ${apis.length} 个接口 · ${new Date().toLocaleString()}</p></section>
-    ${docHtml}
-    ${apis.map(renderApiHtml).join('\n')}
-  </main>
-</body>
-</html>`
-}
-
-function exportModuleHtmlSite() {
-  const apis = getModuleApis()
-  const module = activeModule.value
-  if (!module || apis.length === 0) {
-    showSaved('暂无可发布的接口')
-    return
-  }
-  downloadText(`${safeFileName(module.name)}.docs.html`, buildModuleHtmlSite(module.name, apis), 'text/html')
-  void recordModuleAudit('docs.export-html', `导出 HTML 文档站：${apis.length} 个接口`)
-  showSaved('已导出 HTML 文档站')
-}
-
 function buildModuleOpenApiShareSpec() {
   const apis = getModuleApis()
   if (apis.length === 0) return null
@@ -1217,75 +1043,6 @@ async function copyModuleShareLink() {
   void recordModuleAudit('openapi.share-link', `生成权限分享链接：${share.count} 个接口`)
 }
 
-function exportModuleMarkdown() {
-  const apis = getModuleApis()
-  if (apis.length === 0) {
-    showSaved('暂无可导出的接口')
-    return
-  }
-  const name = activeModule.value?.name ?? 'module'
-  const content = [`# ${name}`, '', ...apis.flatMap(api => [generateMarkdownDoc(api), ''])].join('\n')
-  downloadText(`${safeFileName(name)}.md`, content, 'text/markdown')
-  void recordModuleAudit('docs.export-markdown', `导出 Markdown：${apis.length} 个接口`)
-  showSaved('已导出 Markdown')
-}
-
-function exportModuleTestReport() {
-  const module = activeModule.value
-  if (!module) return
-  const lines = [
-    `# ${module.name} 测试报告`,
-    '',
-    `- 导出时间：${new Date().toLocaleString()}`,
-    `- 接口数：${moduleStats.value.interfaceCount}`,
-    `- 单接口用例：${moduleStats.value.caseTotal}（覆盖率 ${moduleStats.value.caseCoverage}）`,
-    `- 场景用例：${moduleStats.value.sceneCaseTotal}（覆盖率 ${moduleStats.value.sceneCoverage}）`,
-    '',
-    '## 单接口用例',
-    '',
-  ]
-
-  if (interfaceTestCases.value.length === 0) {
-    lines.push('暂无单接口用例。', '')
-  } else {
-    for (const testCase of interfaceTestCases.value) {
-      lines.push(
-        `### ${testCase.name}`,
-        '',
-        `- 接口：${getInterfaceName(testCase.interfaceId)}`,
-        `- 期望状态码：${testCase.expectedStatus ?? '-'}`,
-        `- 最近结果：${testCase.lastRunAt ? `${testCase.lastPassed ? '通过' : '未通过'}（${formatTime(testCase.lastRunAt)}）` : '未运行'}`,
-        `- 断言：${(testCase.assertions ?? []).join('；') || '无'}`,
-        '',
-      )
-    }
-  }
-
-  lines.push('## 场景用例', '')
-  if (moduleScenarioCases.value.length === 0) {
-    lines.push('暂无场景用例。', '')
-  } else {
-    for (const scenario of moduleScenarioCases.value) {
-      lines.push(
-        `### ${scenario.name}`,
-        '',
-        `- 说明：${scenario.description || '-'}`,
-        `- 步骤：${getScenarioStepSummary(scenario) || '无'}`,
-        `- 最近结果：${scenario.lastRunAt ? `${scenario.lastPassed ? '通过' : '未通过'}（${formatTime(scenario.lastRunAt)}）` : '未运行'}`,
-        `- 通过/总数：${scenario.lastReport?.passed ?? 0}/${scenario.lastReport?.total ?? scenario.steps.length}`,
-      )
-      if (scenario.lastReport?.failures?.length) {
-        lines.push('- 失败原因：', ...scenario.lastReport.failures.map(item => `  - ${item}`))
-      }
-      lines.push('')
-    }
-  }
-
-  downloadText(`${safeFileName(module.name)}.test-report.md`, lines.join('\n'), 'text/markdown')
-  void recordModuleAudit('tests.export-report', '导出模块测试报告')
-  showSaved('已导出测试报告')
-}
-
 function buildModuleBackupPayload() {
   const module = activeModule.value
   if (!module) return null
@@ -1294,10 +1051,6 @@ function buildModuleBackupPayload() {
     category: workspace.categories.find(item => item.id === module.categoryId) ?? null,
     interfaces: moduleInterfaces.value,
     apis: getModuleApis(),
-    docs: moduleDocs.value,
-    models: moduleModels.value,
-    testCases: interfaceTestCases.value,
-    scenarioCases: moduleScenarioCases.value,
     auditLogs: moduleAuditLogs.value,
     exportedAt: new Date().toISOString(),
     localUpdatedAt: module.meta?.updatedAt ?? module.updatedAt,
@@ -1317,10 +1070,6 @@ function summarizeBackupForConflict(backup: any): string {
   return [
     `更新时间：${formatTime(getBackupUpdatedAt(backup))}`,
     `接口：${backup?.interfaces?.length ?? 0}`,
-    `文档：${backup?.docs?.length ?? 0}`,
-    `模型：${backup?.models?.length ?? 0}`,
-    `单接口用例：${backup?.testCases?.length ?? 0}`,
-    `场景用例：${backup?.scenarioCases?.length ?? 0}`,
   ].join('，')
 }
 
@@ -1337,10 +1086,6 @@ function buildBackupConflictRows(remoteBackup: any, localBackup: any): BackupCon
     ['模块说明', backup => backup?.module?.description],
     ['模块类型', backup => backup?.module?.type],
     ['接口数量', backup => backup?.interfaces?.length ?? 0],
-    ['文档数量', backup => backup?.docs?.length ?? 0],
-    ['模型数量', backup => backup?.models?.length ?? 0],
-    ['单接口用例数量', backup => backup?.testCases?.length ?? 0],
-    ['场景用例数量', backup => backup?.scenarioCases?.length ?? 0],
     ['模块变量', backup => Object.keys(backup?.module?.variables ?? {}).sort()],
     ['导出/权限配置', backup => backup?.module?.exportConfig],
     ['数据源配置', backup => backup?.module?.dataSource],
@@ -1411,10 +1156,6 @@ function mergeBackupPayloadByFields(remoteBackup: any, localBackup: any, remoteF
     merged.interfaces = cloneBackupPayload(remoteBackup?.interfaces ?? [])
     merged.apis = cloneBackupPayload(remoteBackup?.apis ?? [])
   }
-  if (useRemote.has('文档数量')) merged.docs = cloneBackupPayload(remoteBackup?.docs ?? [])
-  if (useRemote.has('模型数量')) merged.models = cloneBackupPayload(remoteBackup?.models ?? [])
-  if (useRemote.has('单接口用例数量')) merged.testCases = cloneBackupPayload(remoteBackup?.testCases ?? [])
-  if (useRemote.has('场景用例数量')) merged.scenarioCases = cloneBackupPayload(remoteBackup?.scenarioCases ?? [])
   if (useRemote.has('模块变量')) merged.module.variables = cloneBackupPayload(remoteBackup?.module?.variables ?? {})
   if (useRemote.has('导出/权限配置')) merged.module.exportConfig = cloneBackupPayload(remoteBackup?.module?.exportConfig ?? {})
   if (useRemote.has('数据源配置')) merged.module.dataSource = cloneBackupPayload(remoteBackup?.module?.dataSource ?? null)
@@ -1675,606 +1416,6 @@ async function saveCategoryModulePrefixes() {
   }
 }
 
-async function saveDocArtifact() {
-  const module = activeModule.value
-  if (!module) return
-  const title = docDraft.value.title.trim()
-  if (!title) {
-    showSaved('请填写文档标题')
-    return
-  }
-  const now = Date.now()
-  const existing = docDraft.value.id ? moduleDocs.value.find(item => item.id === docDraft.value.id) : null
-  const doc: ModuleDocArtifact = {
-    id: existing?.id ?? newArtifactId('doc'),
-    moduleId: module.id,
-    interfaceId: docDraft.value.interfaceId || undefined,
-    title,
-    format: docDraft.value.format,
-    content: docDraft.value.content,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  }
-  await db.moduleDocs.put(doc)
-  docDraft.value = { id: '', title: '', interfaceId: '', format: 'markdown', content: '' }
-  await refreshArtifacts('文档已保存')
-}
-
-function editDocArtifact(doc: ModuleDocArtifact) {
-  docDraft.value = {
-    id: doc.id,
-    title: doc.title,
-    interfaceId: doc.interfaceId ?? '',
-    format: doc.format,
-    content: doc.content,
-  }
-  activeModuleTab.value = 'artifacts'
-}
-
-async function deleteDocArtifact(id: string) {
-  if (!window.confirm('确认删除该文档？')) return
-  await db.moduleDocs.delete(id)
-  if (docDraft.value.id === id) docDraft.value = { id: '', title: '', interfaceId: '', format: 'markdown', content: '' }
-  await refreshArtifacts('文档已删除')
-}
-
-async function saveDataModel() {
-  const module = activeModule.value
-  if (!module) return
-  const name = modelDraft.value.name.trim()
-  if (!name) {
-    showSaved('请填写模型名称')
-    return
-  }
-  let schema: Record<string, unknown>
-  try {
-    schema = JSON.parse(modelDraft.value.schemaText || '{}')
-    if (schema === null || Array.isArray(schema) || typeof schema !== 'object') throw new Error('schema must be object')
-  } catch {
-    showSaved('Schema 必须是有效 JSON 对象')
-    return
-  }
-  const now = Date.now()
-  const existing = modelDraft.value.id ? moduleModels.value.find(item => item.id === modelDraft.value.id) : null
-  const model: ModuleDataModel = {
-    id: existing?.id ?? newArtifactId('model'),
-    moduleId: module.id,
-    name,
-    description: modelDraft.value.description.trim(),
-    schema,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  }
-  await db.moduleModels.put(model)
-  modelDraft.value = { id: '', name: '', description: '', schemaText: '{\n  \"type\": \"object\",\n  \"properties\": {}\n}' }
-  await refreshArtifacts('数据模型已保存')
-}
-
-function editDataModel(model: ModuleDataModel) {
-  modelDraft.value = {
-    id: model.id,
-    name: model.name,
-    description: model.description ?? '',
-    schemaText: JSON.stringify(model.schema ?? {}, null, 2),
-  }
-  activeModuleTab.value = 'artifacts'
-}
-
-async function deleteDataModel(id: string) {
-  if (!window.confirm('确认删除该数据模型？')) return
-  await db.moduleModels.delete(id)
-  if (modelDraft.value.id === id) modelDraft.value = { id: '', name: '', description: '', schemaText: '{\n  \"type\": \"object\",\n  \"properties\": {}\n}' }
-  await refreshArtifacts('数据模型已删除')
-}
-
-function getInterfaceName(interfaceId?: string): string {
-  if (!interfaceId) return '模块级'
-  const node = workspace.interfaces.find(item => item.id === interfaceId || item.apiId === interfaceId)
-  return node ? `${node.method} ${store.apis[node.apiId]?.name ?? node.name}` : '未知接口'
-}
-
-function getCaseAssertionLines(): string[] {
-  return testCaseDraft.value.assertionsText
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-}
-
-function appendExtractorAssertion() {
-  const variable = extractorDraft.value.variable.trim()
-  if (!variable) {
-    showSaved('请填写要写入的变量名')
-    return
-  }
-  const path = extractorDraft.value.path.trim()
-  let source = 'body'
-  if (extractorDraft.value.sourceType === 'json') source = path || '$'
-  if (extractorDraft.value.sourceType === 'header') source = `header.${path || 'content-type'}`
-  const line = `env.${variable}<- ${source}`
-  const current = testCaseDraft.value.assertionsText.trim()
-  testCaseDraft.value.assertionsText = current ? `${current}\n${line}` : line
-  extractorDraft.value.variable = ''
-  showSaved(`已添加提取器：${line}`)
-}
-
-function getTestCaseName(caseId?: string): string {
-  if (!caseId) return '未绑定用例'
-  return interfaceTestCases.value.find(item => item.id === caseId)?.name ?? '未知用例'
-}
-
-function getScenarioStepSummary(scenario: ModuleScenarioCase): string {
-  return scenario.steps
-    .sort((a, b) => a.order - b.order)
-    .map(step => `${step.enabled === false ? '（跳过）' : ''}${step.name || getTestCaseName(step.caseId) || getInterfaceName(step.interfaceId)}`)
-    .join(' -> ')
-}
-
-function hasScenarioContinueOnFailure(scenario: ModuleScenarioCase): boolean {
-  return scenario.steps.some(step => step.enabled !== false && step.continueOnFailure)
-}
-
-async function saveInterfaceTestCase() {
-  const module = activeModule.value
-  if (!module) return
-  const name = testCaseDraft.value.name.trim()
-  if (!testCaseDraft.value.interfaceId) {
-    showSaved('请选择接口')
-    return
-  }
-  if (!name) {
-    showSaved('请填写用例名称')
-    return
-  }
-  const now = Date.now()
-  const existing = testCaseDraft.value.id ? interfaceTestCases.value.find(item => item.id === testCaseDraft.value.id) : null
-  const testCase: InterfaceTestCase = {
-    id: existing?.id ?? newArtifactId('case'),
-    moduleId: module.id,
-    interfaceId: testCaseDraft.value.interfaceId,
-    name,
-    expectedStatus: Number(testCaseDraft.value.expectedStatus) || undefined,
-    assertions: getCaseAssertionLines(),
-    lastRunAt: existing?.lastRunAt,
-    lastPassed: existing?.lastPassed,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  }
-  await db.interfaceTestCases.put(testCase)
-  testCaseDraft.value = { id: '', interfaceId: '', name: '', expectedStatus: 200, assertionsText: 'status=200' }
-  await refreshArtifacts('测试用例已保存')
-}
-
-function editInterfaceTestCase(testCase: InterfaceTestCase) {
-  testCaseDraft.value = {
-    id: testCase.id,
-    interfaceId: testCase.interfaceId,
-    name: testCase.name,
-    expectedStatus: testCase.expectedStatus ?? 200,
-    assertionsText: (testCase.assertions && testCase.assertions.length > 0 ? testCase.assertions : ['status=200']).join('\n'),
-  }
-  activeModuleTab.value = 'artifacts'
-}
-
-async function deleteInterfaceTestCase(id: string) {
-  if (!window.confirm('确认删除该测试用例？')) return
-  await db.interfaceTestCases.delete(id)
-  if (testCaseDraft.value.id === id) testCaseDraft.value = { id: '', interfaceId: '', name: '', expectedStatus: 200, assertionsText: 'status=200' }
-  await refreshArtifacts('测试用例已删除')
-}
-
-function addScenarioStep() {
-  if (!scenarioDraft.value.selectedCaseId) return
-  if (!scenarioDraft.value.steps.some(step => step.caseId === scenarioDraft.value.selectedCaseId)) {
-    scenarioDraft.value.steps.push({
-      caseId: scenarioDraft.value.selectedCaseId,
-      enabled: true,
-      continueOnFailure: scenarioDraft.value.continueOnFailure,
-    })
-  }
-  scenarioDraft.value.selectedCaseId = ''
-}
-
-function removeScenarioStep(index: number) {
-  scenarioDraft.value.steps.splice(index, 1)
-}
-
-async function saveScenarioCase() {
-  const module = activeModule.value
-  if (!module) return
-  const name = scenarioDraft.value.name.trim()
-  if (!name) {
-    showSaved('请填写场景用例名称')
-    return
-  }
-  if (scenarioDraft.value.steps.filter(step => step.enabled).length === 0) {
-    showSaved('请至少添加一个单接口用例步骤')
-    return
-  }
-
-  const now = Date.now()
-  const existing = scenarioDraft.value.id ? moduleScenarioCases.value.find(item => item.id === scenarioDraft.value.id) : null
-  const steps: ModuleScenarioCase['steps'] = []
-  scenarioDraft.value.steps.forEach((stepDraft, order) => {
-    const testCase = interfaceTestCases.value.find(item => item.id === stepDraft.caseId)
-    if (!testCase) return
-    steps.push({
-      id: `${stepDraft.caseId}:${order}`,
-      caseId: stepDraft.caseId,
-      interfaceId: testCase.interfaceId,
-      name: testCase.name,
-      order,
-      enabled: stepDraft.enabled,
-      continueOnFailure: stepDraft.continueOnFailure,
-    })
-  })
-  if (steps.length === 0) {
-    showSaved('场景步骤关联的用例无效')
-    return
-  }
-
-  const scenario: ModuleScenarioCase = {
-    id: existing?.id ?? newArtifactId('scenario'),
-    moduleId: module.id,
-    name,
-    description: scenarioDraft.value.description.trim(),
-    steps,
-    lastRunAt: existing?.lastRunAt,
-    lastPassed: existing?.lastPassed,
-    lastReport: existing?.lastReport,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  }
-  await db.moduleScenarioCases.put(scenario)
-  scenarioDraft.value = createEmptyScenarioDraft()
-  await refreshArtifacts('场景用例已保存')
-}
-
-function editScenarioCase(scenario: ModuleScenarioCase) {
-  const orderedSteps = [...scenario.steps].sort((a, b) => a.order - b.order)
-  scenarioDraft.value = {
-    id: scenario.id,
-    name: scenario.name,
-    description: scenario.description ?? '',
-    selectedCaseId: '',
-    steps: orderedSteps
-      .map(step => step.caseId ? ({
-        caseId: step.caseId,
-        enabled: step.enabled !== false,
-        continueOnFailure: Boolean(step.continueOnFailure),
-      }) : null)
-      .filter((step): step is ScenarioDraftStep => Boolean(step)),
-    continueOnFailure: orderedSteps.some(step => step.continueOnFailure),
-  }
-  activeModuleTab.value = 'artifacts'
-}
-
-async function deleteScenarioCase(id: string) {
-  if (!window.confirm('确认删除该场景用例？')) return
-  await db.moduleScenarioCases.delete(id)
-  if (scenarioDraft.value.id === id) scenarioDraft.value = createEmptyScenarioDraft()
-  await refreshArtifacts('场景用例已删除')
-}
-
-function resolveExtractionSource(source: string, response: ResponseData): string {
-  const trimmed = source.trim()
-  if (!trimmed || trimmed === 'body') return response.body
-  if (trimmed.startsWith('header.')) {
-    const headerKey = trimmed.slice('header.'.length).toLowerCase()
-    return Object.entries(response.headers).find(([key]) => key.toLowerCase() === headerKey)?.[1] ?? ''
-  }
-  if (trimmed.startsWith('$.') || trimmed.startsWith('json.')) {
-    try {
-      const body = JSON.parse(response.body)
-      const value = readJsonPath(body, trimmed)
-      return value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value)
-    } catch {
-      return ''
-    }
-  }
-  return trimmed
-}
-
-async function applyEnvironmentUpdates(updates: Record<string, string>) {
-  const entries = Object.entries(updates).filter(([key]) => key.trim())
-  if (entries.length === 0) return
-  const env = store.environments.find(item => item.id === store.currentEnvId)
-  if (!env) return
-  const variables = [...env.variables]
-  for (const [key, value] of entries) {
-    const existing = variables.find(item => item.key === key)
-    if (existing) {
-      existing.value = value
-      existing.enabled = true
-    } else {
-      variables.push({ key, value, enabled: true })
-    }
-  }
-  await store.upsertEnvironment({ ...env, variables })
-}
-
-function parseJsonPath(path: string): Array<string | number | '*'> {
-  const source = path.trim().replace(/^json(?=\.)/, '$')
-  const tokens: Array<string | number | '*'> = []
-  let i = source.startsWith('$') ? 1 : 0
-  while (i < source.length) {
-    const char = source[i]
-    if (char === '.') {
-      i += 1
-      if (source[i] === '*') {
-        tokens.push('*')
-        i += 1
-        continue
-      }
-      let key = ''
-      while (i < source.length && !['.', '['].includes(source[i])) key += source[i++]
-      if (key) tokens.push(key)
-      continue
-    }
-    if (char === '[') {
-      const end = source.indexOf(']', i)
-      if (end < 0) break
-      const raw = source.slice(i + 1, end).trim()
-      if (raw === '*') tokens.push('*')
-      else if (/^['"].*['"]$/.test(raw)) tokens.push(raw.slice(1, -1))
-      else if (/^-?\d+$/.test(raw)) tokens.push(Number(raw))
-      else if (raw) tokens.push(raw)
-      i = end + 1
-      continue
-    }
-    let key = ''
-    while (i < source.length && !['.', '['].includes(source[i])) key += source[i++]
-    if (key) tokens.push(key)
-  }
-  return tokens
-}
-
-function readJsonPath(source: unknown, path: string): unknown {
-  const tokens = parseJsonPath(path)
-  if (tokens.length === 0) return source
-  const visit = (current: unknown, index: number): unknown => {
-    if (index >= tokens.length) return current
-    const token = tokens[index]
-    if (token === '*') {
-      const list = Array.isArray(current)
-        ? current
-        : current && typeof current === 'object'
-          ? Object.values(current as Record<string, unknown>)
-          : []
-      return list.map(item => visit(item, index + 1)).filter(item => item !== undefined)
-    }
-    if (current == null) return undefined
-    if (Array.isArray(current) && typeof token === 'number') return visit(current[token], index + 1)
-    if (typeof current === 'object') return visit((current as Record<string, unknown>)[String(token)], index + 1)
-    return undefined
-  }
-  return visit(source, 0)
-}
-
-function stripAssertionQuotes(value: string): string {
-  const trimmed = value.trim()
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1)
-  }
-  return trimmed
-}
-
-function stringifyAssertionValue(value: unknown): string {
-  if (value === undefined) return ''
-  if (value === null) return 'null'
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  return JSON.stringify(value)
-}
-
-function compareAssertionValue(label: string, actual: unknown, operator: string, expectedRaw = ''): string | null {
-  const op = operator.toLowerCase()
-  const actualText = stringifyAssertionValue(actual)
-  const expected = stripAssertionQuotes(expectedRaw)
-  if (op === 'exists') return actual === undefined || actual === null || actualText === '' ? `${label} 不存在` : null
-  if (op === 'not exists') return actual === undefined || actual === null || actualText === '' ? null : `${label} 不应存在，实际 ${actualText}`
-  if (op === 'includes' || op === 'contains') return actualText.includes(expected) ? null : `${label} 不包含 ${expected}`
-  if (op === 'not includes') return !actualText.includes(expected) ? null : `${label} 不应包含 ${expected}`
-  if (op === 'matches') {
-    try {
-      const match = expected.match(/^\/(.*)\/([gimsuy]*)$/)
-      const pattern = match ? new RegExp(match[1], match[2]) : new RegExp(expected)
-      return pattern.test(actualText) ? null : `${label} 不匹配 ${expected}`
-    } catch {
-      return `${label} 正则无效：${expected}`
-    }
-  }
-  if (['>', '>=', '<', '<='].includes(op)) {
-    const actualNumber = Number(actualText)
-    const expectedNumber = Number(expected)
-    if (Number.isNaN(actualNumber) || Number.isNaN(expectedNumber)) return `${label} 不能按数字比较`
-    const ok = op === '>' ? actualNumber > expectedNumber
-      : op === '>=' ? actualNumber >= expectedNumber
-        : op === '<' ? actualNumber < expectedNumber
-          : actualNumber <= expectedNumber
-    return ok ? null : `${label} 期望 ${op} ${expectedNumber}，实际 ${actualNumber}`
-  }
-  if (op === '!=' || op === '!==') return actualText !== expected ? null : `${label} 不应等于 ${expected}`
-  return actualText === expected ? null : `${label} 期望 ${expected}，实际 ${actualText}`
-}
-
-function evaluateAssertion(assertion: string, response: ResponseData): string | null {
-  const line = assertion.trim()
-  if (!line) return null
-  if (/^env\.?[\w.-]+\s*(?:=|<-)/i.test(line)) return null
-  const statusInMatch = line.match(/^status\s+in\s+(.+)$/i)
-  if (statusInMatch) {
-    const allowed = statusInMatch[1].split(',').map(item => Number(item.trim())).filter(item => !Number.isNaN(item))
-    return allowed.includes(response.status) ? null : `期望 status in ${allowed.join(', ')}，实际 ${response.status}`
-  }
-  const statusMatch = line.match(/^status\s*(==|=|!=|>=|<=|>|<)\s*(\d+)$/i)
-  if (statusMatch) {
-    return compareAssertionValue('status', response.status, statusMatch[1], statusMatch[2])
-  }
-
-  const bodyEmptyMatch = line.match(/^body\s+is\s+(not\s+)?empty$/i)
-  if (bodyEmptyMatch) {
-    const empty = response.body.length === 0
-    return bodyEmptyMatch[1] ? (!empty ? null : '响应 Body 不应为空') : (empty ? null : '响应 Body 应为空')
-  }
-  const bodyMatch = line.match(/^body\s+(includes|contains|not includes|matches|==|=|!=)\s+(.+)$/i)
-  if (bodyMatch) {
-    return compareAssertionValue('响应 Body', response.body, bodyMatch[1], bodyMatch[2])
-  }
-
-  const headerMatch = line.match(/^header\s+([^\s]+)\s+(exists|not exists|includes|contains|not includes|matches|==|=|!=)\s*(.*)$/i)
-  if (headerMatch) {
-    const headerKey = headerMatch[1].toLowerCase()
-    const actual = Object.entries(response.headers).find(([key]) => key.toLowerCase() === headerKey)?.[1]
-    return compareAssertionValue(`响应 Header ${headerMatch[1]}`, actual, headerMatch[2], headerMatch[3])
-  }
-
-  const jsonLengthMatch = line.match(/^((?:json\.)[^\s]+|\$[^\s]*)\s+length\s*(==|=|!=|>=|<=|>|<)\s*(\d+)$/i)
-  if (jsonLengthMatch) {
-    try {
-      const body = JSON.parse(response.body)
-      const actual = readJsonPath(body, jsonLengthMatch[1].trim())
-      const length = Array.isArray(actual) || typeof actual === 'string' ? actual.length : actual && typeof actual === 'object' ? Object.keys(actual).length : 0
-      return compareAssertionValue(`JSON ${jsonLengthMatch[1].trim()} length`, length, jsonLengthMatch[2], jsonLengthMatch[3])
-    } catch {
-      return '响应 Body 不是有效 JSON'
-    }
-  }
-  const jsonMatch = line.match(/^((?:json\.)[^\s]+|\$[^\s]*)\s+(exists|not exists|includes|contains|not includes|matches|==|=|!=|>=|<=|>|<)\s*(.*)$/i)
-  if (jsonMatch) {
-    try {
-      const body = JSON.parse(response.body)
-      const actual = readJsonPath(body, jsonMatch[1].trim())
-      return compareAssertionValue(`JSON ${jsonMatch[1].trim()}`, actual, jsonMatch[2], jsonMatch[3])
-    } catch {
-      return '响应 Body 不是有效 JSON'
-    }
-  }
-
-  return `未知断言语法：${line}`
-}
-
-async function executeInterfaceTestCase(
-  testCase: InterfaceTestCase,
-  options: { envVars?: Record<string, string>; persistEnvUpdates?: boolean } = {},
-): Promise<{ passed: boolean; failures: string[]; envUpdates: Record<string, string> }> {
-  const interfaceNode = workspace.interfaces.find(item => item.id === testCase.interfaceId)
-  const api = interfaceNode ? store.apis[interfaceNode.apiId] : null
-  if (!api) {
-    return { passed: false, failures: ['未找到用例关联接口'], envUpdates: {} }
-  }
-
-  const requestApi = { ...api, ...(testCase.requestOverride ?? {}) } as ApiConfig
-  const response = await sendRequest({
-    method: requestApi.method,
-    url: requestApi.url,
-    headers: requestApi.headers,
-    params: requestApi.params,
-    cookies: requestApi.cookies,
-    autoCarryCookies: store.autoCarryCookies,
-    body: requestApi.body,
-    auth: requestApi.auth,
-    corsMode: store.settings.corsMode,
-    proxyUrl: store.settings.proxyUrl,
-    envVars: { ...store.getEnvVariables(), ...(options.envVars ?? {}) },
-  })
-  const failures: string[] = []
-  const envUpdates: Record<string, string> = {}
-  if (testCase.expectedStatus && response.status !== testCase.expectedStatus) {
-    failures.push(`期望状态码 ${testCase.expectedStatus}，实际 ${response.status}`)
-  }
-  for (const assertion of testCase.assertions ?? []) {
-    const extractorMatch = assertion.trim().match(/^env\.?([\w.-]+)\s*(?:=|<-)\s*(.+)$/i)
-    if (extractorMatch) {
-      envUpdates[extractorMatch[1]] = resolveExtractionSource(extractorMatch[2], response)
-      continue
-    }
-    const failure = evaluateAssertion(assertion, response)
-    if (failure) failures.push(failure)
-  }
-  if (options.persistEnvUpdates !== false) await applyEnvironmentUpdates(envUpdates)
-  return { passed: failures.length === 0, failures, envUpdates }
-}
-
-async function runInterfaceTestCase(testCase: InterfaceTestCase): Promise<boolean> {
-  runningCaseId.value = testCase.id
-  try {
-    const { passed, failures } = await executeInterfaceTestCase(testCase)
-    await db.interfaceTestCases.update(testCase.id, {
-      lastRunAt: Date.now(),
-      lastPassed: passed,
-      updatedAt: Date.now(),
-    })
-    await refreshArtifacts(passed ? '用例运行通过' : `用例未通过：${failures[0]}`)
-    return passed
-  } finally {
-    runningCaseId.value = null
-  }
-}
-
-async function runAllInterfaceTestCases() {
-  for (const testCase of interfaceTestCases.value) {
-    await runInterfaceTestCase(testCase)
-  }
-}
-
-async function runScenarioCase(scenario: ModuleScenarioCase) {
-  runningScenarioId.value = scenario.id
-  const failures: string[] = []
-  let passedCount = 0
-  const scenarioVariables: Record<string, string> = {}
-  try {
-    const steps = [...scenario.steps].sort((a, b) => a.order - b.order).filter(step => step.enabled !== false)
-    if (steps.length === 0) failures.push('场景没有启用的步骤')
-    for (const step of steps) {
-      const testCase = interfaceTestCases.value.find(item => item.id === step.caseId)
-      if (!testCase) {
-        failures.push(`${step.name || step.caseId || step.interfaceId}：未找到关联单接口用例`)
-        if (!step.continueOnFailure) break
-        continue
-      }
-      runningCaseId.value = testCase.id
-      const result = await executeInterfaceTestCase(testCase, {
-        envVars: scenarioVariables,
-        persistEnvUpdates: false,
-      })
-      Object.assign(scenarioVariables, result.envUpdates)
-      await db.interfaceTestCases.update(testCase.id, {
-        lastRunAt: Date.now(),
-        lastPassed: result.passed,
-        updatedAt: Date.now(),
-      })
-      if (result.passed) {
-        passedCount++
-      } else {
-        failures.push(`${testCase.name}：${result.failures[0] || '未通过'}`)
-        if (!step.continueOnFailure) break
-      }
-    }
-    const report = {
-      total: steps.length,
-      passed: passedCount,
-      failed: failures.length,
-      failures,
-    }
-    const passed = failures.length === 0 && passedCount === steps.length
-    await db.moduleScenarioCases.update(scenario.id, {
-      lastRunAt: Date.now(),
-      lastPassed: passed,
-      lastReport: report,
-      updatedAt: Date.now(),
-    })
-    await refreshArtifacts(passed ? '场景用例运行通过' : `场景用例未通过：${failures[0]}`)
-  } finally {
-    runningCaseId.value = null
-    runningScenarioId.value = null
-  }
-}
-
-async function runAllScenarioCases() {
-  for (const scenario of moduleScenarioCases.value) {
-    await runScenarioCase(scenario)
-  }
-}
 </script>
 
 <template>
@@ -2400,7 +1541,6 @@ async function runAllScenarioCases() {
       <nav class="settings-tabs">
         <button :class="{ active: activeModuleTab === 'overview' }" @click="activeModuleTab = 'overview'">概览</button>
         <button :class="{ active: activeModuleTab === 'variables' }" @click="activeModuleTab = 'variables'">模块变量</button>
-        <button :class="{ active: activeModuleTab === 'artifacts' }" @click="activeModuleTab = 'artifacts'">文档/模型/用例</button>
         <button :class="{ active: activeModuleTab === 'settings' }" @click="activeModuleTab = 'settings'">设置</button>
       </nav>
 
@@ -2409,8 +1549,6 @@ async function runAllScenarioCases() {
           <h3><BarChart3 :size="18" /> 统计</h3>
           <div class="stat-grid stat-grid-large">
             <div><strong>{{ moduleStats.interfaceCount }}</strong><span>接口数</span></div>
-            <div><strong>{{ moduleStats.docCount }}</strong><span>文档数</span></div>
-            <div><strong>{{ moduleStats.modelCount }}</strong><span>数据模型</span></div>
           </div>
         </section>
 
@@ -2421,7 +1559,6 @@ async function runAllScenarioCases() {
                 <h3><TrendingUp :size="18" /> 近 7 日调试趋势</h3>
                 <p>按当前模块接口的历史请求次数生成轻量趋势图。</p>
               </div>
-              <button class="btn btn-sm" @click="activeModuleTab = 'artifacts'">生成报告</button>
             </div>
             <div class="trend-chart" aria-label="近 7 日调试趋势">
               <div v-for="item in moduleActivityTrend" :key="item.label" :class="['trend-bar-wrap', { peak: item.peak }]">
@@ -2441,16 +1578,8 @@ async function runAllScenarioCases() {
           </section>
           <section class="settings-card">
             <h3><Zap :size="18" /> 快捷侧栏</h3>
-            <p>聚合设计中的分享、文档站和代码生成入口，减少从模块主页跳转成本。</p>
+            <p>聚合常用分享和代码生成入口，减少从模块主页跳转成本。</p>
             <div class="module-quick-rail">
-              <button class="quick-rail-item" @click="exportModuleMarkdown">
-                <strong>导出文档站素材</strong>
-                <span>生成当前模块 Markdown 文档</span>
-              </button>
-              <button class="quick-rail-item" @click="exportModuleHtmlSite">
-                <strong>发布 HTML 文档站</strong>
-                <span>导出可直接打开的单文件站点</span>
-              </button>
               <button class="quick-rail-item" @click="exportModuleOpenApi">
                 <strong>分享 OpenAPI</strong>
                 <span>导出 JSON 供团队或网关使用</span>
@@ -2459,32 +1588,10 @@ async function runAllScenarioCases() {
                 <strong>复制权限链接</strong>
                 <span>生成含权限元数据的本地分享链接</span>
               </button>
-              <button class="quick-rail-item" @click="activeModuleTab = 'artifacts'">
-                <strong>测试报告</strong>
-                <span>维护用例并导出报告</span>
-              </button>
               <button class="quick-rail-item" @click="openModuleCodeGen">
                 <strong>生成代码</strong>
                 <span>打开首个接口的代码生成面板</span>
               </button>
-            </div>
-          </section>
-          <section class="settings-card">
-            <h3><ClipboardList :size="18" /> 单接口用例覆盖</h3>
-            <div class="stat-grid">
-              <div><strong>{{ moduleStats.caseTotal }}</strong><span>用例总数</span></div>
-              <div><strong>{{ moduleStats.caseCoverage }}</strong><span>覆盖率</span></div>
-              <div><strong>{{ moduleStats.avgCasePerInterface }}</strong><span>平均用例数</span></div>
-              <div><strong>{{ moduleStats.uncoveredInterfaceCount }}</strong><span>无覆盖接口</span></div>
-            </div>
-          </section>
-          <section class="settings-card">
-            <h3><RefreshCw :size="18" /> 场景用例覆盖</h3>
-            <div class="stat-grid">
-              <div><strong>{{ moduleStats.sceneCaseTotal }}</strong><span>用例总数</span></div>
-              <div><strong>{{ moduleStats.sceneCoverage }}</strong><span>覆盖率</span></div>
-              <div><strong>{{ moduleStats.uncoveredInterfaceCount }}</strong><span>未覆盖接口</span></div>
-              <div><strong>-</strong><span>更多指标</span></div>
             </div>
           </section>
         </div>
@@ -2634,14 +1741,6 @@ async function runAllScenarioCases() {
             <h3><PackageOpen :size="18" /> 导出/备份 API 规格</h3>
             <p>配置模块默认导出格式与本地自动备份偏好；云端目标保留为后续接入点。</p>
             <label class="field-row">
-              <span>默认格式</span>
-              <select v-model="exportFormat">
-                <option value="openapi3">OpenAPI 3</option>
-                <option value="markdown">Markdown</option>
-                <option value="html">HTML</option>
-              </select>
-            </label>
-            <label class="field-row">
               <span>自动备份</span>
               <select v-model="exportAutoBackup">
                 <option :value="false">关闭</option>
@@ -2693,8 +1792,6 @@ async function runAllScenarioCases() {
             <div class="quick-actions">
               <button class="btn btn-sm btn-primary" @click="saveModuleSettings('导出配置已保存')">保存导出配置</button>
               <button class="btn btn-sm" @click="exportModuleOpenApi">导出 OpenAPI</button>
-              <button class="btn btn-sm" @click="exportModuleMarkdown">导出 Markdown</button>
-              <button class="btn btn-sm" @click="exportModuleHtmlSite">导出 HTML 文档站</button>
               <button class="btn btn-sm" @click="backupModule()">执行备份</button>
             </div>
           </section>
@@ -2786,249 +1883,10 @@ async function runAllScenarioCases() {
         </section>
       </template>
 
-      <template v-else-if="activeModuleTab === 'artifacts'">
-        <section class="settings-card">
-          <div class="section-heading-row">
-            <div>
-              <h3><BookOpen :size="18" /> 模块文档</h3>
-              <p>记录模块级或接口级文档，可作为后续文档站、Markdown/HTML/OpenAPI 导出的基础数据。</p>
-            </div>
-            <button class="btn btn-sm btn-primary" @click="saveDocArtifact">{{ docDraft.id ? '更新文档' : '保存文档' }}</button>
-          </div>
-          <div class="artifact-editor-grid">
-            <label class="field-row">
-              <span>标题</span>
-              <input v-model="docDraft.title" type="text" placeholder="登录接口说明" />
-            </label>
-            <label class="field-row">
-              <span>关联接口</span>
-              <select v-model="docDraft.interfaceId">
-                <option value="">模块级文档</option>
-                <option v-for="item in moduleInterfaces" :key="item.id" :value="item.id">
-                  {{ item.method }} · {{ store.apis[item.apiId]?.name ?? item.name }}
-                </option>
-              </select>
-            </label>
-            <label class="field-row">
-              <span>格式</span>
-              <select v-model="docDraft.format">
-                <option value="markdown">Markdown</option>
-                <option value="html">HTML</option>
-                <option value="openapi">OpenAPI</option>
-              </select>
-            </label>
-          </div>
-          <textarea v-model="docDraft.content" class="artifact-textarea" rows="6" placeholder="输入文档内容、说明或示例..."></textarea>
-          <div class="artifact-list">
-            <div v-for="doc in moduleDocs" :key="doc.id" class="artifact-item">
-              <div>
-                <strong>{{ doc.title }}</strong>
-                <small>{{ getInterfaceName(doc.interfaceId) }} · {{ doc.format }} · {{ formatTime(doc.updatedAt) }}</small>
-              </div>
-              <div class="artifact-actions">
-                <button class="btn btn-sm" @click="editDocArtifact(doc)">编辑</button>
-                <button class="btn btn-sm danger" @click="deleteDocArtifact(doc.id)">删除</button>
-              </div>
-            </div>
-            <div v-if="moduleDocs.length === 0" class="empty-hint">暂无模块文档。</div>
-          </div>
-        </section>
-
-        <section class="settings-card">
-          <div class="section-heading-row">
-            <div>
-              <h3><BrickWall :size="18" /> 数据模型</h3>
-              <p>维护模块内可复用 JSON Schema，便于接口响应、请求体和文档生成引用。</p>
-            </div>
-            <button class="btn btn-sm btn-primary" @click="saveDataModel">{{ modelDraft.id ? '更新模型' : '保存模型' }}</button>
-          </div>
-          <div class="artifact-editor-grid">
-            <label class="field-row">
-              <span>模型名</span>
-              <input v-model="modelDraft.name" type="text" placeholder="UserProfile" />
-            </label>
-            <label class="field-row">
-              <span>说明</span>
-              <input v-model="modelDraft.description" type="text" placeholder="用户资料响应结构" />
-            </label>
-          </div>
-          <textarea v-model="modelDraft.schemaText" class="artifact-textarea code-textarea" rows="8" spellcheck="false"></textarea>
-          <div class="artifact-list">
-            <div v-for="model in moduleModels" :key="model.id" class="artifact-item">
-              <div>
-                <strong>{{ model.name }}</strong>
-                <small>{{ model.description || '无说明' }} · {{ formatTime(model.updatedAt) }}</small>
-              </div>
-              <div class="artifact-actions">
-                <button class="btn btn-sm" @click="editDataModel(model)">编辑</button>
-                <button class="btn btn-sm danger" @click="deleteDataModel(model.id)">删除</button>
-              </div>
-            </div>
-            <div v-if="moduleModels.length === 0" class="empty-hint">暂无数据模型。</div>
-          </div>
-        </section>
-
-        <section class="settings-card">
-          <div class="section-heading-row">
-            <div>
-              <h3><CheckCircle2 :size="18" /> 单接口测试用例</h3>
-              <p>为接口创建断言用例，并可按当前环境变量直接运行。支持 <code>status in 200,201</code>、<code>body not includes error</code>、<code>header content-type includes json</code>、<code>$.data.id exists</code>、<code>$.items length &gt; 0</code>、<code>env.token=$.data.token</code>。</p>
-            </div>
-            <div class="quick-actions">
-              <button class="btn btn-sm btn-primary" @click="saveInterfaceTestCase">{{ testCaseDraft.id ? '更新用例' : '保存用例' }}</button>
-              <button class="btn btn-sm" :disabled="runningCaseId !== null || interfaceTestCases.length === 0" @click="runAllInterfaceTestCases">运行全部</button>
-            </div>
-          </div>
-          <div class="artifact-editor-grid">
-            <label class="field-row">
-              <span>接口</span>
-              <select v-model="testCaseDraft.interfaceId">
-                <option value="">选择接口</option>
-                <option v-for="item in moduleInterfaces" :key="item.id" :value="item.id">
-                  {{ item.method }} · {{ store.apis[item.apiId]?.name ?? item.name }}
-                </option>
-              </select>
-            </label>
-            <label class="field-row">
-              <span>用例名</span>
-              <input v-model="testCaseDraft.name" type="text" placeholder="返回 200 且包含 token" />
-            </label>
-            <label class="field-row">
-              <span>状态码</span>
-              <input v-model.number="testCaseDraft.expectedStatus" type="number" min="0" step="1" />
-            </label>
-          </div>
-            <textarea v-model="testCaseDraft.assertionsText" class="artifact-textarea code-textarea" rows="5" spellcheck="false" placeholder="status in 200,201&#10;header content-type includes json&#10;$.data.id exists&#10;$.items length > 0"></textarea>
-          <div class="extractor-builder">
-            <strong>可视化变量提取器</strong>
-            <label class="field-row compact-field">
-              <span>变量名</span>
-              <input v-model="extractorDraft.variable" type="text" placeholder="token" />
-            </label>
-            <label class="field-row compact-field">
-              <span>来源</span>
-              <select v-model="extractorDraft.sourceType">
-                <option value="json">JSONPath</option>
-                <option value="header">Header</option>
-                <option value="body">整个 Body</option>
-              </select>
-            </label>
-            <label v-if="extractorDraft.sourceType !== 'body'" class="field-row compact-field">
-              <span>{{ extractorDraft.sourceType === 'json' ? 'JSONPath' : 'Header 名' }}</span>
-              <input v-model="extractorDraft.path" type="text" :placeholder="extractorDraft.sourceType === 'json' ? '$.data.token' : 'set-cookie'" />
-            </label>
-            <button class="btn btn-sm" @click="appendExtractorAssertion">添加到断言</button>
-          </div>
-          <div class="artifact-list">
-            <div v-for="testCase in interfaceTestCases" :key="testCase.id" class="artifact-item">
-              <div>
-                <strong>{{ testCase.name }}</strong>
-                <small>
-                  {{ getInterfaceName(testCase.interfaceId) }} · 期望 {{ testCase.expectedStatus || '-' }}
-                  <template v-if="testCase.lastRunAt"> · {{ testCase.lastPassed ? '通过' : '未通过' }} · {{ formatTime(testCase.lastRunAt) }}</template>
-                </small>
-              </div>
-              <div class="artifact-actions">
-                <button class="btn btn-sm" :disabled="runningCaseId === testCase.id" @click="runInterfaceTestCase(testCase)">
-                  {{ runningCaseId === testCase.id ? '运行中...' : '运行' }}
-                </button>
-                <button class="btn btn-sm" @click="editInterfaceTestCase(testCase)">编辑</button>
-                <button class="btn btn-sm danger" @click="deleteInterfaceTestCase(testCase.id)">删除</button>
-              </div>
-            </div>
-            <div v-if="interfaceTestCases.length === 0" class="empty-hint">暂无测试用例。</div>
-          </div>
-        </section>
-
-        <section class="settings-card">
-          <div class="section-heading-row">
-            <div>
-              <h3><RefreshCw :size="18" /> 场景用例编排</h3>
-              <p>把多个单接口用例串成业务流程，运行后生成通过/失败报告，并回写模块场景覆盖率。</p>
-            </div>
-            <div class="quick-actions">
-              <button class="btn btn-sm btn-primary" @click="saveScenarioCase">{{ scenarioDraft.id ? '更新场景' : '保存场景' }}</button>
-              <button class="btn btn-sm" :disabled="runningScenarioId !== null || moduleScenarioCases.length === 0" @click="runAllScenarioCases">运行全部场景</button>
-              <button class="btn btn-sm" @click="exportModuleTestReport">导出测试报告</button>
-            </div>
-          </div>
-          <div class="artifact-editor-grid">
-            <label class="field-row">
-              <span>场景名</span>
-              <input v-model="scenarioDraft.name" type="text" placeholder="登录后查询用户资料" />
-            </label>
-            <label class="field-row">
-              <span>说明</span>
-              <input v-model="scenarioDraft.description" type="text" placeholder="描述业务链路和期望结果" />
-            </label>
-            <div class="field-row checkbox-field">
-              <span>默认失败策略</span>
-              <label class="inline-check">
-                <input v-model="scenarioDraft.continueOnFailure" type="checkbox" />
-                <span>新步骤默认失败后继续运行后续步骤</span>
-              </label>
-            </div>
-            <label class="field-row">
-              <span>添加步骤</span>
-              <div class="inline-field">
-                <select v-model="scenarioDraft.selectedCaseId">
-                  <option value="">选择单接口用例</option>
-                  <option v-for="testCase in interfaceTestCases" :key="testCase.id" :value="testCase.id">
-                    {{ testCase.name }} · {{ getInterfaceName(testCase.interfaceId) }}
-                  </option>
-                </select>
-                <button class="btn btn-sm" @click="addScenarioStep">添加</button>
-              </div>
-            </label>
-          </div>
-          <div class="scenario-steps">
-            <div v-for="(step, index) in scenarioDraft.steps" :key="step.caseId + index" class="scenario-step">
-              <span>{{ index + 1 }}</span>
-              <strong>{{ getTestCaseName(step.caseId) }}</strong>
-              <small>{{ getInterfaceName(interfaceTestCases.find(item => item.id === step.caseId)?.interfaceId) }}</small>
-              <label class="inline-check step-policy">
-                <input v-model="step.enabled" type="checkbox" />
-                <span>启用</span>
-              </label>
-              <label class="inline-check step-policy">
-                <input v-model="step.continueOnFailure" type="checkbox" :disabled="!step.enabled" />
-                <span>失败继续</span>
-              </label>
-              <button class="btn btn-sm danger" @click="removeScenarioStep(index)">移除</button>
-            </div>
-            <div v-if="scenarioDraft.steps.length === 0" class="empty-hint">尚未添加场景步骤，请先创建单接口用例。</div>
-          </div>
-          <div class="artifact-list">
-            <div v-for="scenario in moduleScenarioCases" :key="scenario.id" class="artifact-item">
-              <div>
-                <strong>{{ scenario.name }}</strong>
-                <small>
-                  {{ getScenarioStepSummary(scenario) || '无步骤' }}
-                  <template v-if="hasScenarioContinueOnFailure(scenario)"> · 失败继续</template>
-                  <template v-if="scenario.lastRunAt">
-                    · {{ scenario.lastPassed ? '通过' : '未通过' }}
-                    · {{ scenario.lastReport?.passed || 0 }}/{{ scenario.lastReport?.total || scenario.steps.length }}
-                    · {{ formatTime(scenario.lastRunAt) }}
-                  </template>
-                </small>
-              </div>
-              <div class="artifact-actions">
-                <button class="btn btn-sm" :disabled="runningScenarioId === scenario.id" @click="runScenarioCase(scenario)">
-                  {{ runningScenarioId === scenario.id ? '运行中...' : '运行' }}
-                </button>
-                <button class="btn btn-sm" @click="editScenarioCase(scenario)">编辑</button>
-                <button class="btn btn-sm danger" @click="deleteScenarioCase(scenario.id)">删除</button>
-              </div>
-            </div>
-            <div v-if="moduleScenarioCases.length === 0" class="empty-hint">暂无场景用例。</div>
-          </div>
-        </section>
-      </template>
-
       <template v-else>
         <section class="settings-card">
           <h3><ReceiptText :size="18" /> 审计日志</h3>
-          <p>记录当前模块的设置、变量、同步、导出与备份操作，便于团队排查最近变更。</p>
+          <p>记录当前模块的设置、变量、同步、导出与备份操作，便于回看最近变更。</p>
           <div class="audit-log-list">
             <div v-for="log in moduleAuditLogs" :key="log.id" class="audit-log-row">
               <strong>{{ log.action }}</strong>
@@ -3933,66 +2791,6 @@ async function runAllScenarioCases() {
   color: var(--primary);
 }
 
-.artifact-editor-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.artifact-editor-grid .field-row {
-  grid-template-columns: 72px minmax(0, 1fr);
-  margin-bottom: 0;
-}
-
-.artifact-textarea {
-  width: 100%;
-  min-height: 120px;
-  margin-bottom: 10px;
-  resize: vertical;
-}
-
-.code-textarea {
-  font-family: var(--font-code);
-  font-size: var(--font-size-small);
-  line-height: 1.6;
-}
-
-.artifact-list {
-  display: grid;
-  gap: 6px;
-}
-
-.inline-field {
-  display: flex;
-  gap: 6px;
-  min-width: 0;
-}
-
-.inline-field select {
-  flex: 1;
-  min-width: 0;
-}
-
-.extractor-builder {
-  display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.4fr) auto;
-  align-items: end;
-  gap: 8px;
-  margin: 10px 0 12px;
-  padding: 10px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel-subtle);
-}
-
-.extractor-builder strong {
-  align-self: center;
-  color: var(--text-primary);
-  font-size: var(--font-size-small);
-  white-space: nowrap;
-}
-
 .permission-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4016,77 +2814,6 @@ async function runAllScenarioCases() {
 
 .compact-field span {
   font-size: 11px;
-}
-
-.scenario-steps {
-  display: grid;
-  gap: 6px;
-  margin: 0 0 10px;
-}
-
-.scenario-step {
-  display: grid;
-  grid-template-columns: 24px minmax(120px, 1fr) minmax(160px, 1.4fr) auto auto auto;
-  gap: 8px;
-  align-items: center;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel-subtle);
-  padding: 8px;
-}
-
-.scenario-step > span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 700;
-}
-
-.scenario-step small {
-  color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.step-policy {
-  white-space: nowrap;
-}
-
-.artifact-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel-subtle);
-  padding: 9px 10px;
-}
-
-.artifact-item strong,
-.artifact-item small {
-  display: block;
-  min-width: 0;
-}
-
-.artifact-item small {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-small);
-  margin-top: 2px;
-}
-
-.artifact-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-shrink: 0;
 }
 
 .danger {
@@ -4262,8 +2989,6 @@ async function runAllScenarioCases() {
 
   .variable-head,
   .variable-row,
-  .artifact-editor-grid,
-  .extractor-builder,
   .bulk-edit-grid,
   .permission-grid {
     grid-template-columns: 1fr;
@@ -4275,17 +3000,5 @@ async function runAllScenarioCases() {
     grid-template-columns: 1fr;
   }
 
-  .artifact-item {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .scenario-step {
-    grid-template-columns: 24px minmax(0, 1fr);
-  }
-
-  .artifact-actions {
-    justify-content: flex-start;
-  }
 }
 </style>

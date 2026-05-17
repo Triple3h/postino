@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { ApiConfig, Environment, HistoryEntry, Group, Category, Module, InterfaceNode, ModuleDocArtifact, ModuleDataModel, InterfaceTestCase, ModuleScenarioCase, ModuleAuditLog, ModuleSyncLog } from '@/types'
+import type { ApiConfig, Environment, HistoryEntry, Group, Category, Module, InterfaceNode, ModuleAuditLog, ModuleSyncLog } from '@/types'
 
 export class ApiFixDB extends Dexie {
   apis!: Table<ApiConfig, string>
@@ -10,10 +10,6 @@ export class ApiFixDB extends Dexie {
   categories!: Table<Category, string>
   modules!: Table<Module, string>
   interfaces!: Table<InterfaceNode, string>
-  moduleDocs!: Table<ModuleDocArtifact, string>
-  moduleModels!: Table<ModuleDataModel, string>
-  interfaceTestCases!: Table<InterfaceTestCase, string>
-  moduleScenarioCases!: Table<ModuleScenarioCase, string>
   moduleAuditLogs!: Table<ModuleAuditLog, string>
   moduleSyncLogs!: Table<ModuleSyncLog, string>
 
@@ -59,9 +55,6 @@ export class ApiFixDB extends Dexie {
       categories: 'id, name, order, updatedAt',
       modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
       interfaces: 'id, moduleId, parentId, nodeType, apiId, name, method, order, updatedAt',
-      moduleDocs: 'id, moduleId, interfaceId, format, updatedAt',
-      moduleModels: 'id, moduleId, name, updatedAt',
-      interfaceTestCases: 'id, moduleId, interfaceId, lastRunAt, lastPassed, updatedAt',
     })
 
     this.version(5).stores({
@@ -73,10 +66,6 @@ export class ApiFixDB extends Dexie {
       categories: 'id, name, order, updatedAt',
       modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
       interfaces: 'id, moduleId, parentId, nodeType, apiId, name, method, order, updatedAt',
-      moduleDocs: 'id, moduleId, interfaceId, format, updatedAt',
-      moduleModels: 'id, moduleId, name, updatedAt',
-      interfaceTestCases: 'id, moduleId, interfaceId, lastRunAt, lastPassed, updatedAt',
-      moduleScenarioCases: 'id, moduleId, lastRunAt, lastPassed, updatedAt',
     })
 
     this.version(6).stores({
@@ -88,10 +77,6 @@ export class ApiFixDB extends Dexie {
       categories: 'id, name, order, updatedAt',
       modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
       interfaces: 'id, moduleId, parentId, nodeType, apiId, name, method, order, updatedAt',
-      moduleDocs: 'id, moduleId, interfaceId, format, updatedAt',
-      moduleModels: 'id, moduleId, name, updatedAt',
-      interfaceTestCases: 'id, moduleId, interfaceId, lastRunAt, lastPassed, updatedAt',
-      moduleScenarioCases: 'id, moduleId, lastRunAt, lastPassed, updatedAt',
       moduleAuditLogs: 'id, moduleId, action, createdAt',
     })
 
@@ -104,10 +89,6 @@ export class ApiFixDB extends Dexie {
       categories: 'id, name, order, updatedAt',
       modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
       interfaces: 'id, moduleId, parentId, nodeType, apiId, name, method, order, updatedAt',
-      moduleDocs: 'id, moduleId, interfaceId, format, updatedAt',
-      moduleModels: 'id, moduleId, name, updatedAt',
-      interfaceTestCases: 'id, moduleId, interfaceId, lastRunAt, lastPassed, updatedAt',
-      moduleScenarioCases: 'id, moduleId, lastRunAt, lastPassed, updatedAt',
       moduleAuditLogs: 'id, moduleId, action, createdAt',
     }).upgrade(async tx => {
       const interfaces = await tx.table('interfaces').toArray() as InterfaceNode[]
@@ -129,10 +110,19 @@ export class ApiFixDB extends Dexie {
       categories: 'id, name, order, updatedAt',
       modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
       interfaces: 'id, moduleId, parentId, nodeType, apiId, name, method, order, updatedAt',
-      moduleDocs: 'id, moduleId, interfaceId, format, updatedAt',
-      moduleModels: 'id, moduleId, name, updatedAt',
-      interfaceTestCases: 'id, moduleId, interfaceId, lastRunAt, lastPassed, updatedAt',
-      moduleScenarioCases: 'id, moduleId, lastRunAt, lastPassed, updatedAt',
+      moduleAuditLogs: 'id, moduleId, action, createdAt',
+      moduleSyncLogs: 'id, moduleId, timestamp, [moduleId+timestamp]',
+    })
+
+    this.version(9).stores({
+      apis: 'id, name, method, folder, updatedAt',
+      environments: 'id, name',
+      history: 'id, apiId, moduleId, interfaceId, method, status, timestamp, [moduleId+timestamp], [interfaceId+timestamp]',
+      settings: 'key',
+      groups: 'name',
+      categories: 'id, name, order, updatedAt',
+      modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
+      interfaces: 'id, moduleId, parentId, nodeType, apiId, name, method, order, updatedAt',
       moduleAuditLogs: 'id, moduleId, action, createdAt',
       moduleSyncLogs: 'id, moduleId, timestamp, [moduleId+timestamp]',
     })

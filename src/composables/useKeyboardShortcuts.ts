@@ -86,10 +86,6 @@ export function useKeyboardShortcuts() {
       window.dispatchEvent(new CustomEvent('apifix:toggle-history-panel'))
       return
     }
-    if (action === 'toggleDocMode') {
-      window.dispatchEvent(new CustomEvent('apifix:toggle-doc-mode'))
-      return
-    }
     if (action === 'formatJsonBody') {
       window.dispatchEvent(new CustomEvent('apifix:format-json-body'))
       return

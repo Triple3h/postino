@@ -14,7 +14,7 @@ import { applyViewOpenContext, clearViewOpenContext, readViewOpenContext } from 
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, eventToShortcut, getEffectiveShortcuts } from '@/utils/shortcuts'
 import { importCurl, importHar, importPostman } from '@/utils/import'
 import { importOpenApi } from '@/utils/openapi-import'
-import type { ApiConfig, AppShortcutAction, KvPair } from '@/types'
+import type { ApiConfig, AppShortcutAction } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -26,7 +26,6 @@ const showRightPanel = ref(false)
 const showWorkspaceControls = ref(true)
 const rightPanelWidth = ref(300)
 const resizingRightPanel = ref(false)
-const showDocMode = ref(false)
 const showShortcutSettings = ref(false)
 const dragImportDepth = ref(0)
 const dragImportMessage = ref('')
@@ -40,14 +39,6 @@ const currentEnv = computed(() => store.environments.find(item => item.id === st
 const currentApi = computed(() => store.getCurrentApi())
 const currentInterface = computed(() => workspace.interfaces.find(item => item.apiId === store.currentApiId) ?? null)
 const currentModule = computed(() => currentInterface.value ? workspace.modules.find(item => item.id === currentInterface.value?.moduleId) ?? null : null)
-const currentModuleApis = computed<ApiConfig[]>(() => {
-  if (!currentModule.value) return []
-  return workspace.interfaces
-    .filter(item => item.moduleId === currentModule.value?.id && (item.nodeType ?? 'request') !== 'folder' && item.apiId)
-    .sort((a, b) => a.order - b.order)
-    .map(item => store.apis[item.apiId])
-    .filter((api): api is ApiConfig => Boolean(api))
-})
 const dynamicValues = ['{{$timestamp}}', '{{$isoTimestamp}}', '{{$guid}}', '{{$randomInt}}', '{{$randomEmail}}']
 
 function formatTime(timestamp?: number): string {
@@ -104,22 +95,6 @@ async function insertOrCopyText(value: string) {
 }
 
 
-function enabledPairs(items: KvPair[] = []): KvPair[] {
-  return items.filter(item => item.enabled && item.key)
-}
-
-function methodClass(method: string): string {
-  return method.toLowerCase()
-}
-
-function formatBodyLabel(api: ApiConfig): string {
-  if (api.body.type === 'none') return '无请求体'
-  if (api.body.type === 'json') return 'JSON'
-  if (api.body.type === 'urlencoded') return 'x-www-form-urlencoded'
-  if (api.body.type === 'form') return 'form-data'
-  if (api.body.type === 'binary') return 'binary'
-  return api.body.contentType || 'raw'
-}
 
 function openShortcutSettings() {
   shortcutDrafts.value = getEffectiveShortcuts(store.settings.customShortcuts)
@@ -313,9 +288,6 @@ function handleWindowDrop(event: DragEvent) {
   if (files?.length) void importDroppedFiles(files)
 }
 
-function toggleDocMode() {
-  showDocMode.value = !showDocMode.value
-}
 
 async function restoreOpenContext() {
   const context = await readViewOpenContext('main')
@@ -336,7 +308,6 @@ onMounted(() => {
   window.addEventListener('apifix:toggle-workspace-controls', toggleWorkspaceControls)
   window.addEventListener('apifix:open-workspace-settings', openWorkspaceSettingsPanel)
   window.addEventListener('apifix:toggle-history-panel', toggleHistoryPanel)
-  window.addEventListener('apifix:toggle-doc-mode', toggleDocMode)
   document.addEventListener('focusin', rememberEditableTarget)
 })
 onUnmounted(() => {
@@ -350,7 +321,6 @@ onUnmounted(() => {
   window.removeEventListener('apifix:toggle-workspace-controls', toggleWorkspaceControls)
   window.removeEventListener('apifix:open-workspace-settings', openWorkspaceSettingsPanel)
   window.removeEventListener('apifix:toggle-history-panel', toggleHistoryPanel)
-  window.removeEventListener('apifix:toggle-doc-mode', toggleDocMode)
   document.removeEventListener('focusin', rememberEditableTarget)
   if (inspectorToastTimer) clearTimeout(inspectorToastTimer)
 })
@@ -361,52 +331,7 @@ onUnmounted(() => {
     <Sidebar />
     <div class="main-content">
       <div class="content-area">
-        <EditorView v-if="!showDocMode" />
-        <section v-else class="doc-mode-view">
-          <header class="doc-mode-header">
-            <div>
-              <span class="doc-kicker">Documentation Mode</span>
-              <h2>{{ currentModule?.name || '请选择模块' }}</h2>
-              <p>只读聚合当前模块接口，适合全屏页快速浏览、评审与复制字段。</p>
-            </div>
-            <span class="doc-count">{{ currentModuleApis.length }} APIs</span>
-          </header>
-          <div v-if="currentModuleApis.length === 0" class="doc-empty">当前模块暂无接口。</div>
-          <article v-for="api in currentModuleApis" :key="api.id" class="doc-api-card">
-            <div class="doc-api-title">
-              <span :class="['doc-method', methodClass(api.method)]">{{ api.method }}</span>
-              <div>
-                <h3>{{ api.name }}</h3>
-                <code>{{ api.url }}</code>
-              </div>
-            </div>
-            <div class="doc-section-grid">
-              <section v-if="enabledPairs(api.params).length" class="doc-section">
-                <h4>Query Parameters</h4>
-                <table>
-                  <tbody><tr v-for="item in enabledPairs(api.params)" :key="item.key"><th>{{ item.key }}</th><td>{{ item.value }}</td></tr></tbody>
-                </table>
-              </section>
-              <section v-if="enabledPairs(api.headers).length" class="doc-section">
-                <h4>Headers</h4>
-                <table>
-                  <tbody><tr v-for="item in enabledPairs(api.headers)" :key="item.key"><th>{{ item.key }}</th><td>{{ item.value }}</td></tr></tbody>
-                </table>
-              </section>
-              <section class="doc-section">
-                <h4>Request Body</h4>
-                <p class="doc-body-label">{{ formatBodyLabel(api) }}</p>
-                <pre v-if="api.body.raw">{{ api.body.raw }}</pre>
-                <table v-else-if="api.body.type === 'form' && enabledPairs(api.body.formData).length">
-                  <tbody><tr v-for="item in enabledPairs(api.body.formData)" :key="item.key"><th>{{ item.key }}</th><td>{{ item.value }}</td></tr></tbody>
-                </table>
-                <table v-else-if="api.body.type === 'urlencoded' && enabledPairs(api.body.urlEncoded).length">
-                  <tbody><tr v-for="item in enabledPairs(api.body.urlEncoded)" :key="item.key"><th>{{ item.key }}</th><td>{{ item.value }}</td></tr></tbody>
-                </table>
-              </section>
-            </div>
-          </article>
-        </section>
+        <EditorView />
         <HistoryPanel v-if="showHistory" class="history-sidebar" />
         <Transition name="inspector-mask">
           <button v-if="showRightPanel" class="inspector-scrim" aria-label="关闭工具抽屉" @click="showRightPanel = false"></button>
@@ -423,9 +348,6 @@ onUnmounted(() => {
           <section v-if="showWorkspaceControls" class="inspector-card workspace-controls-card">
             <h3><Settings :size="16" /> 工作台设置</h3>
             <div class="inspector-actions-grid">
-              <button class="btn btn-sm" @click="showDocMode = !showDocMode" :class="{ active: showDocMode }">
-                {{ showDocMode ? '编辑视图' : '文档视图' }}
-              </button>
               <button class="btn btn-sm" @click="showHistory = !showHistory" :class="{ active: showHistory }">
                 {{ showHistory ? '收起历史' : '历史记录' }}
               </button>
@@ -485,7 +407,6 @@ onUnmounted(() => {
             <div class="inspector-actions-grid">
               <button class="btn btn-sm" @click="openCodeGenPanel">生成代码</button>
               <button class="btn btn-sm" @click="toggleHistoryPanel">历史记录</button>
-              <button class="btn btn-sm" @click="showDocMode = !showDocMode">{{ showDocMode ? '编辑视图' : '文档视图' }}</button>
               <button class="btn btn-sm" @click="openShortcutSettings">快捷键</button>
             </div>
           </section>
@@ -513,7 +434,7 @@ onUnmounted(() => {
       <section class="shortcut-modal">
         <header class="shortcut-modal-header">
           <div>
-            <span class="doc-kicker">Keyboard Shortcuts</span>
+            <span class="modal-kicker">Keyboard Shortcuts</span>
             <h2>自定义快捷键</h2>
             <p>点击输入框后按下新的组合键，设置会写入本地 IndexedDB 并跨视图同步。</p>
           </div>
@@ -1092,4 +1013,14 @@ onUnmounted(() => {
     min-width: 0;
   }
 }
+.modal-kicker {
+  display: inline-block;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
 </style>

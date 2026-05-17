@@ -133,7 +133,6 @@ export type AppShortcutAction =
   | 'toggleTheme'
   | 'toggleRightPanel'
   | 'toggleHistory'
-  | 'toggleDocMode'
   | 'formatJsonBody'
   | 'copyCurrentCurl'
 
@@ -176,14 +175,6 @@ export type ModuleVariables = Record<string, ModuleVariableValue>
 
 export interface ModuleStats {
   interfaceCount: number
-  docCount: number
-  modelCount: number
-  testCaseTotal: number
-  testCaseCoverage: number
-  sceneCaseTotal: number
-  sceneCaseCoverage: number
-  avgCasePerInterface: number
-  uncoveredInterfaceCount: number
 }
 
 export interface ModuleTypeConfig {
@@ -192,7 +183,7 @@ export interface ModuleTypeConfig {
 }
 
 export interface ModuleExportConfig {
-  format: 'openapi3' | 'markdown' | 'html'
+  format: 'openapi3'
   autoBackup: boolean
   backupTarget?: 'gist' | 'webdav' | 'local'
   backupEndpoint?: string
@@ -267,69 +258,6 @@ export interface InterfaceNode {
   updatedAt: number
 }
 
-
-export interface ModuleDocArtifact {
-  id: string
-  moduleId: string
-  interfaceId?: string
-  title: string
-  format: 'markdown' | 'html' | 'openapi'
-  content: string
-  createdAt: number
-  updatedAt: number
-}
-
-export interface ModuleDataModel {
-  id: string
-  moduleId: string
-  name: string
-  schema: Record<string, unknown>
-  description?: string
-  createdAt: number
-  updatedAt: number
-}
-
-export interface InterfaceTestCase {
-  id: string
-  moduleId: string
-  interfaceId: string
-  name: string
-  requestOverride?: Partial<ApiConfig>
-  expectedStatus?: number
-  assertions?: string[]
-  lastRunAt?: number
-  lastPassed?: boolean
-  createdAt: number
-  updatedAt: number
-}
-
-export interface ModuleScenarioStep {
-  id: string
-  interfaceId: string
-  caseId?: string
-  name?: string
-  order: number
-  enabled?: boolean
-  continueOnFailure?: boolean
-}
-
-export interface ModuleScenarioCase {
-  id: string
-  moduleId: string
-  name: string
-  description?: string
-  steps: ModuleScenarioStep[]
-  lastRunAt?: number
-  lastPassed?: boolean
-  lastReport?: {
-    total: number
-    passed: number
-    failed: number
-    failures: string[]
-  }
-  createdAt: number
-  updatedAt: number
-}
 
 export interface ModuleSyncLog {
   id: string

@@ -21,17 +21,7 @@ function moduleModeFromType(type?: ModuleType): 'visual' | 'yaml' | 'readonly' {
 }
 
 function defaultModuleStats(interfaceCount = 0): ModuleStats {
-  return {
-    interfaceCount,
-    docCount: 0,
-    modelCount: 0,
-    testCaseTotal: 0,
-    testCaseCoverage: 0,
-    sceneCaseTotal: 0,
-    sceneCaseCoverage: 0,
-    avgCasePerInterface: 0,
-    uncoveredInterfaceCount: interfaceCount,
-  }
+  return { interfaceCount }
 }
 
 function defaultExportConfig(): ModuleExportConfig {

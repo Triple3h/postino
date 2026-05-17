@@ -15,7 +15,6 @@ export const SHORTCUT_ACTIONS: ShortcutActionMeta[] = [
   { action: 'toggleTheme', label: '切换主题', description: '在浅色、深色、跟随系统之间切换', defaultShortcut: 'Mod+Shift+T' },
   { action: 'toggleRightPanel', label: '显示/隐藏右栏', description: '切换全屏页右侧信息面板', defaultShortcut: 'Mod+Shift+R' },
   { action: 'toggleHistory', label: '显示/隐藏历史', description: '切换历史记录面板', defaultShortcut: 'Mod+Shift+H' },
-  { action: 'toggleDocMode', label: '文档/编辑视图', description: '切换当前模块只读文档视图', defaultShortcut: 'Mod+Shift+D' },
   { action: 'formatJsonBody', label: '格式化 JSON', description: '美化当前 Body JSON 内容', defaultShortcut: 'Mod+B' },
   { action: 'copyCurrentCurl', label: '复制 cURL', description: '复制当前请求为 cURL', defaultShortcut: 'Mod+Shift+C' },
 ]
