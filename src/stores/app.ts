@@ -13,6 +13,10 @@ const defaultSettings: AppSettings = {
   corsMode: 'cors',
   proxyUrl: 'https://corsproxy.io/?',
   theme: 'system',
+  accent: 'indigo',
+  expandNavigation: false,
+  sidebarOnLeft: true,
+  editorLayout: 'vertical',
   maxHistory: 100,
   autoSave: true,
   fontSize: 13,
@@ -543,11 +547,20 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /** Phase 5.1:主题切换(settings 的唯一真源在本 store,useSettings 只是代理) */
-  function toggleTheme(): void {
-    const themes: AppSettings['theme'][] = ['light', 'dark', 'system']
-    const idx = themes.indexOf(settings.value.theme)
-    settings.value.theme = themes[(idx + 1) % themes.length]
+  function setTheme(theme: AppSettings['theme']): void {
+    settings.value.theme = theme
     void saveSettings()
+  }
+
+  function setAccent(accent: AppSettings['accent']): void {
+    settings.value.accent = accent
+    void saveSettings()
+  }
+
+  /** 兼容旧调用:明暗循环切换(system → light → dark → black) */
+  function toggleTheme(): void {
+    const themes: AppSettings['theme'][] = ['system', 'light', 'dark', 'black']
+    setTheme(themes[(themes.indexOf(settings.value.theme) + 1) % themes.length])
   }
 
   function setRequestAbortController(controller: AbortController | null): void {
@@ -576,7 +589,7 @@ export const useAppStore = defineStore('app', () => {
     upsertEnvironment, deleteEnvironment,
     addCollectionEnvironment, selectCollectionEnvironment, isGlobalEnv,
     importPostmanCollectionTree, importCollectionEnvironment, restoreCollectionBackup,
-    getEnvVariables, getEnvVariablesForApi, saveSettings, toggleTheme,
+    getEnvVariables, getEnvVariablesForApi, saveSettings, setTheme, setAccent, toggleTheme,
     setRequestAbortController, clearRequestAbortController, cancelCurrentRequest,
   }
 })

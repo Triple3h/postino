@@ -1,0 +1,290 @@
+/*
+ * ApiFix Bin · Hoppscotch 风格设计 token(替代旧 theme.css)
+ *
+ * 分层模型(对齐 Hoppscotch themes.scss):
+ *   - 明暗::root 默认 dark;.light / .black 类切换(dark 无需类)
+ *   - 强调色:[data-accent="…"] 属性切换九色,:root 兜底 green
+ *   - 语义类:经 @theme inline 映射,tailwind 的 bg-primary / text-secondary /
+ *     border-divider / bg-accent 等直接可用
+ * 取值来源:hoppscotch-common/assets/themes/{base-themes,accent-themes}.scss
+ */
+
+/* ============ Accent(九色;tailwind 500/400/600)============ */
+:root {
+  --accent-color: #10b981;        /* emerald-500(兜底 green) */
+  --accent-light-color: #34d399;  /* emerald-400 */
+  --accent-dark-color: #059669;   /* emerald-600 */
+  --accent-contrast-color: #ffffff;
+  --gradient-from-color: #34d399;
+  --gradient-via-color: #10b981;
+  --gradient-to-color: #059669;
+}
+
+:root[data-accent='teal'] {
+  --accent-color: #14b8a6;
+  --accent-light-color: #2dd4bf;
+  --accent-dark-color: #0d9488;
+  --gradient-from-color: #2dd4bf;
+  --gradient-via-color: #14b8a6;
+  --gradient-to-color: #0d9488;
+}
+
+:root[data-accent='blue'] {
+  --accent-color: #3b82f6;
+  --accent-light-color: #60a5fa;
+  --accent-dark-color: #2563eb;
+  --gradient-from-color: #60a5fa;
+  --gradient-via-color: #3b82f6;
+  --gradient-to-color: #2563eb;
+}
+
+:root[data-accent='indigo'] {
+  --accent-color: #6366f1;
+  --accent-light-color: #818cf8;
+  --accent-dark-color: #4f46e5;
+  --gradient-from-color: #818cf8;
+  --gradient-via-color: #6366f1;
+  --gradient-to-color: #4f46e5;
+}
+
+:root[data-accent='purple'] {
+  --accent-color: #a855f7;
+  --accent-light-color: #c084fc;
+  --accent-dark-color: #9333ea;
+  --gradient-from-color: #c084fc;
+  --gradient-via-color: #a855f7;
+  --gradient-to-color: #9333ea;
+}
+
+:root[data-accent='yellow'] {
+  --accent-color: #f59e0b;
+  --accent-light-color: #fbbf24;
+  --accent-dark-color: #d97706;
+  --gradient-from-color: #fbbf24;
+  --gradient-via-color: #f59e0b;
+  --gradient-to-color: #d97706;
+}
+
+:root[data-accent='orange'] {
+  --accent-color: #f97316;
+  --accent-light-color: #fb923c;
+  --accent-dark-color: #ea580c;
+  --gradient-from-color: #fb923c;
+  --gradient-via-color: #f97316;
+  --gradient-to-color: #ea580c;
+}
+
+:root[data-accent='red'] {
+  --accent-color: #ef4444;
+  --accent-light-color: #f87171;
+  --accent-dark-color: #dc2626;
+  --gradient-from-color: #f87171;
+  --gradient-via-color: #ef4444;
+  --gradient-to-color: #dc2626;
+}
+
+:root[data-accent='pink'] {
+  --accent-color: #ec4899;
+  --accent-light-color: #f472b6;
+  --accent-dark-color: #db2777;
+  --gradient-from-color: #f472b6;
+  --gradient-via-color: #ec4899;
+  --gradient-to-color: #db2777;
+}
+
+/* ============ Base(默认 = dark)============ */
+:root {
+  --primary-color: #181818;
+  --primary-light-color: #1c1c1e;
+  --primary-dark-color: #262626;     /* neutral-800:hover 面 */
+  --primary-contrast-color: #171717; /* neutral-900 */
+
+  --secondary-color: #a3a3a3;        /* neutral-400:次级文字 */
+  --secondary-light-color: #737373;  /* neutral-500:三级文字 */
+  --secondary-dark-color: #fafafa;   /* zinc-50:暗色下的强调文字 */
+
+  --divider-color: #1f1f1f;
+  --divider-light-color: #1f1f1f;
+  --divider-dark-color: #27272a;     /* zinc-800:强边框 */
+
+  --tooltip-color: #f5f5f5;          /* neutral-100 */
+  --popover-color: #1b1b1b;
+
+  /* Method 色(暗色文本色,tailwind 500) */
+  --method-get-color: #10b981;       /* emerald-500 */
+  --method-post-color: #eab308;      /* yellow-500 */
+  --method-put-color: #0ea5e9;       /* sky-500 */
+  --method-patch-color: #8b5cf6;     /* violet-500 */
+  --method-delete-color: #f43f5e;    /* rose-500 */
+  --method-head-color: #a3a3a3;      /* neutral-400 */
+  --method-options-color: #a3a3a3;   /* neutral-400 */
+  --method-default-color: #737373;   /* neutral-500 */
+
+  /* 状态色 6 档 */
+  --status-info-color: #3b82f6;      /* blue-500 */
+  --status-success-color: #10b981;   /* green-500 */
+  --status-redirect-color: #f59e0b;  /* amber-500 */
+  --status-critical-error-color: #ef4444; /* red-500 */
+  --status-server-error-color: #f43f5e;   /* rose-500 */
+  --status-missing-data-color: #64748b;   /* slate-500 */
+
+  /* 字体与度量:全局高密度 */
+  --font-size-body: 0.75rem;   /* 12px */
+  --font-size-tiny: 0.625rem;  /* 10px */
+  --line-height-body: 1rem;
+
+  --editor-theme: dark;
+
+  color-scheme: dark;
+}
+
+:root.light {
+  --primary-color: #ffffff;
+  --primary-light-color: #f9fafb;    /* gray-50 */
+  --primary-dark-color: #f3f4f6;     /* gray-100 */
+  --primary-contrast-color: #fdfdfd;
+
+  --secondary-color: #6b7280;        /* gray-500 */
+  --secondary-light-color: #9ca3af;  /* gray-400 */
+  --secondary-dark-color: #111827;   /* gray-900 */
+
+  --divider-color: #f3f4f6;
+  --divider-light-color: #f3f4f6;
+  --divider-dark-color: #d1d5db;     /* gray-300 */
+
+  --tooltip-color: #262626;          /* neutral-800 */
+  --popover-color: #ffffff;
+
+  --editor-theme: light;
+
+  color-scheme: light;
+}
+
+:root.black {
+  --primary-color: #0f0f0f;
+  --primary-light-color: #171717;    /* neutral-900 */
+  --primary-dark-color: #181818;
+  --primary-contrast-color: #0f0f0f;
+
+  --secondary-color: #a3a3a3;
+  --secondary-light-color: #737373;
+  --secondary-dark-color: #fafafa;   /* neutral-50 */
+
+  --divider-color: #171717;
+  --divider-light-color: #171717;
+  --divider-dark-color: #27272a;
+
+  --tooltip-color: #f5f5f5;
+  --popover-color: #0c0a09;          /* stone-950 */
+
+  --editor-theme: black;
+
+  color-scheme: dark;
+}
+
+/* ============ Tailwind 4 语义类映射 ============ */
+@theme inline {
+  --color-primary: var(--primary-color);
+  --color-primaryLight: var(--primary-light-color);
+  --color-primaryDark: var(--primary-dark-color);
+  --color-primaryContrast: var(--primary-contrast-color);
+
+  --color-secondary: var(--secondary-color);
+  --color-secondaryLight: var(--secondary-light-color);
+  --color-secondaryDark: var(--secondary-dark-color);
+
+  --color-divider: var(--divider-color);
+  --color-dividerLight: var(--divider-light-color);
+  --color-dividerDark: var(--divider-dark-color);
+
+  --color-accent: var(--accent-color);
+  --color-accentLight: var(--accent-light-color);
+  --color-accentDark: var(--accent-dark-color);
+  --color-accentContrast: var(--accent-contrast-color);
+
+  --color-tooltip: var(--tooltip-color);
+  --color-popover: var(--popover-color);
+
+  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Roboto Mono Variable', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+}
+
+/* ==================================================================
+ * 旧版 CSS 变量别名(过渡期兼容未重建的组件;M5 一次性删除)
+ * 全部指向上方新 token,保证三主题 × 九 accent 下无旧色残留。
+ * ================================================================== */
+:root {
+  --primary: var(--accent-color);
+  --primary-hover: var(--accent-dark-color);
+  --primary-light: color-mix(in srgb, var(--accent-color) 18%, transparent);
+  --primary-soft: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  --primary-ring: color-mix(in srgb, var(--accent-color) 26%, transparent);
+  --accent: var(--accent-color);
+  --accent-soft: color-mix(in srgb, var(--accent-color) 12%, transparent);
+
+  --bg-base: var(--primary-color);
+  --bg-app: var(--primary-color);
+  --bg-sidebar: var(--primary-color);
+  --bg-panel: var(--primary-light-color);
+  --bg-panel-elevated: var(--primary-light-color);
+  --bg-input: var(--primary-light-color);
+  --bg-code: var(--primary-color);
+  --bg-hover: var(--primary-dark-color);
+  --bg-selected: var(--primary-dark-color);
+
+  --border: var(--divider-color);
+  --border-strong: var(--divider-dark-color);
+  --divider: var(--divider-color);
+
+  --text-primary: var(--secondary-dark-color);
+  --text-secondary: var(--secondary-color);
+  --text-tertiary: var(--secondary-light-color);
+  --text-inverse: var(--accent-contrast-color);
+
+  --success: var(--status-success-color);
+  --warning: var(--status-redirect-color);
+  --error: var(--status-critical-error-color);
+  --info: var(--status-info-color);
+
+  --method-get: var(--method-get-color);
+  --method-post: var(--method-post-color);
+  --method-put: var(--method-put-color);
+  --method-delete: var(--method-delete-color);
+  --method-patch: var(--method-patch-color);
+  --method-head: var(--method-head-color);
+  --method-options: var(--method-options-color);
+
+  --font-ui: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-code: 'Roboto Mono Variable', ui-monospace, Consolas, monospace;
+  --font-size-title: 14px;
+  --font-size-small: 11px;
+
+  --sidebar-width: 260px;
+  --sidebar-collapsed: 48px;
+  --tab-height: 36px;
+  --row-height: 32px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 6px;
+  --radius-2xl: 6px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.16);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.28);
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--accent-color) 35%, transparent);
+
+  /* JSON 语法高亮(dark 为准,.light 内覆写) */
+  --json-key: #c4b5fd;
+  --json-string: #86efac;
+  --json-number: #93c5fd;
+  --json-boolean: #fdba74;
+  --json-null: #737373;
+}
+
+:root.light {
+  --json-key: #7c3aed;
+  --json-string: #16a34a;
+  --json-number: #2563eb;
+  --json-boolean: #ea580c;
+  --json-null: #9ca3af;
+}

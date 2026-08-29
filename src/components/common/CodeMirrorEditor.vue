@@ -15,6 +15,23 @@ import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 
 type Language = 'json' | 'xml' | 'javascript' | 'html' | 'yaml' | 'text' | 'markdown'
+type EditorTheme = 'light' | 'dark' | 'black'
+
+/** black 档编辑器主题:在 oneDark 基础上把底色对齐纯黑 token */
+const blackCmTheme = EditorView.theme({
+  '&': { backgroundColor: 'var(--primary-color)' },
+  '.cm-gutters': { backgroundColor: 'var(--primary-color)', color: 'var(--secondary-light-color)', border: 'none' },
+  '.cm-activeLine': { backgroundColor: 'var(--primary-light-color)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--primary-light-color)' },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: '#10325a' },
+}, { dark: true })
+
+function resolveAutoTheme(): EditorTheme {
+  const root = document.documentElement
+  if (root.classList.contains('black')) return 'black'
+  if (root.classList.contains('light')) return 'light'
+  return 'dark'
+}
 
 const props = withDefaults(defineProps<{
   modelValue?: string
@@ -22,14 +39,15 @@ const props = withDefaults(defineProps<{
   readonly?: boolean
   placeholder?: string
   lineNumbers?: boolean
-  theme?: 'light' | 'dark'
+  /** 'auto' 跟随全局明暗主题(dark → oneDark,black → oneDark+纯黑覆盖) */
+  theme?: EditorTheme | 'auto'
 }>(), {
   modelValue: '',
   language: 'text',
   readonly: false,
   placeholder: '',
   lineNumbers: true,
-  theme: 'light',
+  theme: 'auto',
 })
 
 const emit = defineEmits<{
@@ -42,7 +60,9 @@ const view = shallowRef<EditorView>()
 const languageCompartment = new Compartment()
 const themeCompartment = new Compartment()
 const readonlyCompartment = new Compartment()
+const resolvedTheme = ref<EditorTheme>(props.theme === 'auto' ? resolveAutoTheme() : props.theme)
 let ignoreNextUpdate = false
+let themeObserver: MutationObserver | null = null
 
 function getLanguageExtension(lang: Language) {
   switch (lang) {
@@ -57,8 +77,10 @@ function getLanguageExtension(lang: Language) {
   }
 }
 
-function getThemeExtension(theme: 'light' | 'dark') {
-  return theme === 'dark' ? oneDark : []
+function getThemeExtension(theme: EditorTheme) {
+  if (theme === 'dark') return [oneDark]
+  if (theme === 'black') return [oneDark, blackCmTheme]
+  return []
 }
 
 function createExtensions() {
@@ -88,7 +110,7 @@ function createExtensions() {
       indentWithTab,
     ]),
     languageCompartment.of(getLanguageExtension(props.language)),
-    themeCompartment.of(getThemeExtension(props.theme)),
+    themeCompartment.of(getThemeExtension(resolvedTheme.value)),
     readonlyCompartment.of(EditorState.readOnly.of(props.readonly)),
     props.placeholder ? cmPlaceholder(props.placeholder) : [],
     EditorView.updateListener.of((update) => {
@@ -117,9 +139,20 @@ onMounted(() => {
     state,
     parent: editorRef.value,
   })
+  // 跟随全局明暗切换(:root 上 light/black 类变化)
+  themeObserver = new MutationObserver(() => {
+    if (props.theme !== 'auto') return
+    const next = resolveAutoTheme()
+    if (next === resolvedTheme.value) return
+    resolvedTheme.value = next
+    view.value?.dispatch({ effects: themeCompartment.reconfigure(getThemeExtension(next)) })
+  })
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 })
 
 onBeforeUnmount(() => {
+  themeObserver?.disconnect()
+  themeObserver = null
   view.value?.destroy()
 })
 
@@ -144,8 +177,10 @@ watch(() => props.language, (lang) => {
 })
 
 watch(() => props.theme, (theme) => {
+  const next: EditorTheme = theme === 'auto' ? resolveAutoTheme() : theme
+  resolvedTheme.value = next
   view.value?.dispatch({
-    effects: themeCompartment.reconfigure(getThemeExtension(theme)),
+    effects: themeCompartment.reconfigure(getThemeExtension(next)),
   })
 })
 

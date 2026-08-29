@@ -210,10 +210,24 @@ export type AppShortcutAction =
   | 'formatJsonBody'
   | 'copyCurrentCurl'
 
+/** 主题明暗四档:跟随系统 / 亮 / 暗 / 纯黑(Hoppscotch BG_COLOR) */
+export type ThemeColorMode = 'system' | 'light' | 'dark' | 'black'
+
+/** 强调色九选(Hoppscotch THEME_COLOR) */
+export type AccentColor = 'green' | 'teal' | 'blue' | 'indigo' | 'purple' | 'yellow' | 'orange' | 'red' | 'pink'
+
 export interface AppSettings {
   corsMode: 'cors' | 'proxy' | 'no-cors'
   proxyUrl: string
-  theme: 'light' | 'dark' | 'system'
+  theme: ThemeColorMode
+  /** 强调色,默认 indigo */
+  accent: AccentColor
+  /** Sidenav 展开(EXPAND_NAVIGATION) */
+  expandNavigation: boolean
+  /** 侧栏位于主区左侧(默认 true;false = 右侧) */
+  sidebarOnLeft: boolean
+  /** 编辑区/响应区排布:上下(默认)或左右 */
+  editorLayout: 'vertical' | 'horizontal'
   maxHistory: number
   autoSave: boolean
   fontSize: number

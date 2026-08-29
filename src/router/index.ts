@@ -1,14 +1,27 @@
 import type { RouteRecordRaw } from 'vue-router'
+import AppShell from '@/components/shell/AppShell.vue'
 
 const MainView = () => import('@/views/MainView.vue')
+const SettingsView = () => import('@/views/SettingsView.vue')
 const SidePanelView = () => import('@/views/SidePanelView.vue')
 const PopupView = () => import('@/views/PopupView.vue')
 
 export const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'main',
-    component: MainView,
+    component: AppShell,
+    children: [
+      {
+        path: '',
+        name: 'main',
+        component: MainView,
+      },
+      {
+        path: 'settings',
+        name: 'settings',
+        component: SettingsView,
+      },
+    ],
   },
   {
     path: '/sidepanel',

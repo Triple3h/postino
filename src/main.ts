@@ -1,6 +1,11 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHashHistory } from 'vue-router'
+import VueTippy from 'vue-tippy'
+import 'tippy.js/dist/tippy.css'
+import 'tippy.js/animations/scale.css'
+import '@fontsource-variable/inter'
+import '@fontsource-variable/roboto-mono'
 import App from './App.vue'
 import { routes } from './router'
 import { useAppStore } from './stores/app'
@@ -16,6 +21,11 @@ const router = createRouter({
 const app = createApp(App)
 app.use(pinia)
 app.use(router)
+app.use(VueTippy, {
+  directive: 'tippy',
+  component: 'tippy',
+  defaultProps: { theme: 'tooltip', delay: [300, 0], touch: false },
+})
 
 const store = useAppStore()
 store.init().then(async () => {
