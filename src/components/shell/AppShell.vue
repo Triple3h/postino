@@ -6,6 +6,7 @@ import AppHeader from './AppHeader.vue'
 import AppSidenav from './AppSidenav.vue'
 import GlobalSearch from '@/components/common/GlobalSearch.vue'
 import MigrationDialog from '@/components/common/MigrationDialog.vue'
+import SaveRequestModal from '@/components/sidebar/SaveRequestModal.vue'
 import { useFileImport } from '@/composables/useFileImport'
 import { useSettings } from '@/composables/useSettings'
 
@@ -49,6 +50,7 @@ onUnmounted(unbindWindowDragImport)
 
     <GlobalSearch />
     <MigrationDialog />
+    <SaveRequestModal />
   </div>
 </template>
 

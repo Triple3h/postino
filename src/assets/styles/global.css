@@ -259,6 +259,66 @@ select:focus-visible {
   padding: 4px;
 }
 
+/* ===== 右键菜单 ===== */
+.ctx-menu-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+}
+
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--secondary-dark-color);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+
+.ctx-menu-item:hover:not(.disabled) {
+  background: var(--primary-dark-color);
+}
+
+.ctx-menu-item.danger {
+  color: var(--status-critical-error-color);
+}
+
+.ctx-menu-item.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ctx-menu-icon-spacer {
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.ctx-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-menu-kbd {
+  border: 1px solid var(--divider-dark-color);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-tiny);
+  color: var(--secondary-color);
+}
+
+.ctx-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--divider-color);
+}
+
 /* ===== splitpanes 分隔条 ===== */
 .splitpanes--vertical > .splitpanes__splitter {
   width: 5px;
