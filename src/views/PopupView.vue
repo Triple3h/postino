@@ -93,7 +93,7 @@ const searchResults = computed<PopupSearchResult[]>(() => {
         method: api.method,
         url: api.url,
         moduleName: module.name,
-        hasScripts: Boolean(api.preRequestScript || api.postRequestScript || item.preScript || item.postScript),
+        hasScripts: Boolean(api.preRequestScript || api.postRequestScript),
     }
     if ([result.name, result.url, result.method, result.moduleName].some(value => String(value).toLowerCase().includes(query))) {
       results.push(result)
@@ -155,6 +155,10 @@ async function send() {
       corsMode: store.settings.corsMode,
       proxyUrl: store.settings.proxyUrl,
       envVars: store.getEnvVariables(),
+      // Phase 3.7:流式响应实时刷新预览(快速发送无合并配置,仅展示原始流)
+      onStreamingUpdate: (streamingResponse: ResponseData) => {
+        response.value = streamingResponse
+      },
     })
   } finally {
     loading.value = false

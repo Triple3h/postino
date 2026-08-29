@@ -515,6 +515,11 @@ function escapeHtml(value: string): string {
             :title="getHistoryApiMeta(entry).path"
           >{{ getHistoryApiMeta(entry).name }}</span>
           <span class="history-url" :title="entry.url">{{ entry.url }}</span>
+          <span
+            v-if="entry.mergedText !== undefined"
+            class="history-stream-badge"
+            :title="`流式合并结果(${entry.mergedText.length} 字符):\n${entry.mergedText.slice(0, 400)}`"
+          >流式</span>
           <span :class="['history-status', statusColor(entry.status)]">{{ entry.status }}</span>
           <span :class="['history-duration', durationColor(entry.duration)]">{{ formatDuration(entry.duration) }}</span>
           <span class="history-time">{{ relativeTime(entry.timestamp) }}</span>
@@ -796,6 +801,16 @@ function escapeHtml(value: string): string {
   font-family: var(--font-code);
   font-size: var(--font-size-small);
   min-width: 0;
+}
+
+.history-stream-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .history-status {

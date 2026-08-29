@@ -5,6 +5,7 @@
 
 // Active stream controllers for cancellation
 const _activeStreams = new Map();
+const _activeSockets = new Map();
 const _recentWebRequests = new Map();
 
 const PENDING_IMPORT_KEY = 'apifix_pending_import';
@@ -26,6 +27,125 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup?.addListener(() => {
   createContextMenus();
 });
+
+// --- WebSocket 调试通道(Phase 3.5)---
+// UI 通过 named port「ws-control」控制 SW 内的 WebSocket:
+// WS_OPEN/WS_SEND/WS_CLOSE/WS_PING(UI→SW),WS_STATE/WS_MESSAGE(SW→UI)。
+// 端口断开(SW 回收或页面关闭)时关闭该端口名下的全部连接。
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'ws-control') return;
+
+  port.onMessage.addListener((message) => {
+    if (!message || typeof message.wsId !== 'string') return;
+    const { wsId } = message;
+
+    if (message.type === 'WS_OPEN') {
+      openWebSocket(wsId, message.url || '', message.protocols || [], port);
+      return;
+    }
+
+    if (message.type === 'WS_SEND') {
+      const record = _activeSockets.get(wsId);
+      if (!record) {
+        port.postMessage({ type: 'WS_LOG', wsId, level: 'error', text: '连接不存在或已关闭' });
+        return;
+      }
+      try {
+        record.socket.send(message.data);
+      } catch (err) {
+        port.postMessage({ type: 'WS_LOG', wsId, level: 'error', text: `发送失败:${err.message}` });
+      }
+      return;
+    }
+
+    if (message.type === 'WS_CLOSE') {
+      closeWebSocket(wsId, message.code, message.reason);
+      return;
+    }
+
+    if (message.type === 'WS_PING') {
+      port.postMessage({ type: 'WS_PONG', wsId });
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    for (const [wsId, record] of [..._activeSockets.entries()]) {
+      if (record.port === port) closeWebSocket(wsId);
+    }
+  });
+});
+
+function openWebSocket(wsId, url, protocols, port) {
+  const existing = _activeSockets.get(wsId);
+  if (existing) closeWebSocket(wsId);
+
+  let socket;
+  try {
+    socket = new WebSocket(url, protocols.filter(Boolean));
+  } catch (err) {
+    port.postMessage({ type: 'WS_STATE', wsId, state: 'error', detail: err.message });
+    return;
+  }
+  socket.binaryType = 'arraybuffer';
+  _activeSockets.set(wsId, { socket, port, url });
+
+  port.postMessage({ type: 'WS_STATE', wsId, state: 'connecting', detail: url });
+
+  socket.onopen = () => {
+    port.postMessage({ type: 'WS_STATE', wsId, state: 'open', detail: url });
+  };
+  socket.onmessage = (event) => {
+    let data;
+    let binary;
+    if (typeof event.data === 'string') {
+      data = event.data;
+    } else {
+      const bytes = new Uint8Array(event.data);
+      data = new TextDecoder('utf-8').decode(bytes);
+      binary = bytes.length;
+    }
+    port.postMessage({
+      type: 'WS_MESSAGE',
+      wsId,
+      message: {
+        id: `wsmsg:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
+        direction: 'in',
+        data,
+        binary,
+        timestamp: Date.now(),
+      },
+    });
+  };
+  socket.onerror = () => {
+    port.postMessage({ type: 'WS_STATE', wsId, state: 'error', detail: '连接错误' });
+  };
+  socket.onclose = (event) => {
+    _activeSockets.delete(wsId);
+    port.postMessage({
+      type: 'WS_STATE',
+      wsId,
+      state: 'closed',
+      detail: `code=${event.code}${event.reason ? ` ${event.reason}` : ''}${event.wasClean ? '' : '（异常断开）'}`,
+    });
+  };
+}
+
+function closeWebSocket(wsId, code, reason) {
+  const record = _activeSockets.get(wsId);
+  if (!record) return;
+  _activeSockets.delete(wsId);
+  try {
+    record.socket.onclose = null;
+    record.socket.close(code, reason);
+  } catch (err) {
+    // 忽略已关闭/正在关闭的 socket
+  }
+  try {
+    record.port.postMessage({ type: 'WS_STATE', wsId, state: 'closed', detail: '已手动关闭' });
+  } catch (err) {
+    // 端口已断开
+  }
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'API_REQUEST') {

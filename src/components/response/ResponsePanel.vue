@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { Clock3, Download, Play, TriangleAlert, Zap } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -25,6 +25,30 @@ const streamTypeLabel = computed(() => {
   return store.response.streamType === 'sse' ? 'SSE' : 'NDJSON'
 })
 const recentHistory = computed(() => store.history.slice(0, 5))
+
+// ── Phase 3.4:流式合并结果 + 事件流视图 ──
+const hasStreamChunks = computed(() => (store.response?.chunks?.length ?? 0) > 0)
+const mergedText = computed(() => store.response?.mergedText ?? '')
+const autoScrollMerged = ref(true)
+const mergedContainer = ref<HTMLElement | null>(null)
+
+const streamEvents = computed(() => (store.response?.chunks ?? []).map((chunk, index) => ({
+  index: index + 1,
+  time: formatTimestamp(chunk.timestamp),
+  event: chunk.event ?? 'message',
+  data: chunk.data,
+})))
+
+watch(() => store.response?.mergedText, async () => {
+  if (bodyMode.value !== 'merged' || !autoScrollMerged.value) return
+  await nextTick()
+  const el = mergedContainer.value
+  if (el) el.scrollTop = el.scrollHeight
+})
+
+async function copyMergedText() {
+  await navigator.clipboard.writeText(mergedText.value)
+}
 
 function cancelRequest() {
   store.cancelCurrentRequest()
@@ -402,7 +426,105 @@ function visualizationSrcdoc(item: ScriptVisualization): string {
     body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin:0;padding:12px;color:#111827;background:#fff;}
     table{width:100%;border-collapse:collapse;font-size:13px;}th,td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left;}th{background:#f9fafb;}
     pre{white-space:pre-wrap;word-break:break-word;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px;}
-  </style></head><body>${item.content}${data}</body></html>`
+  
+.stream-merged-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.stream-merged-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.auto-scroll-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.stream-merged-text {
+  flex: 1;
+  min-height: 220px;
+  max-height: 56vh;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-code);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-code);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stream-events-list {
+  max-height: 56vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stream-event-row {
+  display: grid;
+  grid-template-columns: 34px 74px 70px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.ev-index {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: right;
+  padding-top: 3px;
+}
+
+.ev-time {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  padding-top: 3px;
+}
+
+.ev-event {
+  font-family: var(--font-code);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary);
+  padding-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-data {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
+}
+</style></head><body>${item.content}${data}</body></html>`
 }
 
 function isTableData(args: string[]): boolean {
@@ -576,7 +698,105 @@ function generateResponseHtmlReport(): string {
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}.metric{border:1px solid var(--border);border-radius:14px;padding:12px}.metric span{display:block;color:var(--muted);font-size:12px}.metric strong{font-size:16px}
     table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-top:1px solid var(--border);padding:9px;text-align:left;vertical-align:top}th{width:220px;color:var(--muted)}
     pre{margin:0;white-space:pre-wrap;word-break:break-word;border-radius:14px;background:var(--code);color:#e5e7eb;padding:16px;overflow:auto;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
-  </style>
+  
+.stream-merged-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.stream-merged-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.auto-scroll-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.stream-merged-text {
+  flex: 1;
+  min-height: 220px;
+  max-height: 56vh;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-code);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-code);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stream-events-list {
+  max-height: 56vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stream-event-row {
+  display: grid;
+  grid-template-columns: 34px 74px 70px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.ev-index {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: right;
+  padding-top: 3px;
+}
+
+.ev-time {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  padding-top: 3px;
+}
+
+.ev-event {
+  font-family: var(--font-code);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary);
+  padding-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-data {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
+}
+</style>
 </head>
 <body>
   <main>
@@ -666,6 +886,8 @@ function exportResponseHtmlReport() {
           <div class="body-mode-bar">
             <button :class="['mode-btn', { active: bodyMode === 'pretty' }]" @click="bodyMode = 'pretty'">Pretty</button>
             <button :class="['mode-btn', { active: bodyMode === 'raw' }]" @click="bodyMode = 'raw'">Raw</button>
+            <button v-if="hasStreamChunks" :class="['mode-btn', { active: bodyMode === 'merged' }]" @click="bodyMode = 'merged'">合并结果</button>
+            <button v-if="hasStreamChunks" :class="['mode-btn', { active: bodyMode === 'events' }]" @click="bodyMode = 'events'">事件流</button>
             <span class="streaming-chunk-badge">{{ chunkCount }} chunks</span>
           </div>
           <CodeMirrorEditor
@@ -676,6 +898,21 @@ function exportResponseHtmlReport() {
             class="response-cm-pretty"
           />
           <pre v-if="bodyMode === 'raw'" class="response-raw">{{ store.response.body }}</pre>
+          <div v-if="bodyMode === 'merged' && hasStreamChunks" class="stream-merged-wrap">
+            <div class="stream-merged-bar">
+              <label class="auto-scroll-toggle"><input v-model="autoScrollMerged" type="checkbox" /> 自动滚动</label>
+              <button class="resp-action-btn" @click="copyMergedText">复制合并结果</button>
+            </div>
+            <pre ref="mergedContainer" class="stream-merged-text">{{ mergedText || '尚未合并出内容:请确认请求的流式合并配置,或等待更多数据。' }}</pre>
+          </div>
+          <div v-if="bodyMode === 'events' && hasStreamChunks" class="stream-events-list">
+            <div v-for="ev in streamEvents" :key="ev.index" class="stream-event-row">
+              <span class="ev-index">{{ ev.index }}</span>
+              <span class="ev-time">{{ ev.time }}</span>
+              <span class="ev-event">{{ ev.event }}</span>
+              <pre class="ev-data">{{ ev.data }}</pre>
+            </div>
+          </div>
         </div>
         <div v-if="activeTab === 'headers'" class="resp-headers">
           <table class="headers-table">
@@ -755,6 +992,21 @@ function exportResponseHtmlReport() {
             class="response-cm-pretty"
           />
           <pre v-if="bodyMode === 'raw'" class="response-raw">{{ store.response.body }}</pre>
+          <div v-if="bodyMode === 'merged' && hasStreamChunks" class="stream-merged-wrap">
+            <div class="stream-merged-bar">
+              <label class="auto-scroll-toggle"><input v-model="autoScrollMerged" type="checkbox" /> 自动滚动</label>
+              <button class="resp-action-btn" @click="copyMergedText">复制合并结果</button>
+            </div>
+            <pre ref="mergedContainer" class="stream-merged-text">{{ mergedText || '尚未合并出内容:请确认请求的流式合并配置,或等待更多数据。' }}</pre>
+          </div>
+          <div v-if="bodyMode === 'events' && hasStreamChunks" class="stream-events-list">
+            <div v-for="ev in streamEvents" :key="ev.index" class="stream-event-row">
+              <span class="ev-index">{{ ev.index }}</span>
+              <span class="ev-time">{{ ev.time }}</span>
+              <span class="ev-event">{{ ev.event }}</span>
+              <pre class="ev-data">{{ ev.data }}</pre>
+            </div>
+          </div>
         </div>
         <div v-if="activeTab === 'headers'" class="resp-headers">
           <table class="headers-table">
@@ -855,6 +1107,8 @@ function exportResponseHtmlReport() {
             <button :class="['mode-btn', { active: bodyMode === 'raw' }]" @click="bodyMode = 'raw'">Raw</button>
             <button v-if="jsonTable" :class="['mode-btn', { active: bodyMode === 'table' }]" @click="bodyMode = 'table'">Table</button>
             <button v-if="isPreviewable" :class="['mode-btn', { active: bodyMode === 'preview' }]" @click="bodyMode = 'preview'">Preview</button>
+            <button v-if="hasStreamChunks" :class="['mode-btn', { active: bodyMode === 'merged' }]" @click="bodyMode = 'merged'">合并结果</button>
+            <button v-if="hasStreamChunks" :class="['mode-btn', { active: bodyMode === 'events' }]" @click="bodyMode = 'events'">事件流</button>
             <div class="search-bar">
               <input
                 v-model="searchQuery"
@@ -880,6 +1134,21 @@ function exportResponseHtmlReport() {
             class="response-cm-pretty"
           />
           <pre v-if="bodyMode === 'raw'" class="response-raw">{{ store.response.body }}</pre>
+          <div v-if="bodyMode === 'merged' && hasStreamChunks" class="stream-merged-wrap">
+            <div class="stream-merged-bar">
+              <label class="auto-scroll-toggle"><input v-model="autoScrollMerged" type="checkbox" /> 自动滚动</label>
+              <button class="resp-action-btn" @click="copyMergedText">复制合并结果</button>
+            </div>
+            <pre ref="mergedContainer" class="stream-merged-text">{{ mergedText || '尚未合并出内容:请确认请求的流式合并配置,或等待更多数据。' }}</pre>
+          </div>
+          <div v-if="bodyMode === 'events' && hasStreamChunks" class="stream-events-list">
+            <div v-for="ev in streamEvents" :key="ev.index" class="stream-event-row">
+              <span class="ev-index">{{ ev.index }}</span>
+              <span class="ev-time">{{ ev.time }}</span>
+              <span class="ev-event">{{ ev.event }}</span>
+              <pre class="ev-data">{{ ev.data }}</pre>
+            </div>
+          </div>
           <div v-if="bodyMode === 'table' && filteredJsonTable" class="response-table-wrap">
             <table class="json-table">
               <thead><tr><th v-for="col in filteredJsonTable.columns" :key="col">{{ col }}</th></tr></thead>
@@ -1816,5 +2085,103 @@ function exportResponseHtmlReport() {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.stream-merged-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.stream-merged-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.auto-scroll-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-small);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.stream-merged-text {
+  flex: 1;
+  min-height: 220px;
+  max-height: 56vh;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-code);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-code);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stream-events-list {
+  max-height: 56vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stream-event-row {
+  display: grid;
+  grid-template-columns: 34px 74px 70px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.ev-index {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: right;
+  padding-top: 3px;
+}
+
+.ev-time {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  padding-top: 3px;
+}
+
+.ev-event {
+  font-family: var(--font-code);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary);
+  padding-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-data {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
 }
 </style>

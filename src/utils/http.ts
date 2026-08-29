@@ -1,7 +1,8 @@
-import type { HttpMethod, ResponseData, ApiConfig, AuthConfig, BodyConfig, KvPair, CookieItem, ResponseStreamChunk } from '@/types'
+import type { HttpMethod, ResponseData, ApiConfig, AuthConfig, BodyConfig, KvPair, CookieItem, ResponseStreamChunk, StreamMergeConfig } from '@/types'
 import { resolveTemplateVars } from '@/utils/template'
 import { arrayBufferToBase64, isBinaryContentType } from '@/utils/binary-response'
 import { createDefaultAuthConfig } from '@/utils/auth'
+import { StreamMerger } from '@/utils/stream-merge'
 
 export interface RequestOptions {
   method: HttpMethod
@@ -19,6 +20,8 @@ export interface RequestOptions {
   followRedirects?: boolean
   signal?: AbortSignal
   onStreamingUpdate?: (response: ResponseData) => void
+  /** 流式合并规则(SSE/NDJSON):从 JSON 载荷提取字段并拼接,如 data.content */
+  streamMerge?: StreamMergeConfig
 }
 
 type StreamType = NonNullable<ResponseData['streamType']>
@@ -29,6 +32,8 @@ interface StreamParserState {
   bodyParts: string[]
   chunks: ResponseStreamChunk[]
   rawBody: string
+  merger: StreamMerger | null
+  bomStripped: boolean
 }
 
 interface AbortContext {
@@ -55,7 +60,7 @@ function sendRequestViaExtension(data: {
   autoCarryCookies?: boolean
   timeoutMs?: number
   followRedirects?: boolean
-}, options: Pick<RequestOptions, 'signal' | 'onStreamingUpdate'> = {}): Promise<ResponseData> {
+}, options: Pick<RequestOptions, 'signal' | 'onStreamingUpdate' | 'streamMerge'> = {}): Promise<ResponseData> {
   if (options.signal || options.onStreamingUpdate) {
     return sendStreamingRequestViaExtension(data, options)
   }
@@ -115,7 +120,7 @@ function sendStreamingRequestViaExtension(data: {
   autoCarryCookies?: boolean
   timeoutMs?: number
   followRedirects?: boolean
-}, options: Pick<RequestOptions, 'signal' | 'onStreamingUpdate'>): Promise<ResponseData> {
+}, options: Pick<RequestOptions, 'signal' | 'onStreamingUpdate' | 'streamMerge'>): Promise<ResponseData> {
   return new Promise((resolve, reject) => {
     const runtime = getChromeRuntime()
     const runtimeAny = runtime as any
@@ -161,7 +166,7 @@ function sendStreamingRequestViaExtension(data: {
       if (phase === 'headers') {
         const headers = headersArrayToRecord(payload.headers)
         const streamType = getStreamingContentType(payload.contentType)
-        parser = streamType ? createStreamParser(streamType) : null
+        parser = streamType ? createStreamParser(streamType, options.streamMerge) : null
         bodyEncoding = payload.bodyEncoding ?? 'text'
         publish({
           status: payload.status,
@@ -228,6 +233,7 @@ function sendStreamingRequestViaExtension(data: {
           duration: payload.duration ?? response.duration,
           size: payload.size ?? new Blob([finalBody]).size,
           chunks: parser ? [...parser.chunks] : response.chunks,
+          mergedText: currentStreamMergedText(parser) ?? response.mergedText,
           finalBody,
           isStreaming: false,
           streamCompleted: Boolean(parser),
@@ -654,18 +660,26 @@ function getStreamingContentType(contentType: string | undefined | null): Stream
   return null
 }
 
-function createStreamParser(streamType: StreamType): StreamParserState {
+function createStreamParser(streamType: StreamType, streamMerge?: StreamMergeConfig | null): StreamParserState {
   return {
     streamType,
     buffer: '',
     bodyParts: [],
     chunks: [],
     rawBody: '',
+    merger: streamMerge && streamMerge.mode !== 'off' ? new StreamMerger(streamMerge) : null,
+    bomStripped: false,
   }
 }
 
-function appendStreamText(state: StreamParserState, text: string): void {
-  if (!text) return
+function appendStreamText(state: StreamParserState, rawText: string): void {
+  if (!rawText) return
+  let text = rawText
+  if (!state.bomStripped) {
+    state.bomStripped = true
+    text = text.replace(/^\uFEFF/, '')
+    if (!text) return
+  }
   state.rawBody += text
   state.buffer += text
   if (state.streamType === 'sse') {
@@ -692,27 +706,43 @@ function drainSseEvents(state: StreamParserState, flush: boolean): void {
     const lines = rawEvent.split(/\r?\n/)
     const dataLines: string[] = []
     let eventName: string | undefined
+    let eventId: string | undefined
 
     for (const line of lines) {
+      // 注释行(:heartbeat)跳过
       if (line.startsWith(':')) continue
-      if (line.startsWith('event:')) {
-        eventName = line.slice(6).trim()
-      } else if (line.startsWith('data:')) {
-        dataLines.push(line.slice(5).replace(/^ /, ''))
+      const colonIdx = line.indexOf(':')
+      const field = colonIdx === -1 ? line : line.slice(0, colonIdx)
+      const value = colonIdx === -1 ? '' : line.slice(colonIdx + 1).replace(/^ /, '')
+      if (field === 'event') {
+        eventName = value
+      } else if (field === 'data') {
+        // 多行 data 按行拼接(SSE 规范)
+        dataLines.push(value)
+      } else if (field === 'id') {
+        eventId = value
       }
+      // retry 字段仅作容错读取,不影响合并
     }
 
     const data = dataLines.join('\n')
-    if (!data && !eventName) continue
-    state.bodyParts.push(data)
-    state.chunks.push({
+    if (!data && !eventName && !eventId) continue
+    const chunk: ResponseStreamChunk = {
       id: `${state.streamType}-${state.chunks.length + 1}`,
       type: state.streamType,
       raw: rawEvent,
       data,
       event: eventName,
       timestamp: Date.now(),
-    })
+    }
+    if (eventId !== undefined) chunk.sseId = eventId
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed !== null && typeof parsed === 'object') chunk.json = parsed
+    } catch {}
+    state.bodyParts.push(data)
+    state.chunks.push(chunk)
+    state.merger?.push(chunk)
   }
 
   if (flush) state.buffer = ''
@@ -732,15 +762,17 @@ function drainNdjsonLines(state: StreamParserState, flush: boolean): void {
       parsed = JSON.parse(line)
       data = JSON.stringify(parsed, null, 2)
     } catch {}
-    state.bodyParts.push(data)
-    state.chunks.push({
+    const chunk: ResponseStreamChunk = {
       id: `${state.streamType}-${state.chunks.length + 1}`,
       type: state.streamType,
       raw: rawLine,
       data,
       json: parsed,
       timestamp: Date.now(),
-    })
+    }
+    state.bodyParts.push(data)
+    state.chunks.push(chunk)
+    state.merger?.push(chunk)
   }
 
   if (flush) state.buffer = ''
@@ -748,6 +780,10 @@ function drainNdjsonLines(state: StreamParserState, flush: boolean): void {
 
 function currentStreamDisplayBody(state: StreamParserState): string {
   return state.bodyParts.length > 0 ? state.bodyParts.join('\n') : state.rawBody
+}
+
+function currentStreamMergedText(state: StreamParserState | null): string | undefined {
+  return state?.merger ? state.merger.state.merged : undefined
 }
 
 function headersArrayToRecord(headers: Array<{ key: string; value: string }> | undefined): Record<string, string> {
@@ -849,7 +885,7 @@ function buildCookieHeader(cookies: CookieItem[], autoCarryCookies: boolean, env
 }
 
 export async function sendRequest(options: RequestOptions): Promise<ResponseData> {
-  const { method, url, headers, params, cookies, autoCarryCookies, body, auth, corsMode, proxyUrl, envVars, timeoutMs, followRedirects, signal, onStreamingUpdate } = options
+  const { method, url, headers, params, cookies, autoCarryCookies, body, auth, corsMode, proxyUrl, envVars, timeoutMs, followRedirects, signal, onStreamingUpdate, streamMerge } = options
 
   // OAuth2: auto-fetch token for client_credentials / password grants if no token yet
   let effectiveAuth = auth
@@ -896,7 +932,7 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
         digestPassword: resolveValue(effectiveAuth.digestPassword, envVars),
       }
     }
-    return sendRequestViaExtension(extBody, { signal, onStreamingUpdate })
+    return sendRequestViaExtension(extBody, { signal, onStreamingUpdate, streamMerge })
   }
 
   let fetchUrl = finalUrl
@@ -956,11 +992,11 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
           retryOptions.mode = 'no-cors'
         }
         const retryResp = await fetch(fetchUrl, retryOptions)
-        return await processResponse(retryResp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate)
+        return await processResponse(retryResp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate, streamMerge)
       }
     }
 
-    return await processResponse(resp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate)
+    return await processResponse(resp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate, streamMerge)
   } catch (err: any) {
     const duration = Math.round(performance.now() - startTime)
     if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
@@ -1009,6 +1045,7 @@ async function processResponse(
   startTime: number,
   abortContext: AbortContext,
   onStreamingUpdate?: (response: ResponseData) => void,
+  streamMerge?: StreamMergeConfig,
 ): Promise<ResponseData> {
   const status = resp.status
   const statusText = resp.statusText
@@ -1021,7 +1058,7 @@ async function processResponse(
   const streamType = getStreamingContentType(contentTypeHeader)
 
   if (streamType && resp.body) {
-    const parser = createStreamParser(streamType)
+    const parser = createStreamParser(streamType, streamMerge)
     const reader = resp.body.getReader()
     const decoder = new TextDecoder('utf-8')
     let size = 0
@@ -1060,6 +1097,7 @@ async function processResponse(
         duration: Math.round(performance.now() - startTime),
         size,
         chunks: [...parser.chunks],
+        mergedText: currentStreamMergedText(parser),
         finalBody: respBody,
         isStreaming: true,
         streamCompleted: false,
@@ -1078,6 +1116,7 @@ async function processResponse(
       duration,
       size,
       chunks: [...parser.chunks],
+      mergedText: currentStreamMergedText(parser),
       finalBody: respBody,
       isStreaming: false,
       streamCompleted: true,
