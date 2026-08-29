@@ -1,35 +1,18 @@
-import { ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import type { AppSettings } from '@/types'
-import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
+import { useAppStore } from '@/stores/app'
 
-const SETTINGS_KEY = 'apifix_settings'
-
-const defaultSettings: AppSettings = {
-  corsMode: 'cors',
-  proxyUrl: 'https://corsproxy.io/?',
-  theme: 'system',
-  maxHistory: 100,
-  autoSave: true,
-  fontSize: 13,
-  customShortcuts: { ...DEFAULT_SHORTCUTS },
-}
-
-function loadSettings(): AppSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY)
-    return raw ? { ...defaultSettings, ...JSON.parse(raw) } : defaultSettings
-  } catch {
-    return defaultSettings
-  }
-}
+/**
+ * Phase 5.1:settings 唯一真源是 app store(持久化到 db.settings)。
+ * 本 composable 只是代理:主题应用 + 一个仅用于防启动闪烁的 theme boot cache。
+ * 旧 localStorage 'apifix_settings' 已废弃,启动时顺手清掉。
+ */
+const LEGACY_SETTINGS_KEY = 'apifix_settings'
+const THEME_BOOT_KEY = 'apifix_theme_boot'
 
 export function useSettings() {
-  const settings = ref<AppSettings>(loadSettings())
-
-  watch(settings, (val) => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(val))
-    applyTheme(val.theme)
-  }, { deep: true })
+  const store = useAppStore()
+  const settings = computed<AppSettings>(() => store.settings)
 
   function applyTheme(theme: AppSettings['theme']) {
     const root = document.documentElement
@@ -41,14 +24,23 @@ export function useSettings() {
     }
   }
 
-  function toggleTheme() {
-    const themes: AppSettings['theme'][] = ['light', 'dark', 'system']
-    const idx = themes.indexOf(settings.value.theme)
-    settings.value.theme = themes[(idx + 1) % themes.length]
+  // 启动先用 boot cache 防闪烁;store 从 db 加载完成后 watch 会自动纠正
+  try {
+    const bootTheme = localStorage.getItem(THEME_BOOT_KEY)
+    applyTheme(bootTheme === 'dark' || bootTheme === 'light' ? bootTheme : settings.value.theme)
+    localStorage.removeItem(LEGACY_SETTINGS_KEY)
+  } catch {
+    applyTheme(settings.value.theme)
   }
 
-  // Apply theme on init
-  applyTheme(settings.value.theme)
+  watch(() => settings.value.theme, (theme) => {
+    applyTheme(theme)
+    try { localStorage.setItem(THEME_BOOT_KEY, theme) } catch { /* 隐私模式等场景忽略 */ }
+  })
+
+  function toggleTheme() {
+    store.toggleTheme()
+  }
 
   // Listen for system theme changes
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

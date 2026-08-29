@@ -13,6 +13,9 @@
     "build:desktop:mac": "node build.js --desktop-only --mac --no-typecheck",
     "build:desktop:all": "node build.js --desktop-only --all --no-typecheck",
     "typecheck": "vue-tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:facade": "vite build --config vite.facade.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -30,7 +33,6 @@
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.36.8",
     "@lucide/vue": "^1.16.0",
-    "axios": "^1.16.1",
     "codemirror": "^6.0.1",
     "dexie": "^4.4.2",
     "pinia": "^3.0.4",
@@ -44,6 +46,7 @@
     "sass": "^1.99.0",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
+    "vitest": "^4.1.11",
     "vue-tsc": "^3.2.8"
   }
 }

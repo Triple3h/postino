@@ -124,8 +124,9 @@ function fuzzyMatch(query: string, target: string): FuzzyResult | null {
 // --- Search result type mapping ---
 const TYPE_SCOPE_MAP: Record<string, 'interface' | 'variable' | 'history'> = {
   '接口': 'interface',
+  '文件夹': 'interface',
   '环境变量': 'variable',
-  '模块变量': 'variable',
+  '集合变量': 'variable',
   '请求变量': 'variable',
   '历史': 'history',
 }
@@ -140,6 +141,47 @@ interface SearchResult {
   extraMatchedIndices: number[]
 }
 
+/** 集合树:节点祖先文件夹链(根→叶名称) */
+function folderChainOf(node: { parentId?: string | null }): string[] {
+  const byId = new Map(workspace.interfaces.map(item => [item.id, item]))
+  const names: string[] = []
+  let parentId = node.parentId ?? null
+  const guard = new Set<string>()
+  while (parentId && !guard.has(parentId)) {
+    guard.add(parentId)
+    const parent = byId.get(parentId)
+    if (!parent) break
+    names.unshift(parent.name)
+    parentId = parent.parentId ?? null
+  }
+  return names
+}
+
+/** 选中文件夹结果:打开所属集合,并展开该文件夹及祖先(移除折叠标记) */
+function revealFolder(folderId: string) {
+  const node = workspace.interfaces.find(item => item.id === folderId)
+  const collectionId = node ? (node.collectionId ?? node.moduleId) : null
+  if (!node || !collectionId) return
+  workspace.selectModule(collectionId)
+  store.currentApiId = null
+  const byId = new Map(workspace.interfaces.map(item => [item.id, item]))
+  const chain: string[] = [node.id]
+  let parentId = node.parentId ?? null
+  const guard = new Set<string>()
+  while (parentId && !guard.has(parentId)) {
+    guard.add(parentId)
+    const parent = byId.get(parentId)
+    if (!parent || (parent.nodeType ?? 'request') !== 'folder') break
+    chain.unshift(parent.id)
+    parentId = parent.parentId ?? null
+  }
+  // Sidebar 的展开约定:默认展开,存在 collapsed:node:<id> 即为折叠
+  const collapsedKeys = new Set(chain.map(id => `collapsed:node:${id}`))
+  if (store.expandedFolders.some(key => collapsedKeys.has(key))) {
+    store.expandedFolders = store.expandedFolders.filter(key => !collapsedKeys.has(key))
+  }
+}
+
 const results = computed(() => {
   const q = searchQuery.value.trim()
   if (!q) return []
@@ -148,16 +190,15 @@ const results = computed(() => {
 
   const indexedApiIds = new Set<string>()
 
-  // Search planned interfaces
+  // Search planned interfaces(Phase 5.3:路径 = 集合名 + 文件夹链)
   for (const interfaceNode of workspace.interfaces) {
     if ((interfaceNode.nodeType ?? 'request') === 'folder') continue
     const api = store.apis[interfaceNode.apiId]
-    const module = workspace.modules.find(item => item.id === interfaceNode.moduleId)
-    const category = module ? workspace.categories.find(item => item.id === module.categoryId) : null
+    const collection = workspace.collections.find(item => item.id === (interfaceNode.collectionId ?? interfaceNode.moduleId))
+    const path = [collection?.name, ...folderChainOf(interfaceNode)].filter(Boolean).join(' / ')
     const name = api?.name ?? interfaceNode.name
     const url = api?.url ?? interfaceNode.url
     const method = api?.method ?? interfaceNode.method
-    const path = [category?.name, module?.name].filter(Boolean).join(' / ')
     indexedApiIds.add(interfaceNode.apiId)
 
     const extra = `${path ? `${path} · ` : ''}${method} ${url}`
@@ -193,6 +234,31 @@ const results = computed(() => {
         score: bestMatch.score,
         nameMatchedIndices: nameResult?.matchedIndices ?? [],
         extraMatchedIndices: extraResult?.matchedIndices ?? [],
+      })
+    }
+  }
+
+  // Search folders(Phase 5.3:集合树的文件夹也可检索)
+  for (const folderNode of workspace.interfaces) {
+    if ((folderNode.nodeType ?? 'request') !== 'folder') continue
+    const collection = workspace.collections.find(item => item.id === (folderNode.collectionId ?? folderNode.moduleId))
+    const path = [collection?.name, ...folderChainOf(folderNode)].filter(Boolean).join(' / ')
+    const name = folderNode.name
+    const nameMatch = fuzzyMatch(q, name)
+    const pathMatch = fuzzyMatch(q, path)
+    const bestMatch = nameMatch && pathMatch
+      ? (nameMatch.score >= pathMatch.score ? nameMatch : pathMatch)
+      : nameMatch ?? pathMatch
+
+    if (bestMatch) {
+      items.push({
+        type: '文件夹',
+        name,
+        id: folderNode.id,
+        extra: path,
+        score: bestMatch.score,
+        nameMatchedIndices: nameMatch?.matchedIndices ?? [],
+        extraMatchedIndices: pathMatch?.matchedIndices ?? [],
       })
     }
   }
@@ -257,33 +323,29 @@ const results = computed(() => {
     }
   }
 
-  // Search module variables
-  for (const module of workspace.modules) {
-    for (const [key, value] of Object.entries(module.variables ?? {})) {
-      const candidateValues = [value.local, value.remote, value.description, ...Object.values(value.environmentValues ?? {})].filter(Boolean)
-      const nameStr = `${module.name}.${key}`
-      const displayValue = value.local || value.remote || Object.values(value.environmentValues ?? {})[0] || value.description || ''
+  // Search collection variables(Phase 5.3:替代遗留模块变量)
+  for (const collection of workspace.collections) {
+    for (const v of collection.variables ?? []) {
+      if (!v.key) continue
+      const nameStr = `${collection.name}.${v.key}`
+      const displayValue = v.currentValue || v.initialValue || ''
 
       const nameMatch = fuzzyMatch(q, nameStr)
-      let bestValueMatch: FuzzyResult | null = null
-      for (const cv of candidateValues) {
-        const m = fuzzyMatch(q, String(cv))
-        if (m && (!bestValueMatch || m.score > bestValueMatch.score)) bestValueMatch = m
-      }
+      const valueMatch = fuzzyMatch(q, String(displayValue))
 
-      const bestMatch = nameMatch && bestValueMatch
-        ? (nameMatch.score >= bestValueMatch.score ? nameMatch : bestValueMatch)
-        : nameMatch ?? bestValueMatch
+      const bestMatch = nameMatch && valueMatch
+        ? (nameMatch.score >= valueMatch.score ? nameMatch : valueMatch)
+        : nameMatch ?? valueMatch
 
       if (bestMatch) {
         items.push({
-          type: '模块变量',
+          type: '集合变量',
           name: nameStr,
-          id: module.id,
+          id: collection.id,
           extra: String(displayValue),
           score: bestMatch.score,
           nameMatchedIndices: nameMatch?.matchedIndices ?? [],
-          extraMatchedIndices: bestValueMatch?.matchedIndices ?? [],
+          extraMatchedIndices: valueMatch?.matchedIndices ?? [],
         })
       }
     }
@@ -402,7 +464,9 @@ function selectResult(result: typeof results.value[0], sendAfterSelect = false) 
     if (sendAfterSelect) {
       window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
     }
-  } else if (result.type === '模块变量') {
+  } else if (result.type === '文件夹') {
+    revealFolder(result.id)
+  } else if (result.type === '集合变量') {
     workspace.selectModule(result.id)
     store.currentApiId = null
   }
