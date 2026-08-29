@@ -12,7 +12,8 @@ import { useSettings } from '@/composables/useSettings'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { applyViewOpenContext, clearViewOpenContext, readViewOpenContext } from '@/utils/view-context'
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, eventToShortcut, getEffectiveShortcuts } from '@/utils/shortcuts'
-import { importCurl, importHar, importPostman } from '@/utils/import'
+import { importCurl, importHar, importPostman, importPostmanTree, importPostmanEnvironment } from '@/utils/import'
+import { parseCollectionBackup } from '@/utils/export'
 import { importOpenApi } from '@/utils/openapi-import'
 import type { ApiConfig, AppShortcutAction } from '@/types'
 
@@ -241,6 +242,38 @@ async function importDroppedFiles(files: FileList | File[]): Promise<void> {
   for (const file of fileArray) {
     try {
       const content = await file.text()
+      // Phase 4.5:自有备份格式优先识别
+      const backup = parseCollectionBackup(content)
+      if (backup) {
+        const stats = await store.restoreCollectionBackup(backup)
+        imported += stats.nodes
+        continue
+      }
+      // Phase 4.4:Postman 树形集合 / 环境 JSON 优先(拖拽路径无类型选择器,靠内容探测)
+      if (detectImportType(file.name, content) === 'postman') {
+        const tree = importPostmanTree(content)
+        if (tree) {
+          const collectionId = await store.importPostmanCollectionTree(tree)
+          if (!collectionId) {
+            failed.push(file.name)
+            continue
+          }
+          imported += tree.requests.length
+          const first = tree.requests[0]?.api
+          if (first) {
+            const node = workspace.interfaces.find(item => item.apiId === first.id)
+            workspace.selectInterface(node?.id ?? first.id)
+            store.currentApiId = first.id
+          }
+          continue
+        }
+        const envDraft = importPostmanEnvironment(content)
+        if (envDraft && currentModule.value) {
+          await store.importCollectionEnvironment(currentModule.value.id, envDraft.name, envDraft.variables)
+          imported += 1
+          continue
+        }
+      }
       const apis = parseImportedApis(file.name, content)
       if (apis.length === 0) {
         failed.push(file.name)

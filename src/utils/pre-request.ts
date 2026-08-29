@@ -24,6 +24,12 @@ export interface ScriptTestResult {
 }
 
 export interface ScriptResult {
+  /** pm.collectionVariables 变更后的完整 store(Phase 4.2) */
+  collectionVars?: Record<string, string>
+  changedCollectionKeys?: string[]
+  /** pm.globals 变更后的完整 store */
+  globalVars?: Record<string, string>
+  changedGlobalKeys?: string[]
   method?: HttpMethod
   headers: Record<string, string>
   cookies: CookieItem[]
@@ -71,6 +77,10 @@ export type ScriptRequestSender = (input: ScriptSendRequestInput) => Promise<Res
 export type ScriptInterfaceSender = (interfaceOrApiId: string, overrides?: ScriptSendRequestInput) => Promise<ResponseData>
 
 export interface ScriptExecutionOptions {
+  /** 集合变量初始 store(pm.collectionVariables 落点) */
+  collectionVarStore?: Record<string, string>
+  /** 全局变量初始 store(pm.globals 落点) */
+  globalVarStore?: Record<string, string>
   timeoutMs?: number
   maxMemoryBytes?: number
   requestMethod?: HttpMethod
@@ -167,6 +177,10 @@ function normalizeSandboxResult(result: any, success = true, error?: string): Sc
     formdata: result?.formdata || [],
     envVars: result?.envVars || {},
     envChangedKeys: result?.envChangedKeys || [],
+    collectionVars: result?.collectionVars,
+    changedCollectionKeys: result?.changedCollectionKeys || [],
+    globalVars: result?.globalVars,
+    changedGlobalKeys: result?.changedGlobalKeys || [],
     skipRequest: Boolean(result?.skipRequest),
     nextRequest: result?.nextRequest ?? null,
     logs: result?.logs || [],
@@ -1341,6 +1355,26 @@ function shouldUseIframeSandbox(): boolean {
   return typeof document !== 'undefined' && typeof window !== 'undefined'
 }
 
+/** Phase 4.2:从执行完的 pm 上差分出 collection/global 作用域变更 */
+function scopedResultOf(pm: any): Partial<ScriptResult> {
+  const scoped = pm?.__scopedStores
+  if (!scoped) return {}
+  const diffKeys = (initial: Record<string, string>, final: Record<string, string>) => {
+    const keys = new Set([...Object.keys(initial), ...Object.keys(final)])
+    const changed: string[] = []
+    for (const key of keys) {
+      if (initial[key] !== final[key]) changed.push(key)
+    }
+    return changed
+  }
+  return {
+    collectionVars: { ...scoped.collectionStore },
+    changedCollectionKeys: diffKeys(scoped.initialCollection, scoped.collectionStore),
+    globalVars: { ...scoped.globalStore },
+    changedGlobalKeys: diffKeys(scoped.initialGlobal, scoped.globalStore),
+  }
+}
+
 export async function executePreRequestScriptAsync(
   script: string,
   currentHeaders: Record<string, string>,
@@ -1396,6 +1430,7 @@ export async function executePreRequestScriptAsync(
     formdata: pm.request.body._formdata,
     envVars: envStore,
     envChangedKeys: [...changedEnvKeys],
+    ...scopedResultOf(pm),
     skipRequest: Boolean(pm.execution?._state?.skipRequest),
     nextRequest: pm.execution?._state?.nextRequest ?? null,
     logs,
@@ -1475,6 +1510,7 @@ export async function executePostResponseScriptAsync(
     formdata: [],
     envVars: envStore,
     envChangedKeys: [...changedEnvKeys],
+    ...scopedResultOf(pm),
     skipRequest: Boolean(pm.execution?._state?.skipRequest),
     nextRequest: pm.execution?._state?.nextRequest ?? null,
     logs,
@@ -1509,8 +1545,12 @@ function createPmRuntime(args: {
   options?: ScriptExecutionOptions
 }) {
   const environment = createPmEnvironment(args.envStore, args.changedEnvKeys, args.options)
-  const globals = createPmVariableScope({}, [environment])
-  const collectionVariables = createPmVariableScope({}, [environment])
+  // Phase 4.2:pm.collectionVariables / pm.globals 落到真实 store(可持久化),
+  // 快照用于差分出变更 key。
+  const collectionStore: Record<string, string> = { ...(args.options?.collectionVarStore ?? {}) }
+  const globalStore: Record<string, string> = { ...(args.options?.globalVarStore ?? {}) }
+  const globals = createPmVariableScope(globalStore, [environment])
+  const collectionVariables = createPmVariableScope(collectionStore, [environment])
   const variables = createPmVariableScope({}, [environment, collectionVariables, globals])
   const environmentSet = environment.set.bind(environment)
   const globalsSet = globals.set.bind(globals)
@@ -1548,6 +1588,13 @@ function createPmRuntime(args: {
     globals,
     collectionVariables,
     variables,
+    /** Phase 4.2:作用域 store 快照,执行完成后差分出变更(见 scopedResultOf) */
+    __scopedStores: {
+      collectionStore,
+      globalStore,
+      initialCollection: { ...collectionStore },
+      initialGlobal: { ...globalStore },
+    },
     iterationData: createPmVariableScope({}, [environment]),
     response: undefined,
     visualizer: createVisualizer(args.visualizations, args.appendLog),
@@ -1619,7 +1666,8 @@ async function executeAsyncScript(
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
     const deniedGlobal = undefined
     const CryptoJS = createCryptoJsShim()
-    const safeScript = `'use strict';\n${script}`
+    // 不能加 'use strict':strict 下 'eval' 不能作为参数名,沙箱函数会构造失败(遮蔽失效)
+    const safeScript = String(script ?? '')
     const fn = new AsyncFunction(
       'pm', 'postman', 'console', 'Math', 'Date', 'parseInt', 'parseFloat',
       'JSON', 'CryptoJS', 'encodeURIComponent', 'decodeURIComponent', 'btoa', 'atob',

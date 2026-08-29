@@ -15,7 +15,7 @@
  */
 
 import { execSync } from 'child_process'
-import { existsSync, copyFileSync, mkdirSync, rmSync, readdirSync } from 'fs'
+import { existsSync, copyFileSync, mkdirSync, rmSync, readdirSync, readFileSync } from 'fs'
 import { resolve, join } from 'path'
 
 const ROOT = resolve(import.meta.dirname)
@@ -47,6 +47,17 @@ function logSuccess(msg) {
 
 function logError(msg) {
   console.log(`\x1b[31m✗ ${msg}\x1b[0m`)
+}
+
+// ─── Step 0:构建 pm 门面 IIFE(Phase 4.3)───
+function buildFacade() {
+  logStep('Step 0: 构建 pm 门面 (src/scripting/pm-facade.ts → extension/pm-facade.js)')
+  run('npx vite build --config vite.facade.config.ts')
+  if (!existsSync(join(ROOT, 'extension', 'pm-facade.js'))) {
+    logError('extension/pm-facade.js 未生成,请检查 vite.facade.config.ts')
+    process.exit(1)
+  }
+  logSuccess('pm 门面构建完成')
 }
 
 // ─── Step 1: Vite 构建 ───
@@ -104,6 +115,7 @@ function buildExtension() {
     'devtools-panel.js',
     'sandbox.html',
     'script-worker.js',
+    'pm-facade.js',
   ]
   for (const f of extFiles) {
     const src = join(extDir, f)
@@ -111,6 +123,24 @@ function buildExtension() {
       copyFileSync(src, join(DIST_EXTENSION, f))
     }
   }
+
+  // Phase 4.3:校验门面双副本收敛 —— 两处消费端必须引用同一产物且产物存在
+  const facadeDist = join(DIST_EXTENSION, 'pm-facade.js')
+  const workerDist = join(DIST_EXTENSION, 'script-worker.js')
+  const sandboxDist = join(DIST_EXTENSION, 'sandbox.html')
+  if (!existsSync(facadeDist)) {
+    logError('dist-extension/pm-facade.js 缺失:pm 门面收敛校验失败')
+    process.exit(1)
+  }
+  if (!existsSync(workerDist) || !readFileSync(workerDist, 'utf8').includes("importScripts('pm-facade.js')")) {
+    logError('script-worker.js 未加载 pm-facade.js:pm 门面收敛校验失败')
+    process.exit(1)
+  }
+  if (!existsSync(sandboxDist) || !readFileSync(sandboxDist, 'utf8').includes('src="pm-facade.js"')) {
+    logError('sandbox.html 未加载 pm-facade.js:pm 门面收敛校验失败')
+    process.exit(1)
+  }
+  logSuccess('pm 门面收敛校验通过(worker/sandbox 共用同一产物)')
 
   // 复制扩展图标
   const iconsDir = join(extDir, 'icons')
@@ -198,6 +228,11 @@ function main() {
   console.log('\x1b[0m')
 
   const startTime = Date.now()
+
+  // Step 0: pm 门面(扩展所需;桌面版沙箱经页面内联降级仍可用)
+  if (!desktopOnly) {
+    buildFacade()
+  }
 
   // Step 1: Vite 构建 (除非只构建桌面版且已有 dist)
   if (!desktopOnly || !existsSync(DIST)) {

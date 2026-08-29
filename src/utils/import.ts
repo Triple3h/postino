@@ -1,4 +1,4 @@
-import type { ApiConfig, HttpMethod, KvPair, BodyConfig, AuthConfig, CookieItem } from '@/types'
+import type { ApiConfig, HttpMethod, KvPair, BodyConfig, AuthConfig, CookieItem, EnvVariable } from '@/types'
 import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
 
 function generateId(): string {
@@ -218,6 +218,7 @@ interface PostmanFolder {
   name?: string
   event?: PostmanEvent[]
   variable?: PostmanVariable[]
+  auth?: PostmanAuth
   item: PostmanNode[]
 }
 
@@ -230,9 +231,23 @@ interface PostmanVariable {
 }
 
 interface PostmanCollection {
-  info?: { name?: string }
+  info?: { name?: string; description?: string | { content?: string } }
   item?: PostmanNode[]
   variable?: PostmanVariable[]
+  auth?: PostmanAuth
+  event?: PostmanEvent[]
+}
+
+interface PostmanEnvValue {
+  key?: string
+  value?: unknown
+  enabled?: boolean
+  type?: string
+}
+
+interface PostmanEnvironment {
+  name?: string
+  values?: PostmanEnvValue[]
 }
 
 type PostmanUrl = string | { raw?: string; host?: string[]; path?: string[]; query?: Array<{ key: string; value: string; disabled?: boolean }> }
@@ -451,6 +466,110 @@ export function importPostman(jsonStr: string): ApiConfig[] {
     return imported
   } catch {
     return []
+  }
+}
+
+// ── Postman v2.1 树形导入(Phase 4.4):不拍平文件夹,集合/文件夹级 auth/变量/脚本落到对应节点 ──
+
+export interface ImportedPostmanFolder {
+  key: string
+  parentKey: string | null
+  name: string
+  auth?: AuthConfig
+  preRequestScript: string
+  postRequestScript: string
+  variables: KvPair[]
+}
+
+export interface ImportedPostmanRequest {
+  parentKey: string | null
+  api: ApiConfig
+}
+
+export interface ImportedPostmanTree {
+  name: string
+  description?: string
+  auth?: AuthConfig
+  preRequestScript: string
+  postRequestScript: string
+  variables: KvPair[]
+  folders: ImportedPostmanFolder[]
+  requests: ImportedPostmanRequest[]
+}
+
+export function importPostmanTree(jsonStr: string): ImportedPostmanTree | null {
+  try {
+    const collection: PostmanCollection = JSON.parse(jsonStr)
+    if (!collection.item || !Array.isArray(collection.item)) return null
+
+    const folders: ImportedPostmanFolder[] = []
+    const requests: ImportedPostmanRequest[] = []
+    let seq = 0
+
+    const walk = (items: PostmanNode[], parentKey: string | null) => {
+      for (const node of items) {
+        if ('item' in node && Array.isArray(node.item)) {
+          const key = `pf:${++seq}:${generateId()}`
+          folders.push({
+            key,
+            parentKey,
+            name: node.name || `Folder ${seq}`,
+            auth: node.auth ? normalizeAuthConfig(parsePostmanAuth(node.auth)) : undefined,
+            preRequestScript: resolvePostmanScript(node.event, 'prerequest'),
+            postRequestScript: resolvePostmanScript(node.event, 'test'),
+            variables: parsePostmanVariables(node.variable),
+          })
+          walk(node.item, key)
+        } else if ('request' in node) {
+          const api = parsePostmanItem(node as PostmanItem)
+          if (!api) continue
+          // 树形模式:请求只保留自身脚本与自身 auth;无 auth 时留 inherit 以继承上级
+          if (!(node as PostmanItem).request?.auth) {
+            api.auth = { ...createDefaultAuthConfig(), type: 'inherit' }
+          }
+          requests.push({ parentKey, api })
+        }
+      }
+    }
+    walk(collection.item, null)
+
+    const description = collection.info?.description
+    return {
+      name: collection.info?.name || 'Imported Collection',
+      description: typeof description === 'string' ? description : description?.content,
+      auth: collection.auth ? normalizeAuthConfig(parsePostmanAuth(collection.auth)) : undefined,
+      preRequestScript: resolvePostmanScript(collection.event, 'prerequest'),
+      postRequestScript: resolvePostmanScript(collection.event, 'test'),
+      variables: parsePostmanVariables(collection.variable),
+      folders,
+      requests,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Postman environment JSON(下载的 {environment:{...}} 或 {name,values})→ 集合环境草稿 */
+export function importPostmanEnvironment(jsonStr: string): { name: string; variables: EnvVariable[] } | null {
+  try {
+    const parsed = JSON.parse(jsonStr) as { environment?: PostmanEnvironment } & PostmanEnvironment
+    const env = parsed.environment ?? parsed
+    if (!env || !Array.isArray(env.values)) return null
+    const name = String(env.name || '').trim()
+    if (!name) return null
+    return {
+      name,
+      variables: env.values
+        .filter((item): item is PostmanEnvValue & { key: string } => Boolean(item?.key))
+        .map(item => ({
+          key: item.key,
+          value: item.value == null ? '' : String(item.value),
+          enabled: item.enabled !== false,
+          secret: item.type === 'secret' ? true : undefined,
+        })),
+    }
+  } catch {
+    return null
   }
 }
 

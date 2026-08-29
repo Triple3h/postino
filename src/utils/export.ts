@@ -1,4 +1,5 @@
-import type { ApiConfig, KvPair } from '@/types'
+import type { ApiConfig, AuthConfig, Collection, CollectionExportDocument, CollectionNode, CollectionVariable, Environment, KvPair } from '@/types'
+import { COLLECTION_EXPORT_VERSION } from '@/types'
 
 export function generateCurl(api: ApiConfig, envVars: Record<string, string> = {}): string {
   const parts: string[] = ['curl']
@@ -285,55 +286,6 @@ export function generateJavaHttpClient(api: ApiConfig, envVars: Record<string, s
 }
 
 export function generatePostmanCollection(apis: ApiConfig[], name: string = 'API Fox Lite Export'): string {
-  const buildAuth = (api: ApiConfig) => {
-    if (api.auth.type === 'bearer' && api.auth.bearerToken) {
-      return { type: 'bearer', bearer: [{ key: 'token', value: api.auth.bearerToken, type: 'string' }] }
-    }
-    if (api.auth.type === 'basic' && (api.auth.basicUsername || api.auth.basicPassword)) {
-      return {
-        type: 'basic',
-        basic: [
-          { key: 'username', value: api.auth.basicUsername, type: 'string' },
-          { key: 'password', value: api.auth.basicPassword, type: 'string' },
-        ],
-      }
-    }
-    if (api.auth.type === 'apikey' && api.auth.apiKeyName) {
-      return {
-        type: 'apikey',
-        apikey: [
-          { key: 'key', value: api.auth.apiKeyName, type: 'string' },
-          { key: 'value', value: api.auth.apiKeyValue, type: 'string' },
-          { key: 'in', value: api.auth.apiKeyIn, type: 'string' },
-        ],
-      }
-    }
-    return undefined
-  }
-
-  const buildEvents = (api: ApiConfig) => {
-    const events = []
-    if (api.preRequestScript?.trim()) {
-      events.push({
-        listen: 'prerequest',
-        script: {
-          type: 'text/javascript',
-          exec: api.preRequestScript.split(/\r?\n/),
-        },
-      })
-    }
-    if (api.postRequestScript?.trim()) {
-      events.push({
-        listen: 'test',
-        script: {
-          type: 'text/javascript',
-          exec: api.postRequestScript.split(/\r?\n/),
-        },
-      })
-    }
-    return events.length ? events : undefined
-  }
-
   const variableMap = new Map<string, string>()
   for (const api of apis) {
     for (const variable of api.requestVariables || []) {
@@ -350,36 +302,193 @@ export function generatePostmanCollection(apis: ApiConfig[], name: string = 'API
       schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
     },
     variable: variables.length ? variables : undefined,
-    item: apis.map(api => {
-      const request: Record<string, unknown> = {
-        method: api.method,
-        header: api.headers.filter(h => h.enabled).map(h => ({ key: h.key, value: h.value })),
-        cookie: api.cookies.filter(cookie => cookie.enabled).map(cookie => ({ key: cookie.key, value: cookie.value })),
-        url: {
-          raw: api.url,
-          query: api.params.filter(p => p.enabled).map(p => ({ key: p.key, value: p.value })),
-        },
-        body: api.body.type !== 'none' ? {
-          mode: api.body.type === 'json' || api.body.type === 'raw' ? 'raw' : api.body.type === 'form' ? 'formdata' : 'urlencoded',
-          raw: api.body.type === 'json' || api.body.type === 'raw' ? api.body.raw : undefined,
-          formdata: api.body.type === 'form' ? api.body.formData.filter(f => f.enabled).map(f => ({ key: f.key, value: f.value, type: 'text' })) : undefined,
-          urlencoded: api.body.type === 'urlencoded' ? api.body.urlEncoded.filter(f => f.enabled).map(f => ({ key: f.key, value: f.value })) : undefined,
-        } : undefined,
-      }
-      const auth = buildAuth(api)
-      if (auth) request.auth = auth
-
-      const item: Record<string, unknown> = {
-        name: api.name,
-        request,
-      }
-      const event = buildEvents(api)
-      if (event) item.event = event
-      return item
-    }),
+    item: apis.map(api => buildPostmanRequestItem(api)),
   }
 
   return JSON.stringify(collection, null, 2)
+}
+
+// ── Phase 4.5:Postman v2.1 共享构建块(单请求与树形导出共用)──
+
+function buildPostmanAuth(auth: AuthConfig): Record<string, unknown> | undefined {
+  if (auth.type === 'bearer' && auth.bearerToken) {
+    return { type: 'bearer', bearer: [{ key: 'token', value: auth.bearerToken, type: 'string' }] }
+  }
+  if (auth.type === 'basic' && (auth.basicUsername || auth.basicPassword)) {
+    return {
+      type: 'basic',
+      basic: [
+        { key: 'username', value: auth.basicUsername, type: 'string' },
+        { key: 'password', value: auth.basicPassword, type: 'string' },
+      ],
+    }
+  }
+  if (auth.type === 'apikey' && auth.apiKeyName) {
+    return {
+      type: 'apikey',
+      apikey: [
+        { key: 'key', value: auth.apiKeyName, type: 'string' },
+        { key: 'value', value: auth.apiKeyValue, type: 'string' },
+        { key: 'in', value: auth.apiKeyIn, type: 'string' },
+      ],
+    }
+  }
+  return undefined
+}
+
+function buildPostmanEvents(preRequestScript?: string, postRequestScript?: string): unknown[] | undefined {
+  const events = []
+  if (preRequestScript?.trim()) {
+    events.push({
+      listen: 'prerequest',
+      script: { type: 'text/javascript', exec: preRequestScript.split(/\r?\n/) },
+    })
+  }
+  if (postRequestScript?.trim()) {
+    events.push({
+      listen: 'test',
+      script: { type: 'text/javascript', exec: postRequestScript.split(/\r?\n/) },
+    })
+  }
+  return events.length ? events : undefined
+}
+
+function buildPostmanRequestItem(api: ApiConfig): Record<string, unknown> {
+  const request: Record<string, unknown> = {
+    method: api.method,
+    header: api.headers.filter(h => h.enabled).map(h => ({ key: h.key, value: h.value })),
+    cookie: api.cookies.filter(cookie => cookie.enabled).map(cookie => ({ key: cookie.key, value: cookie.value })),
+    url: {
+      raw: api.url,
+      query: api.params.filter(p => p.enabled).map(p => ({ key: p.key, value: p.value })),
+    },
+    body: api.body.type !== 'none' ? {
+      mode: api.body.type === 'json' || api.body.type === 'raw' ? 'raw' : api.body.type === 'form' ? 'formdata' : 'urlencoded',
+      raw: api.body.type === 'json' || api.body.type === 'raw' ? api.body.raw : undefined,
+      formdata: api.body.type === 'form' ? api.body.formData.filter(f => f.enabled).map(f => ({ key: f.key, value: f.value, type: 'text' })) : undefined,
+      urlencoded: api.body.type === 'urlencoded' ? api.body.urlEncoded.filter(f => f.enabled).map(f => ({ key: f.key, value: f.value })) : undefined,
+    } : undefined,
+  }
+  const auth = buildPostmanAuth(api.auth)
+  if (auth) request.auth = auth
+
+  const item: Record<string, unknown> = {
+    name: api.name,
+    request,
+  }
+  const event = buildPostmanEvents(api.preRequestScript, api.postRequestScript)
+  if (event) item.event = event
+  return item
+}
+
+/** Phase 4.5:单集合导出为 Postman v2.1 树(保留文件夹层级与集合/文件夹级 auth/变量/脚本) */
+export function generatePostmanCollectionTree(input: {
+  collection: Collection
+  nodes: CollectionNode[]
+  apis: Record<string, ApiConfig>
+}): string {
+  const { collection, nodes, apis } = input
+
+  const childrenOf = new Map<string | null, CollectionNode[]>()
+  for (const node of nodes) {
+    const key = node.parentId ?? null
+    if (!childrenOf.has(key)) childrenOf.set(key, [])
+    childrenOf.get(key)!.push(node)
+  }
+  const sortNodes = (list: CollectionNode[]) => [...list].sort((a, b) => a.order - b.order)
+
+  /** Hoppscotch 同款:导出剥离 secret 取值,取值优先 initialValue */
+  const toPostmanVariables = (vars: CollectionVariable[] | undefined) => (vars || [])
+    .filter(v => v.key)
+    .map(v => ({ key: v.key, value: v.secret ? '' : (v.initialValue || v.currentValue), type: 'string' }))
+
+  const explicitAuth = (auth?: AuthConfig) =>
+    auth && auth.type !== 'inherit' && auth.type !== 'none' ? buildPostmanAuth(auth) : undefined
+
+  const buildItems = (parentId: string | null): unknown[] | undefined => {
+    const children = sortNodes(childrenOf.get(parentId) ?? [])
+    if (!children.length) return undefined
+    return children.map(node => {
+      if ((node.nodeType ?? 'request') === 'folder') {
+        const item: Record<string, unknown> = { name: node.name }
+        const inner = buildItems(node.id)
+        if (inner) item.item = inner
+        const event = buildPostmanEvents(node.preRequestScript, node.postRequestScript)
+        if (event) item.event = event
+        const vars = toPostmanVariables(node.variables)
+        if (vars.length) item.variable = vars
+        const auth = explicitAuth(node.auth)
+        if (auth) item.auth = auth
+        return item
+      }
+      const api = node.apiId ? apis[node.apiId] : undefined
+      if (!api) {
+        return { name: node.name, request: { method: node.method || 'GET', url: { raw: node.url || '' } } }
+      }
+      return buildPostmanRequestItem(api)
+    })
+  }
+
+  const doc: Record<string, unknown> = {
+    info: {
+      name: collection.name,
+      description: collection.description || undefined,
+      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+    },
+    variable: toPostmanVariables(collection.variables).length ? toPostmanVariables(collection.variables) : undefined,
+    auth: explicitAuth(collection.auth),
+    event: buildPostmanEvents(collection.preRequestScript, collection.postRequestScript),
+    item: buildItems(null) ?? [],
+  }
+
+  return JSON.stringify(doc, null, 2)
+}
+
+/** Phase 4.5:集合环境导出为 Postman environment 文件内容(secret 值剥离),每环境一份 */
+export function generatePostmanEnvironmentFiles(environments: Environment[]): string[] {
+  return environments.map(env => JSON.stringify({
+    name: env.name,
+    values: (env.variables || [])
+      .filter(v => v.key)
+      .map(v => ({ key: v.key, value: v.secret ? '' : v.value, enabled: v.enabled !== false })),
+  }, null, 2))
+}
+
+// ── Phase 4.5:自有带版本备份格式(主备份格式,secret 值剥离)──
+
+export function generateCollectionBackup(input: {
+  collections: Collection[]
+  nodes: CollectionNode[]
+  environments: Environment[]
+  apis: Record<string, ApiConfig>
+}): string {
+  const collections = input.collections.map(collection => ({
+    ...collection,
+    variables: (collection.variables || []).map(v => v.secret ? { ...v, initialValue: '', currentValue: '' } : v),
+  }))
+  const environments = input.environments.map(env => ({
+    ...env,
+    variables: (env.variables || []).map(v => v.secret ? { ...v, value: '' } : v),
+  }))
+  const doc: CollectionExportDocument = {
+    v: COLLECTION_EXPORT_VERSION,
+    exportedAt: Date.now(),
+    collections,
+    nodes: input.nodes,
+    environments,
+    apis: input.apis,
+  }
+  return JSON.stringify(doc, null, 2)
+}
+
+export function parseCollectionBackup(jsonStr: string): CollectionExportDocument | null {
+  try {
+    const doc = JSON.parse(jsonStr) as CollectionExportDocument
+    if (!doc || typeof doc !== 'object' || typeof doc.v !== 'number' || !Array.isArray(doc.collections)) return null
+    return doc
+  } catch {
+    return null
+  }
 }
 
 export function generateOpenApiSpec(apis: ApiConfig[], title: string = 'API Fox Lite Export'): string {
