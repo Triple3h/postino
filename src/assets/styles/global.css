@@ -1,0 +1,359 @@
+@import 'tailwindcss';
+@import './tokens.css';
+@import 'splitpanes/dist/splitpanes.css';
+
+/* ===== 基础 ===== */
+html,
+body,
+#app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--secondary-dark-color);
+  background: var(--primary-color);
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+  background: none;
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--divider-dark-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary-light-color);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-color) 30%, transparent);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ===== 扩展小窗尺寸(popup)===== */
+/* 目标 800×600。--popup-w/h 由 public/popup-fit.js 在窗口就绪后写入:
+   浏览器缩放或弹窗尺寸钳制导致 CSS 视口 < 800 时收缩贴合,避免横向白边与滚动条。
+   打开阶段保持固定值,临时视口下的 100vw/innerWidth 不可信(会把弹窗尺寸算塌)。 */
+html.popup-mode,
+html.popup-mode body,
+html.popup-mode #app,
+body.popup-mode,
+body.popup-mode #app {
+  width: var(--popup-w, 800px);
+  height: var(--popup-h, 600px);
+  margin: 0;
+  overflow: hidden;
+}
+
+/* ===== 共享控件(Hoppscotch 风格:方角拼接、高密度)===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 6px 16px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--primary-light-color);
+  color: var(--secondary-dark-color);
+  cursor: pointer;
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.btn:hover {
+  background: var(--primary-dark-color);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: var(--accent-contrast-color);
+}
+
+.btn-primary:hover {
+  background: var(--accent-dark-color);
+  border-color: var(--accent-dark-color);
+}
+
+.btn-sm {
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: var(--font-size-tiny);
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--secondary-color);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.btn-icon:hover {
+  color: var(--secondary-dark-color);
+  background: var(--primary-dark-color);
+}
+
+.btn-icon:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input[type='text'],
+input[type='url'],
+input[type='password'],
+input[type='number'],
+input[type='search'],
+input[type='date'],
+textarea,
+select {
+  padding: 6px 8px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--primary-light-color);
+  color: var(--secondary-dark-color);
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+input[type='text']:focus,
+input[type='url']:focus,
+input[type='password']:focus,
+input[type='number']:focus,
+input[type='search']:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent-color);
+}
+
+input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+select {
+  padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--secondary-light-color) 50%),
+    linear-gradient(135deg, var(--secondary-light-color) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+/* ===== Method 徽章(彩色文本体系)===== */
+.method-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-tiny);
+  font-weight: 700;
+  font-family: var(--font-code);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.method-badge.get,
+.method-chip.get { color: var(--method-get-color); }
+.method-badge.post,
+.method-chip.post { color: var(--method-post-color); }
+.method-badge.put,
+.method-chip.put { color: var(--method-put-color); }
+.method-badge.patch,
+.method-chip.patch { color: var(--method-patch-color); }
+.method-badge.delete,
+.method-chip.delete { color: var(--method-delete-color); }
+.method-badge.head,
+.method-chip.head { color: var(--method-head-color); }
+.method-badge.options,
+.method-chip.options { color: var(--method-options-color); }
+.method-badge.custom,
+.method-chip.custom { color: var(--method-default-color); }
+
+/* ===== tippy 主题 ===== */
+.tippy-box[data-theme~='tooltip'] {
+  background: var(--tooltip-color);
+  color: var(--primary-color);
+  font-size: var(--font-size-tiny);
+  border-radius: var(--radius-md);
+  padding: 2px 6px;
+}
+
+.tippy-box[data-theme~='tooltip'] .tippy-arrow {
+  color: var(--tooltip-color);
+}
+
+.tippy-box[data-theme~='popover'] {
+  background: var(--popover-color);
+  color: var(--secondary-dark-color);
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-size-body);
+}
+
+.tippy-box[data-theme~='popover'] .tippy-content {
+  padding: 4px;
+}
+
+/* ===== 右键菜单 ===== */
+.ctx-menu-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+}
+
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--secondary-dark-color);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+
+.ctx-menu-item:hover:not(.disabled) {
+  background: var(--primary-dark-color);
+}
+
+.ctx-menu-item.danger {
+  color: var(--status-critical-error-color);
+}
+
+.ctx-menu-item.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ctx-menu-icon-spacer {
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.ctx-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-menu-kbd {
+  border: 1px solid var(--divider-dark-color);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-tiny);
+  color: var(--secondary-color);
+}
+
+.ctx-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--divider-color);
+}
+
+/* ===== splitpanes 分隔条 ===== */
+.splitpanes--vertical > .splitpanes__splitter {
+  width: 5px;
+  margin: 0 -2px;
+  z-index: 5;
+  background: transparent;
+  border-left: 1px solid var(--divider-color);
+  cursor: col-resize;
+  transition: background 0.12s ease;
+}
+
+.splitpanes--horizontal > .splitpanes__splitter {
+  height: 5px;
+  margin: -2px 0;
+  z-index: 5;
+  background: transparent;
+  border-top: 1px solid var(--divider-color);
+  cursor: row-resize;
+  transition: background 0.12s ease;
+}
+
+.splitpanes--vertical > .splitpanes__splitter:hover,
+.splitpanes--horizontal > .splitpanes__splitter:hover,
+.splitpanes__splitter.splitpanes__splitter__active {
+  background: color-mix(in srgb, var(--accent-color) 45%, transparent);
+  border-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

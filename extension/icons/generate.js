@@ -1,5 +1,5 @@
-const fs = require('fs');
-const zlib = require('zlib');
+import fs from 'node:fs';
+import zlib from 'node:zlib';
 
 function createPNG(size) {
   const rawData = Buffer.alloc((size * 4 + 1) * size);
@@ -89,7 +89,7 @@ function crc32(buf) {
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
-[16, 48, 128].forEach(size => {
+[16, 32, 48, 128].forEach(size => {
   const png = createPNG(size);
   fs.writeFileSync('icon' + size + '.png', png);
   console.log('Created icon' + size + '.png (' + png.length + ' bytes)');

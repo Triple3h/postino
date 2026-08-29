@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN" class="popup-mode">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ApiFix Bin</title>
+    <style>
+      html.popup-mode,
+      html.popup-mode body,
+      html.popup-mode #app {
+        width: var(--popup-w, 800px);
+        height: var(--popup-h, 600px);
+        margin: 0;
+        overflow: hidden;
+      }
+    </style>
+    <script src="/popup-fit.js"></script>
+  </head>
+  <body class="popup-mode">
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

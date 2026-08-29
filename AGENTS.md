@@ -1,56 +1,115 @@
-# Repository Guidelines
+# AGENTS.md
 
-## Project Structure & Module Organization
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
-ApiFix Bin is a lightweight API debugging tool with three entry points:
+## Project Overview
 
-- `index.html` is the canonical single-page app and contains the main UI, styles, and browser-side logic.
-- `desktop/` contains the Electron wrapper. `desktop/copy-html.js` copies the root `index.html` into the desktop app before running or building.
-- `extension/` contains the Chrome extension wrapper, including `manifest.json`, `background.js`, `popup.js`, `main.html`, and extension icons.
-- `examples/` contains sample assets or usage material.
-- Build output belongs in `desktop/dist/` and must not be committed.
+ApiFix Bin is a lightweight API debugging tool — no login required, supports cURL/Postman import, with local storage persistence. It ships as both an Electron desktop app and a Chrome browser extension.
 
-There is no dedicated `src/` or test directory yet. Keep new files close to the entry point they support unless a broader refactor introduces modules.
-
-## Build, Test, and Development Commands
-
-Run commands from `desktop/` when working on the Electron app:
+## Build Commands
 
 ```bash
-npm install
-npm start
-npm run build
-npm run build:portable
+# Run Electron desktop app (copies index.html to desktop/, then starts)
+cd desktop && npm start
+
+# Build Windows executable (.exe)
+cd desktop && npm run build
+
+# Build macOS DMG
+cd desktop && npm run build:mac
+
+# Build both platforms
+cd desktop && npm run build:all
+
+# Build Windows portable version
+cd desktop && npm run build:portable
 ```
 
-- `npm start` copies `../index.html` and launches Electron.
-- `npm run build` creates the Windows installer with `electron-builder`.
-- `npm run build:portable` creates a portable Windows package.
+Releases are triggered via GitHub Actions on `v*` tags (e.g., `git tag v1.0.0 && git push --tags`). The workflow builds both Windows (.exe) and macOS (.dmg) and publishes a GitHub Release.
 
-The Chrome extension can be loaded from `extension/` via Chrome's "Load unpacked" developer option.
+## Architecture
 
-## Coding Style & Naming Conventions
+### Codebase Layout
 
-Use plain JavaScript, HTML, and CSS. Follow the existing style: two-space indentation in JSON, semicolons in JavaScript, and descriptive camelCase function names such as `sendRequest`, `importPostman`, and `renderHistory`.
+There are **two independent copies** of the UI logic — they are not shared at build time:
 
-Prefer small helper functions when adding complex behavior. Avoid unrelated formatting churn in `index.html`, since it is currently a large single-file app.
+- **`index.html`** (~6270 lines) — Self-contained HTML/CSS/JS for the Electron app and standalone browser use. Uses inline `<script>` and `onclick=""` handlers.
+- **`extension/main.html`** + **`extension/main.js`** (~8900 lines combined) — CSP-compliant version for the Chrome extension. `main.html` has the markup (no inline scripts); `main.js` has all logic with `addEventListener`-style binding (no inline event handlers). This version also has streaming support via `chrome.runtime.sendMessage`.
 
-## Testing Guidelines
+When editing features, you typically need to update **both** copies unless the feature is extension-specific (streaming, sandbox) or Electron-specific (desktop shell).
 
-No automated test framework is configured. For now, verify changes manually in the relevant targets:
+### Single-File Application (index.html)
 
-- Browser: open `index.html`.
-- Electron: run `npm start` from `desktop/`.
-- Chrome extension: reload the unpacked extension and open the popup.
+All UI logic resides in `index.html` — no framework, vanilla JS only. 112 functions total.
 
-For request features, test GET, POST JSON, headers, params, history, and import/export paths.
+**State Management**: A global `STATE` object with localStorage persistence:
+- `STATE.apis` — API request configurations keyed by ID
+- `STATE.groups` — Group names → array of API IDs
+- `STATE.groupOrder` — Ordered list of group names
+- `_environmentVars` — Postman-style environment variables (stored in `apifix_env_vars`)
+- `_history` — Request history (stored in `apifix_history`)
 
-## Commit & Pull Request Guidelines
+**Key Functions** (line numbers in index.html):
+- `renderSidebar()` :3302 — Renders API groups/items list
+- `loadApi(id)` :3564 / `syncCurrentApi()` :3618 — Load/save current API config to editor
+- `sendRequest()` :4178 — Executes HTTP requests with CORS/proxy/no-cors modes
+- `importCurl()` :4848 / `importPostman()` :5201 — Parse and import external formats
+- `executePreRequestScript()` :6049 — Runs Postman-compatible pre-request scripts with `pm.environment` API
+- `resolveTemplateVars()` :6243 — Replaces `{{variable}}` patterns with environment values
 
-Git history uses concise conventional-style prefixes, for example `feat: ...`, `fix: ...`, and `chore: ...`. Keep commit messages action-oriented and scoped to one change.
+### Electron Desktop App (`desktop/`)
 
-Pull requests should include a short summary, manual test steps, screenshots for UI changes, and notes for any extension permission or Electron packaging changes.
+- `main.js` — Main process; creates BrowserWindow with `webSecurity: false` to bypass CORS.
+- `preload.js` — Exposes `window.electronAPI.isDesktop` and platform metadata.
+- `copy-html.js` — Pre-build script that copies `../index.html` into `desktop/` for packaging.
+- `package.json` — Electron Builder config for Windows (.exe) and macOS (.dmg) builds.
 
-## Security & Configuration Tips
+### Chrome Extension (`extension/`)
 
-Be careful with `<all_urls>` extension access and CORS-related Electron changes. Do not log tokens, cookies, authorization headers, or API secrets. Keep local IDE files, build artifacts, and packaged binaries out of Git.
+Manifest V3 extension for browser usage:
+- `manifest.json` — Extension config with `<all_urls>` host permissions.
+- `background.js` — Service worker handling cross-origin requests via `chrome.runtime.sendMessage`. Supports message types: `API_REQUEST`, `STREAMING_REQUEST`, `CANCEL_STREAMING`, `DOWNLOAD_REQUEST`.
+- `popup.js` — Opens `main.html` in a new tab when extension icon clicked.
+- `main.html`, `main.js` — Extension pages with CSP-compliant UI logic (separate from root `index.html`).
+- `sandbox.html` — Sandboxed iframe for executing pre-request scripts when CSP blocks `new Function()`.
+
+The extension uses message passing: popup sends `API_REQUEST`, background service worker executes fetch (bypassing CORS via extension privileges), returns response.
+
+## Key Features Implementation
+
+### CORS Handling
+
+- **Electron**: `webSecurity: false` in BrowserWindow config + `onHeadersReceived` injects `Access-Control-Allow-Origin: *`.
+- **Extension**: Background service worker with full host permissions performs the actual fetch.
+- **Browser (no extension)**: Offers CORS/proxy/no-cors modes via dropdown. Proxy mode uses `corsproxy.io` and `api.allorigins.win`.
+
+### Pre-request Scripts
+
+Postman-compatible API in `executePreRequestScript()`:
+```javascript
+pm.environment.set(key, value)
+pm.environment.get(key)
+pm.environment.unset(key)
+pm.request.headers.add({ key, value })
+pm.request.url.addQueryParams([{ key, value }])
+pm.request.body.urlencoded.add({ key, value })
+```
+
+In the extension, CSP blocks `new Function()`, so scripts fall back to a sandboxed iframe (`sandbox.html`) via `postMessage`. An inline CryptoJS SHA-256 polyfill is included for `pm` script compatibility.
+
+### Environment Variables
+
+Template syntax `{{variableName}}` resolved in URLs, headers, and body via `resolveTemplateVars()`. Variables stored in localStorage key `apifix_env_vars`.
+
+### Streaming (Extension Only)
+
+The extension supports SSE/streaming responses. `STREAMING_REQUEST` messages go to the background service worker, which reads the response body via `ReadableStream` and sends `STREAM_CHUNK` messages back. Cancellation via `CANCEL_STREAMING` aborts the `AbortController`.
+
+## Important Notes
+
+- The entire application is one file (`index.html`). When editing, search within this file for relevant functions.
+- The extension has a **separate** copy of the UI logic — changes to `index.html` do not automatically propagate to the extension.
+- No test infrastructure exists in this project.
+- Storage keys: `apifix_bin_data` (APIs/groups), `apifix_env_vars` (environment), `apifix_history` (history).
+- Electron build requires `copy-html.js` to run first — it copies `index.html` from parent directory into `desktop/`.
+- The app is localized in Chinese (zh-CN) — UI strings are in Chinese.
