@@ -97,6 +97,8 @@ export interface EnvVariable {
   key: string
   value: string
   enabled: boolean
+  /** Postman 语义的持久默认值;缺省 = 沿用 value(存量数据) */
+  initialValue?: string
   /** Secret 变量:UI 掩码显示,导出时剥离取值 */
   secret?: boolean
 }
