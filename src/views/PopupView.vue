@@ -293,18 +293,10 @@ async function storePendingHistoryImport(entry: HistoryEntry): Promise<string | 
 async function openHistoryInSidePanel(entry: HistoryEntry, event?: MouseEvent) {
   event?.stopPropagation()
   loadFromHistory(entry)
-  const runtime = typeof chrome !== 'undefined' ? (chrome.runtime as any) : null
   const hasKnownApi = Boolean(entry.apiId && store.apis[entry.apiId])
   if (!hasKnownApi) await storePendingHistoryImport(entry)
   currentOpenContext('sidepanel')
-  if (runtime?.sendMessage) {
-    runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }, (response: any) => {
-      if (runtime.lastError || !response?.success) showToast('侧边栏打开失败，已保留历史请求')
-      else showToast('已在侧边栏复用历史请求')
-    })
-    return
-  }
-  window.open(buildViewContextUrl('/sidepanel.html', currentOpenContext('sidepanel')), '_blank')
+  await openSidePanelWithFallbacks()
 }
 
 async function openHistoryInFullPage(entry: HistoryEntry, event?: MouseEvent) {
@@ -345,17 +337,45 @@ function openFullPage(extra: Partial<ViewOpenContext> | Event = {}) {
   }
 }
 
-async function openSidePanel() {
-  currentOpenContext('sidepanel')
-  const runtime = typeof chrome !== 'undefined' ? (chrome.runtime as any) : null
-  if (runtime?.sendMessage) {
-    runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }, (response: any) => {
-      if (runtime.lastError || !response?.success) showToast('侧边栏打开失败，已保留当前上下文')
-      else showToast('已打开侧边栏并携带当前上下文')
-    })
+// sidePanel.open 要求用户手势;点击处理器内直接调最可靠,经消息中转到
+// service worker 的手势传播在部分浏览器(Edge)不可靠。失败逐级降级,并
+// 把真实错误暴露到 console,避免只剩笼统的"打开失败"。
+async function openSidePanelNative(): Promise<void> {
+  const chromeApi = (typeof chrome !== 'undefined' ? chrome : null) as any
+  if (!chromeApi?.sidePanel?.open) throw new Error('当前浏览器不支持侧边栏 API')
+  const win = await chromeApi.windows.getCurrent()
+  await chromeApi.sidePanel.open({ windowId: win.id })
+}
+
+async function openSidePanelWithFallbacks(): Promise<void> {
+  try {
+    await openSidePanelNative()
+    showToast('已打开侧边栏并携带当前上下文')
     return
+  } catch (err: any) {
+    console.warn('[ApiFix] 直接打开侧边栏失败,转经后台重试:', err?.message || err)
+  }
+  const runtime = (typeof chrome !== 'undefined' ? (chrome.runtime as any) : null)
+  if (runtime?.sendMessage) {
+    const ok = await new Promise<boolean>(resolve => {
+      runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }, (response: any) => {
+        const failure = runtime.lastError?.message || (response && response.success === false ? response.error : null)
+        if (failure) console.warn('[ApiFix] 后台打开侧边栏失败:', failure)
+        resolve(!runtime.lastError && Boolean(response?.success))
+      })
+    })
+    if (ok) {
+      showToast('已打开侧边栏并携带当前上下文')
+      return
+    }
   }
   window.open(buildViewContextUrl('/sidepanel.html', currentOpenContext('sidepanel')), '_blank')
+  showToast('侧边栏不可用，已在标签页打开')
+}
+
+async function openSidePanel() {
+  currentOpenContext('sidepanel')
+  await openSidePanelWithFallbacks()
 }
 
 function showToast(message: string) {
@@ -483,27 +503,16 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 
 <style scoped>
 .popup-view {
+  display: flex;
+  flex-direction: column;
   padding: 12px;
   width: 100%;
   height: 100%;
   min-width: 0;
-  overflow: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   background:
     radial-gradient(circle at 0% 0%, var(--primary-soft), transparent 34%),
     var(--bg-base);
-}
-
-:global(body.popup-mode) {
-  width: 800px;
-  height: 600px;
-  overflow: hidden;
-}
-
-:global(body.popup-mode #app) {
-  width: 800px;
-  height: 600px;
-  overflow: hidden;
 }
 
 .popup-header,
@@ -716,21 +725,26 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .body-box textarea {
-  min-height: 88px;
-  resize: vertical;
+  flex: 1 1 auto;
+  min-height: 48px;
+  resize: none;
   font-family: var(--font-code);
   font-size: var(--font-size-code);
   background: var(--bg-code);
 }
 
 .popup-response {
+  flex: 0 1 auto;
+  min-height: 0;
   margin-bottom: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  overflow: hidden;
+  overflow-y: auto;
   background: var(--bg-panel);
   box-shadow: var(--shadow-sm);
 }
@@ -785,6 +799,13 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
   border-top: 1px solid var(--divider);
   color: var(--text-tertiary);
   font-size: var(--font-size-small);
+}
+
+.popup-history {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow-y: auto;
 }
 
 .popup-history h3 {
@@ -845,6 +866,11 @@ onUnmounted(() => window.removeEventListener('keydown', handlePopupKeydown))
 .history-actions button:hover {
   color: var(--primary);
   border-color: var(--primary);
+}
+
+.popup-footer {
+  flex-shrink: 0;
+  margin-bottom: 0;
 }
 
 .popup-footer span {

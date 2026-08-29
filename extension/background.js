@@ -202,7 +202,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'OPEN_SIDE_PANEL') {
     openSidePanelForSender(sender)
       .then(() => sendResponse({ success: true }))
-      .catch(err => sendResponse({ success: false, error: err.message }));
+      .catch(err => {
+        console.error('[ApiFix] OPEN_SIDE_PANEL failed:', err?.message || err);
+        sendResponse({ success: false, error: err.message });
+      });
     return true;
   }
 

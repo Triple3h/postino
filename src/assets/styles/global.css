@@ -63,17 +63,17 @@ button {
 }
 
 /* ===== 扩展小窗尺寸(popup)===== */
+/* 目标 800×600。--popup-w/h 由 public/popup-fit.js 在窗口就绪后写入:
+   浏览器缩放或弹窗尺寸钳制导致 CSS 视口 < 800 时收缩贴合,避免横向白边与滚动条。
+   打开阶段保持固定值,临时视口下的 100vw/innerWidth 不可信(会把弹窗尺寸算塌)。 */
 html.popup-mode,
 html.popup-mode body,
 html.popup-mode #app,
 body.popup-mode,
 body.popup-mode #app {
-  width: 800px;
-  height: 600px;
-  min-width: 800px;
-  min-height: 600px;
-  max-width: 800px;
-  max-height: 600px;
+  width: var(--popup-w, 800px);
+  height: var(--popup-h, 600px);
+  margin: 0;
   overflow: hidden;
 }
 

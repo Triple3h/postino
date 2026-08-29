@@ -1,6 +1,53 @@
 import Dexie, { type Table } from 'dexie'
+import { toRaw } from 'vue'
 import type { ApiConfig, Environment, HistoryEntry, Group, Category, Module, InterfaceNode, Collection, ModuleAuditLog, ModuleSyncLog } from '@/types'
 import { upgradeToCollections } from '@/utils/collection-migration'
+
+// Vue 响应式 Proxy 无法通过 IndexedDB 的 structured clone(抛 DataCloneError),
+// 在表钩子里统一深度转纯对象,覆盖所有写入路径(集合变量、认证、headers 等)。
+const CLONE_PRESERVED = new Set(['Date', 'RegExp', 'Blob', 'File', 'FileList', 'ArrayBuffer', 'Map', 'Set'])
+
+function deepPlain<T>(value: T): T {
+  const raw = toRaw(value)
+  if (raw === null || typeof raw !== 'object') {
+    return (typeof raw === 'function' ? undefined : raw) as T
+  }
+  if (Array.isArray(raw)) return raw.map(item => deepPlain(item)) as unknown as T
+  const ctor = (raw as object).constructor
+  if (ctor && CLONE_PRESERVED.has(ctor.name)) return raw
+  const out: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(raw as Record<string, unknown>)) {
+    out[key] = deepPlain(item)
+  }
+  return out as T
+}
+
+function installPlainWriteHooks(database: Dexie) {
+  const tableNames = [
+    'apis', 'environments', 'history', 'settings', 'groups',
+    'categories', 'modules', 'interfaces', 'collections',
+    'moduleAuditLogs', 'moduleSyncLogs',
+  ]
+  for (const name of tableNames) {
+    // Dexie 钩子签名泛型较死,此处内聚放宽
+    const table = database.table(name) as any
+    table.hook('creating', (_primKey: unknown, obj: Record<string, unknown>) => {
+      const plain = deepPlain(obj) as Record<string, unknown>
+      for (const key of Object.keys(obj)) delete obj[key]
+      Object.assign(obj, plain)
+    })
+    table.hook('updating', (modifications: Record<string, unknown>) => {
+      const out: Record<string, unknown> = {}
+      let changed = false
+      for (const [key, value] of Object.entries(modifications)) {
+        const plain = deepPlain(value)
+        if (plain !== value) changed = true
+        out[key] = plain
+      }
+      return changed ? out : undefined
+    })
+  }
+}
 
 export class ApiFixDB extends Dexie {
   apis!: Table<ApiConfig, string>
@@ -149,3 +196,4 @@ export class ApiFixDB extends Dexie {
 }
 
 export const db = new ApiFixDB()
+installPlainWriteHooks(db)

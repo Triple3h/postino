@@ -109,6 +109,7 @@ function buildExtension() {
     'manifest.json',
     'background.js',
     'content.js',
+    'popup-fit.js',
     'devtools.html',
     'devtools.js',
     'devtools-panel.html',
