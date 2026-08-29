@@ -163,6 +163,14 @@ export interface ResponseData {
   method: HttpMethod
   requestHeaders: Record<string, string>
   requestBody: string | null
+  /** FR-2:实际发送的最终 URL(环境变量已替换、params 已拼接、脚本已修改);旧记录缺省回退 url */
+  requestUrl?: string
+  /**
+   * FR-2:最终 fetch 前的请求 Body 快照。
+   * json/raw/urlencoded 为实际发送字符串;form 为逐行 key=value(文件字段标注文件名)。
+   * 旧记录缺省,回退 requestBody(排除 FormData 占位串)。
+   */
+  requestBodySnapshot?: string | null
   timestamp: number
   isStreaming?: boolean
   streamType?: 'sse' | 'ndjson'

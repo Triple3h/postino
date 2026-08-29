@@ -7,7 +7,6 @@ import BodyEditor from '@/components/editor/BodyEditor.vue'
 import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
-import EnvSelector from '@/components/common/EnvSelector.vue'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem } from '@/types'
 
@@ -258,9 +257,7 @@ function formatLogTime(ts: number): string {
       >
         {{ tab.label }}
       </button>
-      <div class="ml-auto flex items-center">
-        <EnvSelector />
-      </div>
+      <!-- FR-6:环境选择器已迁至 AppHeader 右上角(Hoppscotch 式全局入口) -->
     </div>
     <div class="tab-content">
       <div v-if="activeTab === 'params'" class="tab-inner">

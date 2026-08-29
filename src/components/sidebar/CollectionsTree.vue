@@ -22,6 +22,7 @@ import { useWsStore } from '@/stores/ws'
 import { useDialog } from '@/composables/useDialog'
 import { openContextMenu } from '@/composables/useContextMenu'
 import { resolveInheritedProperties } from '@/utils/inheritance'
+import { isWebSocketUrl } from '@/utils/http'
 import { generateCurl, generatePostmanCollection, generatePostmanCollectionTree, generatePostmanEnvironmentFiles } from '@/utils/export'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import { toast } from 'vue-sonner'
@@ -144,9 +145,9 @@ function methodColor(method: string): string {
 
 const isRequestOpen = (node: InterfaceNode): boolean => Boolean(node.apiId && store.currentApiId === node.apiId)
 
+// FR-4:类型图标只认 ws/wss scheme(声明式 requestType 不再作为分支依据);SSE 无法从 URL 判定,不显示
 function requestTypeOf(node: InterfaceNode): 'rest' | 'sse' | 'ws' {
-  const api = getApi(node)
-  return (api?.requestType ?? 'rest') as 'rest' | 'sse' | 'ws'
+  return isWebSocketUrl(node.url) ? 'ws' : 'rest'
 }
 
 const isWsConnected = (node: InterfaceNode): boolean =>
@@ -595,8 +596,7 @@ async function onCollectionHeaderDrop(event: DragEvent, collectionId: string) {
             <!-- 请求:method 彩色文本 + 类型小图标 + ping 圆点 -->
             <template v-if="!isFolderNode(node)">
               <span class="method-text" :style="{ color: methodColor(getApi(node)?.method ?? node.method) }">{{ (getApi(node)?.method ?? node.method) }}</span>
-              <span v-if="requestTypeOf(node) === 'sse'" class="type-icon" title="SSE"><Radio :size="11" /></span>
-              <span v-else-if="requestTypeOf(node) === 'ws'" class="type-icon" title="WebSocket"><Plug :size="11" /></span>
+              <span v-if="requestTypeOf(node) === 'ws'" class="type-icon" title="WebSocket"><Plug :size="11" /></span>
               <span
                 v-if="isRequestOpen(node)"
                 class="ping-dot"

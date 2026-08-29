@@ -42,6 +42,11 @@ interface AbortContext {
   cleanup: () => void
 }
 
+/** FR-4:ws/wss scheme 是浏览器唯一可靠的 WS 判据(new WebSocket 仅接受 ws/wss 握手) */
+export function isWebSocketUrl(url: string): boolean {
+  return /^wss?:\/\//i.test(url.trim())
+}
+
 function isExtensionEnvironment(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.sendMessage
 }
@@ -60,6 +65,8 @@ function sendRequestViaExtension(data: {
   autoCarryCookies?: boolean
   timeoutMs?: number
   followRedirects?: boolean
+  /** FR-2:实际 Body 快照(form 数据在 background 侧才组装,由调用方随消息带来) */
+  requestBodySnapshot?: string | null
 }, options: Pick<RequestOptions, 'signal' | 'onStreamingUpdate' | 'streamMerge'> = {}): Promise<ResponseData> {
   if (options.signal || options.onStreamingUpdate) {
     return sendStreamingRequestViaExtension(data, options)
@@ -103,6 +110,8 @@ function sendRequestViaExtension(data: {
           method: data.method,
           requestHeaders: data.headers,
           requestBody: data.body ?? null,
+          requestUrl: data.url,
+          requestBodySnapshot: data.requestBodySnapshot ?? data.body ?? null,
           timestamp: Date.now(),
         })
       }
@@ -120,6 +129,7 @@ function sendStreamingRequestViaExtension(data: {
   autoCarryCookies?: boolean
   timeoutMs?: number
   followRedirects?: boolean
+  requestBodySnapshot?: string | null
 }, options: Pick<RequestOptions, 'signal' | 'onStreamingUpdate' | 'streamMerge'>): Promise<ResponseData> {
   return new Promise((resolve, reject) => {
     const runtime = getChromeRuntime()
@@ -181,6 +191,8 @@ function sendStreamingRequestViaExtension(data: {
           method: data.method,
           requestHeaders: data.headers,
           requestBody: data.body ?? null,
+          requestUrl: data.url,
+          requestBodySnapshot: data.requestBodySnapshot ?? data.body ?? null,
           timestamp: Date.now(),
           isStreaming: Boolean(streamType),
           streamType: streamType ?? undefined,
@@ -653,6 +665,32 @@ function resolveValue(value: string, envVars: Record<string, string>): string {
   return resolveTemplateVars(value, { globalVars: envVars })
 }
 
+/**
+ * FR-2:最终 fetch 前的请求 Body 快照,与 buildBody 的实际发送形态对应。
+ * form 数据没有单一字符串形态,序列化为逐行 key=value(文件字段只标注文件名)。
+ */
+function buildRequestBodySnapshot(body: BodyConfig, envVars: Record<string, string>): string | null {
+  switch (body.type) {
+    case 'json':
+    case 'raw':
+      return resolveValue(body.raw, envVars) || null
+    case 'urlencoded':
+      return body.urlEncoded
+        .filter(item => item.enabled && item.key)
+        .map(item => `${encodeURIComponent(resolveValue(item.key, envVars))}=${encodeURIComponent(resolveValue(item.value, envVars))}`)
+        .join('&') || null
+    case 'form':
+      return body.formData
+        .filter(item => item.enabled && item.key)
+        .map(item => item.type === 'file'
+          ? `${resolveValue(item.key, envVars)}=(file) ${item.fileName || '(binary)'}`
+          : `${resolveValue(item.key, envVars)}=${resolveValue(item.value, envVars)}`)
+        .join('\n') || null
+    default:
+      return null
+  }
+}
+
 function getStreamingContentType(contentType: string | undefined | null): StreamType | null {
   const ct = String(contentType || '').toLowerCase()
   if (ct.includes('text/event-stream')) return 'sse'
@@ -832,6 +870,8 @@ function createCancelledResponse(
   method: HttpMethod,
   requestHeaders: Record<string, string>,
   requestBody: string | null,
+  requestUrl?: string,
+  requestBodySnapshot?: string | null,
 ): ResponseData {
   const body = partial?.body || '请求已取消（Request cancelled）'
   return {
@@ -847,6 +887,8 @@ function createCancelledResponse(
     method: partial?.method ?? method,
     requestHeaders: partial?.requestHeaders ?? requestHeaders,
     requestBody: partial?.requestBody ?? requestBody,
+    requestUrl: partial?.requestUrl ?? requestUrl ?? url,
+    requestBodySnapshot: partial?.requestBodySnapshot ?? requestBodySnapshot ?? requestBody,
     timestamp: Date.now(),
     isStreaming: false,
     streamType: partial?.streamType,
@@ -913,7 +955,7 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
 
   // Extension environment: bypass CORS via background service worker
   if (isExtensionEnvironment()) {
-    const extBody: any = { method, url: finalUrl, headers: finalHeaders, autoCarryCookies, timeoutMs, followRedirects }
+    const extBody: any = { method, url: finalUrl, headers: finalHeaders, autoCarryCookies, timeoutMs, followRedirects, requestBodySnapshot: buildRequestBodySnapshot(body, envVars) }
     if (body.type === 'form' && reqBody instanceof FormData) {
       extBody.bodyType = 'formdata'
       extBody.formdataFields = body.formData.filter(f => f.enabled && f.key)
@@ -936,6 +978,8 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
   }
 
   let fetchUrl = finalUrl
+  // FR-2:最终 fetch 前的请求快照(真实 URL + Body 实际发送形态)
+  const requestSnapshot = { url: finalUrl, body: buildRequestBodySnapshot(body, envVars) }
   const fetchOptions: RequestInit = {
     method,
     headers: finalHeaders,
@@ -992,16 +1036,16 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
           retryOptions.mode = 'no-cors'
         }
         const retryResp = await fetch(fetchUrl, retryOptions)
-        return await processResponse(retryResp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate, streamMerge)
+        return await processResponse(retryResp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate, streamMerge, requestSnapshot)
       }
     }
 
-    return await processResponse(resp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate, streamMerge)
+    return await processResponse(resp, finalUrl, method, finalHeaders, reqBody, startTime, abortContext, onStreamingUpdate, streamMerge, requestSnapshot)
   } catch (err: any) {
     const duration = Math.round(performance.now() - startTime)
     if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
       if (!abortContext.timedOut() && signal?.aborted) {
-        const cancelled = createCancelledResponse(streamingResponse, finalUrl, method, finalHeaders, reqBody?.toString() ?? null)
+        const cancelled = createCancelledResponse(streamingResponse, finalUrl, method, finalHeaders, reqBody?.toString() ?? null, requestSnapshot.url, requestSnapshot.body)
         return { ...cancelled, duration }
       }
       return {
@@ -1015,6 +1059,8 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
         method,
         requestHeaders: finalHeaders,
         requestBody: reqBody?.toString() ?? null,
+        requestUrl: requestSnapshot.url,
+        requestBodySnapshot: requestSnapshot.body,
         timestamp: Date.now(),
       }
     }
@@ -1029,6 +1075,8 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseData
       method,
       requestHeaders: finalHeaders,
       requestBody: reqBody?.toString() ?? null,
+      requestUrl: requestSnapshot.url,
+      requestBodySnapshot: requestSnapshot.body,
       timestamp: Date.now(),
     }
   } finally {
@@ -1046,6 +1094,7 @@ async function processResponse(
   abortContext: AbortContext,
   onStreamingUpdate?: (response: ResponseData) => void,
   streamMerge?: StreamMergeConfig,
+  requestSnapshot?: { url: string; body: string | null },
 ): Promise<ResponseData> {
   const status = resp.status
   const statusText = resp.statusText
@@ -1076,6 +1125,8 @@ async function processResponse(
       method,
       requestHeaders: finalHeaders,
       requestBody: reqBody?.toString() ?? null,
+      requestUrl: requestSnapshot?.url ?? finalUrl,
+      requestBodySnapshot: requestSnapshot?.body ?? null,
       timestamp: Date.now(),
       isStreaming: true,
       streamType,
@@ -1151,6 +1202,8 @@ async function processResponse(
     method,
     requestHeaders: finalHeaders,
     requestBody: reqBody?.toString() ?? null,
+    requestUrl: requestSnapshot?.url ?? finalUrl,
+    requestBodySnapshot: requestSnapshot?.body ?? null,
     timestamp: Date.now(),
   }
 }

@@ -7,10 +7,11 @@ import ResponsePanel from '@/components/response/ResponsePanel.vue'
 import WsPanel from '@/components/response/WsPanel.vue'
 import WorkspaceSettingsView from './WorkspaceSettingsView.vue'
 import { useAppStore } from '@/stores/app'
+import { isWebSocketUrl } from '@/utils/http'
 
 const store = useAppStore()
-// Phase 3.1/3.5:请求类型决定下方子面板(WS 用双向消息面板,其余用响应面板)
-const currentRequestType = computed(() => store.getCurrentApi()?.requestType ?? 'rest')
+// FR-4:请求类型自动识别 —— ws/wss scheme 即 WS 模式(双向消息面板),不再读 requestType 声明
+const currentRequestType = computed(() => isWebSocketUrl(store.getCurrentApi()?.url ?? '') ? 'ws' : 'rest')
 const currentApi = computed(() => store.getCurrentApi())
 
 /** 上下分栏(默认)或左右分栏(FR-6.1 通用设置) */
@@ -20,7 +21,7 @@ const innerOrientation = computed(() => (store.settings.editorLayout === 'horizo
 <template>
   <div class="editor-view">
     <template v-if="currentApi">
-      <!-- WS 请求(M4 将换为 Realtime 布局,暂沿用现状结构) -->
+      <!-- WS 请求(ws/wss scheme 自动识别) -->
       <div v-if="currentRequestType === 'ws'" class="editor-stack">
         <RequestBar />
         <WsPanel class="ws-panel" />

@@ -1,13 +1,32 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { Clock3, Copy, Download, FileText, Play, TriangleAlert, Wifi, Zap } from '@lucide/vue'
+import { ArrowDown, ChevronDown, Clock3, Copy, Download, FileText, Play, TriangleAlert, Wifi, Zap } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 import JsonTreeViewer from '@/components/common/JsonTreeViewer.vue'
+import StreamMergeConfig from '@/components/response/StreamMergeConfig.vue'
 import { responseBodyToBlob, responseContentType, responseDataUrl, responseFileExtension } from '@/utils/binary-response'
-import { generateMarkdownDoc } from '@/utils/export'
-import type { HistoryEntry, ResponseData } from '@/types'
+import {
+  generateCurl,
+  generateJavaHttpClient,
+  generateJavaScriptAxios,
+  generateJavaScriptFetch,
+  generateMarkdownDoc,
+  generatePythonRequests,
+} from '@/utils/export'
+import {
+  buildApiConfigFromSnapshot,
+  methodHasBody,
+  parseFormSnapshot,
+  parseUrlencodedSnapshot,
+  prettyJsonIfPossible,
+  requestBodyKind,
+  requestBodySnapshotOf,
+  requestUrlOf,
+} from '@/utils/request-snapshot'
+import { defaultStreamMergeConfig, mergeChunks } from '@/utils/stream-merge'
+import type { HistoryEntry, ResponseData, StreamMergeConfig as StreamMergeConfigData } from '@/types'
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 
 const store = useAppStore()
@@ -29,16 +48,206 @@ const recentHistory = computed(() => store.history.slice(0, 5))
 
 // ── Phase 3.4:流式合并结果 + 事件流视图 ──
 const hasStreamChunks = computed(() => (store.response?.chunks?.length ?? 0) > 0)
-const mergedText = computed(() => store.response?.mergedText ?? '')
 const autoScrollMerged = ref(true)
 const mergedContainer = ref<HTMLElement | null>(null)
 
-const streamEvents = computed(() => (store.response?.chunks ?? []).map((chunk, index) => ({
+// ── FR-5:流式合并配置入口迁入响应卡片 ──
+const currentApi = computed(() => store.getCurrentApi())
+const isReadonlyModule = computed(() => {
+  const api = currentApi.value
+  const node = api ? workspace.interfaces.find(item => item.apiId === api.id) : null
+  const module = node ? workspace.modules.find(item => item.id === node.moduleId) : null
+  return module?.type === 'readonly'
+})
+const streamMergeActive = computed(() => (currentApi.value?.streamMerge?.mode ?? defaultStreamMergeConfig().mode) !== 'off')
+const showMergePanel = ref(false)
+
+/** 合并结果即时重算:配置在响应卡片里改动后对已有 chunks 回放(StreamMerger 引擎与发送管道一致) */
+const liveMergedText = computed<string | undefined>(() => {
+  const response = store.response
+  const chunks = response?.chunks
+  if (!chunks?.length) return response?.mergedText
+  const config: Partial<StreamMergeConfigData> | undefined = currentApi.value?.streamMerge
+  if (!config || config.mode === 'off') return undefined
+  try {
+    return mergeChunks(chunks, config)
+  } catch {
+    return response?.mergedText
+  }
+})
+
+const mergedText = computed(() => liveMergedText.value ?? store.response?.mergedText ?? '')
+
+// ── FR-3:事件流时间线双栏 ──
+interface EventRow {
+  index: number
+  time: string
+  event: string
+  data: string
+  raw: string
+  json?: unknown
+  /** 单行预览:换行折叠、截断 500 字符再进 DOM */
+  preview: string
+}
+
+const EVENT_PREVIEW_MAX = 500
+
+function singleLinePreview(text: string): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  return collapsed.length > EVENT_PREVIEW_MAX ? `${collapsed.slice(0, EVENT_PREVIEW_MAX)}…` : collapsed
+}
+
+function formatTimeShort(ts: number): string {
+  const d = new Date(ts)
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map(n => String(n).padStart(2, '0'))
+    .join(':')
+}
+
+const streamEvents = computed<EventRow[]>(() => (store.response?.chunks ?? []).map((chunk, index) => ({
   index: index + 1,
-  time: formatTimestamp(chunk.timestamp),
+  time: formatTimeShort(chunk.timestamp),
   event: chunk.event ?? 'message',
   data: chunk.data,
+  raw: chunk.raw,
+  json: chunk.json,
+  preview: singleLinePreview(chunk.raw || chunk.data),
 })))
+
+const eventSearch = ref('')
+const selectedEventIndex = ref<number | null>(null)
+const eventDetailMode = ref<'formatted' | 'raw'>('formatted')
+const followLatest = ref(true)
+const eventsListEl = ref<HTMLElement | null>(null)
+
+const filteredEvents = computed(() => {
+  const query = eventSearch.value.trim().toLowerCase()
+  if (!query) return streamEvents.value
+  return streamEvents.value.filter(ev =>
+    ev.raw.toLowerCase().includes(query) || ev.data.toLowerCase().includes(query))
+})
+
+const selectedEvent = computed<EventRow | null>(() => {
+  const events = streamEvents.value
+  if (!events.length) return null
+  const found = selectedEventIndex.value != null
+    ? events.find(ev => ev.index === selectedEventIndex.value)
+    : null
+  // 未选中时自动选中最新一条
+  return found ?? events[events.length - 1]
+})
+
+watch(() => streamEvents.value.length, async () => {
+  if (activeLens.value !== 'events') return
+  if (followLatest.value) {
+    await nextTick()
+    scrollToLatestEvent()
+  }
+})
+
+watch(() => store.response, () => {
+  // 新一次发送:重置时间线状态与合并配置弹层
+  selectedEventIndex.value = null
+  eventSearch.value = ''
+  eventDetailMode.value = 'formatted'
+  followLatest.value = true
+  showMergePanel.value = false
+})
+
+function scrollToLatestEvent() {
+  const el = eventsListEl.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+function selectEvent(index: number) {
+  selectedEventIndex.value = index
+}
+
+/**
+ * 用户向上滚动 → 暂停跟随;滚回底部 → 自动恢复。
+ * 距底部 24px 内视为"在底部",避免浮点/取整误差导致抖动。
+ */
+function onEventsScroll() {
+  const el = eventsListEl.value
+  if (!el) return
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 24
+  followLatest.value = atBottom
+}
+
+function jumpToLatest() {
+  followLatest.value = true
+  scrollToLatestEvent()
+}
+
+async function copyEventRaw(ev: EventRow) {
+  await navigator.clipboard.writeText(ev.raw)
+}
+
+// ── FR-2:「实际请求」tab ──
+type RequestCodeLang = 'curl' | 'python' | 'fetch' | 'axios' | 'java'
+const requestCodeLang = ref<RequestCodeLang>('curl')
+const showRequestCode = ref(false)
+
+const requestCodeLangs: Array<{ key: RequestCodeLang; label: string }> = [
+  { key: 'curl', label: 'cURL' },
+  { key: 'python', label: 'Python' },
+  { key: 'fetch', label: 'JS fetch' },
+  { key: 'axios', label: 'JS axios' },
+  { key: 'java', label: 'Java' },
+]
+
+const actualRequestUrl = computed(() => store.response ? requestUrlOf(store.response) : '')
+
+const requestHeaderEntries = computed(() => {
+  if (!store.response) return []
+  return Object.entries(store.response.requestHeaders ?? {}).map(([key, value]) => ({ key, value }))
+})
+
+const actualBodyKind = computed(() => store.response ? requestBodyKind(store.response) : 'none')
+const actualBodySnapshot = computed(() => store.response ? requestBodySnapshotOf(store.response) : null)
+
+const prettyRequestBody = computed(() => {
+  if (actualBodyKind.value !== 'json' || actualBodySnapshot.value == null) return ''
+  return prettyJsonIfPossible(actualBodySnapshot.value) ?? actualBodySnapshot.value
+})
+
+const requestBodyPairs = computed<Array<{ key: string; value: string }>>(() => {
+  const snapshot = actualBodySnapshot.value
+  if (snapshot == null) return []
+  if (actualBodyKind.value === 'urlencoded') return parseUrlencodedSnapshot(snapshot)
+  if (actualBodyKind.value === 'form') return parseFormSnapshot(snapshot)
+  return []
+})
+
+/** GET/HEAD 无 Body 段;有 Body 语义但快照缺失时降级提示 */
+const showRequestBodyMissing = computed(() => {
+  if (!store.response) return false
+  return methodHasBody(store.response.method) && actualBodyKind.value === 'none'
+    && (store.response.requestBodySnapshot === undefined || store.response.requestBodySnapshot == null)
+})
+
+const snapshotApiConfig = computed(() => store.response ? buildApiConfigFromSnapshot(store.response) : null)
+
+/** 基于「实际请求快照」生成代码(与 …菜单 → 生成代码 的编辑器视角并存) */
+const requestCode = computed(() => {
+  const api = snapshotApiConfig.value
+  if (!api) return ''
+  switch (requestCodeLang.value) {
+    case 'python': return generatePythonRequests(api, {})
+    case 'fetch': return generateJavaScriptFetch(api, {})
+    case 'axios': return generateJavaScriptAxios(api, {})
+    case 'java': return generateJavaHttpClient(api, {})
+    default: return generateCurl(api, {})
+  }
+})
+
+async function copyRequestUrl() {
+  await navigator.clipboard.writeText(actualRequestUrl.value)
+}
+
+async function copyRequestCode() {
+  await navigator.clipboard.writeText(requestCode.value)
+}
 
 watch(() => store.response?.mergedText, async () => {
   if (activeLens.value !== 'merged' || !autoScrollMerged.value) return
@@ -185,7 +394,7 @@ const bodyLenses = computed<Array<{ key: LensKey; label: string }>>(() => {
 const fixedLenses = computed<Array<{ key: LensKey; label: string; badge?: number }>>(() => {
   const lenses: Array<{ key: LensKey; label: string; badge?: number }> = [
     { key: 'headers', label: 'Headers', badge: headerEntries.value.length },
-    { key: 'request', label: '请求头' },
+    { key: 'request', label: '实际请求', badge: requestHeaderEntries.value.length || undefined },
   ]
   if (hasStreamChunks.value) {
     lenses.push({ key: 'events', label: '事件流', badge: chunkCount.value })
@@ -572,13 +781,23 @@ function onCopyEvent() {
   void copyResponse()
 }
 
+/** FR-5:点击弹层与触发按钮以外区域时收起合并配置 */
+function onGlobalPointerDown(event: MouseEvent) {
+  if (!showMergePanel.value) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.merge-picker')) return
+  showMergePanel.value = false
+}
+
 onMounted(() => {
   window.addEventListener('apifix:download-response', onDownloadEvent)
   window.addEventListener('apifix:copy-response', onCopyEvent)
+  document.addEventListener('click', onGlobalPointerDown, true)
 })
 onUnmounted(() => {
   window.removeEventListener('apifix:download-response', onDownloadEvent)
   window.removeEventListener('apifix:copy-response', onCopyEvent)
+  document.removeEventListener('click', onGlobalPointerDown, true)
 })
 
 function retrySend() {
@@ -662,51 +881,52 @@ function retrySend() {
       </template>
     </div>
 
-    <!-- 响应内容:meta 行 + lens 体系 -->
+    <!-- 响应内容:lens 头部单行(FR-1) + lens 体系 -->
     <div v-else class="response-content">
-      <div class="meta-row">
-        <span class="status-dot" :style="{ backgroundColor: statusColor(store.response.status) }"></span>
-        <strong class="status-code" :style="{ color: statusColor(store.response.status) }">{{ store.response.status }}</strong>
-        <span class="status-text">{{ store.response.statusText }}</span>
-        <span class="meta-sep">·</span>
-        <span :class="['meta-duration', durationClass]">{{ store.response.duration }}ms</span>
-        <span class="meta-sep">·</span>
-        <span class="meta-size">{{ sizeFormatted }}</span>
-        <span v-if="isStreaming" class="stream-indicator">
-          <span class="stream-dot"></span>
-          {{ streamTypeLabel }} 接收中 · {{ chunkCount }} 事件 · {{ sizeFormatted }}
-        </span>
-        <span v-else-if="store.response.streamCompleted" class="stream-done">
-          {{ streamTypeLabel }} 完成 · {{ chunkCount }} 事件
-        </span>
-        <span v-else-if="isCancelled" class="stream-done cancelled">已取消</span>
-        <div class="meta-actions">
-          <button class="meta-action" title="复制响应 (Ctrl+.)" @click="copyResponse"><Copy :size="13" /></button>
-          <button class="meta-action" title="下载响应 (Ctrl+J)" @click="saveResponse"><Download :size="13" /></button>
-          <button v-if="!isStreaming" class="meta-action" title="生成 Markdown 文档" @click="exportResponseDoc"><FileText :size="13" /></button>
-          <button v-if="isStreaming" class="meta-action cancel" @click="cancelRequest">取消</button>
+      <div class="lens-header">
+        <div class="lens-tabs-scroll">
+          <button
+            v-for="lens in bodyLenses"
+            :key="lens.key"
+            class="lens-tab"
+            :class="{ active: activeLens === lens.key }"
+            @click="activeLens = lens.key"
+          >{{ lens.label }}</button>
+          <span class="lens-divider"></span>
+          <button
+            v-for="lens in fixedLenses"
+            :key="lens.key"
+            class="lens-tab"
+            :class="{ active: activeLens === lens.key }"
+            @click="activeLens = lens.key"
+          >
+            {{ lens.label }}
+            <span v-if="lens.badge" class="lens-badge">{{ lens.badge }}</span>
+          </button>
         </div>
-      </div>
-
-      <div class="lens-tabs">
-        <button
-          v-for="lens in bodyLenses"
-          :key="lens.key"
-          class="lens-tab"
-          :class="{ active: activeLens === lens.key }"
-          @click="activeLens = lens.key"
-        >{{ lens.label }}</button>
-        <span class="lens-divider"></span>
-        <button
-          v-for="lens in fixedLenses"
-          :key="lens.key"
-          class="lens-tab"
-          :class="{ active: activeLens === lens.key }"
-          @click="activeLens = lens.key"
-        >
-          {{ lens.label }}
-          <span v-if="lens.badge" class="lens-badge">{{ lens.badge }}</span>
-        </button>
+        <div class="lens-meta">
+          <span class="status-dot" :style="{ backgroundColor: statusColor(store.response.status) }"></span>
+          <strong class="status-code" :style="{ color: statusColor(store.response.status) }">{{ store.response.status }}</strong>
+          <span class="status-text">{{ store.response.statusText }}</span>
+          <span class="meta-sep">·</span>
+          <span :class="['meta-duration', durationClass]">{{ store.response.duration }}ms</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-size">{{ sizeFormatted }}</span>
+          <span v-if="isStreaming" class="stream-indicator">
+            <span class="stream-dot"></span>
+            {{ streamTypeLabel }} 接收中 · {{ chunkCount }} 事件
+          </span>
+          <span v-else-if="store.response.streamCompleted" class="stream-done">
+            {{ streamTypeLabel }} 完成 · {{ chunkCount }} 事件
+          </span>
+          <span v-else-if="isCancelled" class="stream-done cancelled">已取消</span>
+          <div class="meta-actions">
+            <button class="meta-action" title="复制响应 (Ctrl+.)" @click="copyResponse"><Copy :size="13" /></button>
+            <button class="meta-action" title="下载响应 (Ctrl+J)" @click="saveResponse"><Download :size="13" /></button>
+            <button v-if="!isStreaming" class="meta-action" title="生成 Markdown 文档" @click="exportResponseDoc"><FileText :size="13" /></button>
+            <button v-if="isStreaming" class="meta-action cancel" @click="cancelRequest">取消</button>
+          </div>
+        </div>
       </div>
 
       <div class="lens-body">
@@ -806,26 +1026,130 @@ function retrySend() {
           <div v-if="!headerEntries.length" class="lens-empty">无响应 Headers</div>
         </template>
 
-        <!-- 请求头 lens -->
+        <!-- 实际请求 lens(FR-2):发送快照的事实视图 -->
         <template v-else-if="activeLens === 'request'">
-          <CodeMirrorEditor
-            :model-value="actualRequestText"
-            language="json"
-            :readonly="true"
-            class="lens-fill"
-          />
+          <div class="request-view">
+            <div class="req-line">
+              <span class="req-method">{{ store.response.method }}</span>
+              <code class="req-url" title="点击复制实际请求 URL" @click="copyRequestUrl">{{ actualRequestUrl }}</code>
+              <button class="meta-action" title="复制 URL" @click="copyRequestUrl"><Copy :size="12" /></button>
+            </div>
+
+            <div class="req-section-head">请求 Headers <span class="req-count">{{ requestHeaderEntries.length }}</span></div>
+            <table v-if="requestHeaderEntries.length" class="kv-table">
+              <tbody>
+                <tr v-for="h in requestHeaderEntries" :key="h.key">
+                  <td class="kv-key">{{ h.key }}</td>
+                  <td class="kv-value">{{ h.value }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="lens-empty">无请求 Headers 记录</div>
+
+            <template v-if="actualBodyKind !== 'none'">
+              <div class="req-section-head">请求 Body</div>
+              <CodeMirrorEditor
+                v-if="actualBodyKind === 'json'"
+                :model-value="prettyRequestBody"
+                language="json"
+                :readonly="true"
+                class="req-code-block"
+              />
+              <table v-else-if="requestBodyPairs.length" class="kv-table">
+                <tbody>
+                  <tr v-for="(pair, index) in requestBodyPairs" :key="`${pair.key}-${index}`">
+                    <td class="kv-key">{{ pair.key }}</td>
+                    <td class="kv-value">{{ pair.value }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <pre v-else class="req-raw-body">{{ actualBodySnapshot }}</pre>
+            </template>
+            <div v-else-if="showRequestBodyMissing" class="lens-empty">该次记录缺少请求 Body 快照</div>
+
+            <div class="req-code-section">
+              <button class="req-code-toggle" @click="showRequestCode = !showRequestCode">
+                <ChevronDown :size="13" :class="['toggle-icon', { open: showRequestCode }]" />
+                请求代码
+                <small>基于本次实际发送的请求生成</small>
+              </button>
+              <div v-if="showRequestCode" class="req-code-body">
+                <div class="req-code-tabs">
+                  <button
+                    v-for="lang in requestCodeLangs"
+                    :key="lang.key"
+                    :class="['sub-btn', { active: requestCodeLang === lang.key }]"
+                    @click="requestCodeLang = lang.key"
+                  >{{ lang.label }}</button>
+                  <button class="meta-action" title="复制代码" @click="copyRequestCode"><Copy :size="12" /> 复制</button>
+                </div>
+                <CodeMirrorEditor
+                  :model-value="requestCode"
+                  language="text"
+                  :readonly="true"
+                  class="req-code-block"
+                />
+              </div>
+            </div>
+          </div>
         </template>
 
-        <!-- 事件流 lens -->
+        <!-- 事件流 lens(FR-3):左列表 + 右详情双栏 -->
         <template v-else-if="activeLens === 'events'">
-          <div class="events-list">
-            <div v-for="ev in streamEvents" :key="ev.index" class="event-row">
-              <span class="ev-index">{{ ev.index }}</span>
-              <span class="ev-time">{{ ev.time }}</span>
-              <span class="ev-event">{{ ev.event }}</span>
-              <pre class="ev-data">{{ ev.data }}</pre>
+          <div class="events-layout">
+            <div class="events-pane">
+              <div class="events-toolbar">
+                <div v-if="!isReadonlyModule" class="merge-picker">
+                  <button
+                    type="button"
+                    class="merge-btn"
+                    :class="{ active: streamMergeActive }"
+                    title="流式合并:逐块提取 SSE/NDJSON 载荷字段并拼接"
+                    @click="showMergePanel = !showMergePanel"
+                  >合并<span v-if="streamMergeActive" class="sm-dot"></span></button>
+                  <StreamMergeConfig v-if="showMergePanel" />
+                </div>
+                <div class="search-bar">
+                  <input v-model="eventSearch" type="text" placeholder="搜索事件内容…" />
+                  <span v-if="eventSearch.trim()" class="search-count">{{ filteredEvents.length }}/{{ streamEvents.length }} 匹配</span>
+                </div>
+              </div>
+              <div ref="eventsListEl" class="events-rows" @scroll="onEventsScroll">
+                <button
+                  v-for="ev in filteredEvents"
+                  :key="ev.index"
+                  class="event-row"
+                  :class="{ active: selectedEvent?.index === ev.index }"
+                  @click="selectEvent(ev.index)"
+                >
+                  <ArrowDown :size="12" class="ev-direction" />
+                  <span class="ev-preview">{{ ev.preview }}</span>
+                  <span class="ev-time">{{ ev.time }}</span>
+                </button>
+                <div v-if="!filteredEvents.length" class="lens-empty">{{ streamEvents.length ? '无匹配事件' : '暂无事件' }}</div>
+              </div>
+              <button v-if="!followLatest && streamEvents.length" class="follow-btn" @click="jumpToLatest">回到底部</button>
             </div>
-            <div v-if="!streamEvents.length" class="lens-empty">暂无事件</div>
+            <div class="events-detail">
+              <template v-if="selectedEvent">
+                <div class="sub-toolbar">
+                  <button :class="['sub-btn', { active: eventDetailMode === 'formatted' }]" @click="eventDetailMode = 'formatted'">格式化</button>
+                  <button :class="['sub-btn', { active: eventDetailMode === 'raw' }]" @click="eventDetailMode = 'raw'">原始</button>
+                  <div class="search-bar">
+                    <button class="meta-action" title="复制该 chunk 原文" @click="copyEventRaw(selectedEvent)"><Copy :size="12" /> 复制原文</button>
+                  </div>
+                </div>
+                <JsonTreeViewer
+                  v-if="eventDetailMode === 'formatted' && selectedEvent.json != null"
+                  :data="selectedEvent.json"
+                  root-name="chunk"
+                  class="lens-fill"
+                />
+                <pre v-else-if="eventDetailMode === 'formatted'" class="lens-raw">{{ selectedEvent.data }}</pre>
+                <pre v-else class="lens-raw">{{ selectedEvent.raw }}</pre>
+              </template>
+              <div v-else class="lens-empty">暂无事件</div>
+            </div>
           </div>
         </template>
 
@@ -834,9 +1158,21 @@ function retrySend() {
           <div class="merged-wrap">
             <div class="merged-bar">
               <label class="auto-scroll"><input v-model="autoScrollMerged" type="checkbox" /> 自动滚动</label>
-              <button class="meta-action" @click="copyMergedText"><Copy :size="12" /> 复制</button>
+              <div class="merged-bar-actions">
+                <div v-if="!isReadonlyModule" class="merge-picker">
+                  <button
+                    type="button"
+                    class="merge-btn"
+                    :class="{ active: streamMergeActive }"
+                    title="流式合并:逐块提取 SSE/NDJSON 载荷字段并拼接"
+                    @click="showMergePanel = !showMergePanel"
+                  >合并<span v-if="streamMergeActive" class="sm-dot"></span></button>
+                  <StreamMergeConfig v-if="showMergePanel" class="align-right" />
+                </div>
+                <button class="meta-action" @click="copyMergedText"><Copy :size="12" /> 复制</button>
+              </div>
             </div>
-            <pre ref="mergedContainer" class="merged-text">{{ mergedText || '尚未合并出内容:请确认请求的流式合并配置,或等待更多数据。' }}</pre>
+            <pre ref="mergedContainer" class="merged-text">{{ mergedText || '尚未合并出内容:请在「合并」中开启流式合并,或等待更多数据。' }}</pre>
           </div>
         </template>
 
@@ -1051,7 +1387,7 @@ function retrySend() {
   color: var(--accent-color);
 }
 
-/* ── meta 行(FR-1.3)── */
+/* ── lens 头部单行(FR-1):tabs 过多时横向滚动,meta 固定不滚 ── */
 .response-content {
   flex: 1;
   display: flex;
@@ -1059,16 +1395,34 @@ function retrySend() {
   overflow: hidden;
 }
 
-.meta-row {
+.lens-header {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 0 12px;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--divider-color);
   font-size: var(--font-size-body);
   flex-shrink: 0;
+}
+
+.lens-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.lens-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 8px;
 }
 
 .status-dot {
@@ -1161,18 +1515,7 @@ function retrySend() {
   color: var(--status-critical-error-color);
 }
 
-/* ── lens tabs ── */
-.lens-tabs {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--divider-color);
-  min-height: 32px;
-  overflow-x: auto;
-  flex-shrink: 0;
-}
-
+/* ── lens tabs(在 .lens-tabs-scroll 内横向滚动)── */
 .lens-tab {
   display: inline-flex;
   align-items: center;
@@ -1342,6 +1685,136 @@ function retrySend() {
   white-space: pre-wrap;
 }
 
+/* 实际请求(FR-2):事实视图,纵向滚动 */
+.request-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.req-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--divider-color) 60%, transparent);
+}
+
+.req-method {
+  flex-shrink: 0;
+  font-family: var(--font-code);
+  font-weight: 700;
+  font-size: var(--font-size-body);
+  color: var(--accent-color);
+}
+
+.req-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  font-size: var(--font-size-body);
+  color: var(--secondary-dark-color);
+  cursor: copy;
+}
+
+.req-url:hover {
+  color: var(--accent-color);
+}
+
+.req-section-head {
+  padding: 10px 12px 4px;
+  font-size: var(--font-size-tiny);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--secondary-color);
+}
+
+.req-count {
+  font-weight: 400;
+  color: var(--secondary-light-color);
+}
+
+.req-raw-body {
+  margin: 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  max-height: 280px;
+  font-family: var(--font-code);
+  font-size: var(--font-size-tiny);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--secondary-dark-color);
+}
+
+.req-code-block {
+  height: 260px;
+  margin: 4px 12px 0;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.req-code-section {
+  margin-top: 12px;
+  border-top: 1px solid var(--divider-color);
+}
+
+.req-code-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--secondary-dark-color);
+  text-align: left;
+}
+
+.req-code-toggle:hover {
+  background: var(--primary-dark-color);
+}
+
+.req-code-toggle small {
+  font-weight: 400;
+  font-size: var(--font-size-tiny);
+  color: var(--secondary-light-color);
+}
+
+.toggle-icon {
+  transition: transform 0.15s ease;
+}
+
+.toggle-icon.open {
+  transform: rotate(180deg);
+}
+
+.req-code-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+}
+
+.req-code-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+}
+
+.req-code-tabs .meta-action {
+  margin-left: auto;
+}
+
 .lens-table-wrap {
   overflow: auto;
 }
@@ -1371,58 +1844,119 @@ function retrySend() {
   font-weight: 600;
 }
 
-/* 事件流 */
-.events-list {
+/* 事件流(FR-3):双栏时间线,左列表 + 右详情 */
+.events-layout {
   flex: 1;
-  overflow: auto;
-  padding: 6px 10px;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 42%) 1fr;
+}
+
+.events-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--divider-color);
+}
+
+.events-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--divider-color);
+  flex-shrink: 0;
+}
+
+.events-toolbar .search-bar {
+  flex: 1;
+  margin-left: 0;
+}
+
+.events-toolbar .search-bar input {
+  width: 100%;
+}
+
+.events-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .event-row {
-  display: grid;
-  grid-template-columns: 30px 76px 70px minmax(0, 1fr);
+  display: flex;
+  align-items: center;
   gap: 6px;
-  align-items: start;
-  padding: 4px 6px;
-  border: 1px solid var(--divider-color);
+  width: 100%;
+  padding: 5px 7px;
+  border-left: 2px solid transparent;
   border-radius: var(--radius-sm);
+  text-align: left;
+  flex-shrink: 0;
 }
 
-.ev-index,
-.ev-time {
-  font-family: var(--font-code);
-  font-size: var(--font-size-tiny);
-  color: var(--secondary-light-color);
-  padding-top: 2px;
+.event-row:hover {
+  background: var(--primary-dark-color);
 }
 
-.ev-index {
-  text-align: right;
+.event-row.active {
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  border-left-color: var(--accent-color);
 }
 
-.ev-event {
-  font-family: var(--font-code);
-  font-size: var(--font-size-tiny);
-  font-weight: 700;
+.ev-direction {
   color: var(--accent-color);
-  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.ev-preview {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.ev-data {
-  margin: 0;
   font-family: var(--font-code);
   font-size: var(--font-size-tiny);
   color: var(--secondary-dark-color);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 110px;
-  overflow: auto;
+}
+
+.ev-time {
+  flex-shrink: 0;
+  font-family: var(--font-code);
+  font-size: var(--font-size-tiny);
+  color: var(--secondary-light-color);
+}
+
+.follow-btn {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 5px 12px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: 999px;
+  background: var(--popover-color);
+  color: var(--accent-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 600;
+  box-shadow: var(--shadow-lg);
+}
+
+.follow-btn:hover {
+  border-color: var(--accent-color);
+}
+
+.events-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* 合并结果 */
@@ -1439,6 +1973,51 @@ function retrySend() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.merged-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* FR-5:流式合并配置入口(ApiFox 式,位于响应卡片工具栏) */
+.merge-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.merge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-light-color);
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+
+.merge-btn:hover {
+  color: var(--secondary-dark-color);
+  border-color: var(--accent-color);
+}
+
+.merge-btn.active {
+  border-color: color-mix(in srgb, var(--accent-color) 50%, var(--divider-dark-color));
+  color: var(--accent-color);
+}
+
+.sm-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-success-color);
 }
 
 .auto-scroll {

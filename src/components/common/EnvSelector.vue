@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Check, Layers, Search } from '@lucide/vue'
+import { Check, ChevronDown, Layers, Search } from '@lucide/vue'
 import { Tippy } from 'vue-tippy'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -62,6 +62,7 @@ function selectGlobalEnv(id: string | null) {
     <button class="env-selector" :title="`环境:${activeEnvName}`">
       <Layers :size="14" />
       <span class="env-name">{{ activeEnvName }}</span>
+      <ChevronDown :size="12" class="opacity-60" />
     </button>
     <template #content>
       <div class="env-menu">
@@ -128,13 +129,14 @@ function selectGlobalEnv(id: string | null) {
 .env-selector {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 180px;
-  height: 26px;
-  padding: 0 8px;
+  gap: 7px;
+  max-width: 220px;
+  height: 30px;
+  padding: 0 10px;
   border-radius: var(--radius-md);
-  color: var(--secondary-color);
-  font-size: var(--font-size-tiny);
+  color: var(--secondary-dark-color);
+  font-size: var(--font-size-body);
+  font-weight: 500;
   transition: background 0.12s ease, color 0.12s ease;
 }
 
@@ -144,26 +146,34 @@ function selectGlobalEnv(id: string | null) {
 }
 
 .env-name {
-  max-width: 120px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .env-menu {
-  width: 248px;
-  max-height: 320px;
+  width: 280px;
+  max-height: 340px;
   overflow-y: auto;
 }
 
 .env-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 4px 8px;
-  border-bottom: 1px solid var(--divider-color);
-  margin-bottom: 4px;
+  gap: 8px;
+  height: 32px;
+  margin: 6px 8px 8px;
+  padding: 0 10px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--primary-color);
   color: var(--secondary-light-color);
+  transition: border-color 0.12s ease;
+}
+
+.env-search:focus-within {
+  border-color: var(--accent-color);
 }
 
 .env-search input {
@@ -177,7 +187,7 @@ function selectGlobalEnv(id: string | null) {
 }
 
 .env-group {
-  padding: 6px 8px 3px;
+  padding: 6px 10px 3px;
   color: var(--secondary-light-color);
   font-size: var(--font-size-tiny);
   font-weight: 600;
@@ -186,9 +196,10 @@ function selectGlobalEnv(id: string | null) {
 .env-option {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 6px 8px;
+  gap: 8px;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  padding: 7px 8px;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--secondary-dark-color);

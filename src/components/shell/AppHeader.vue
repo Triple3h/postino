@@ -9,6 +9,7 @@ import { useFileImport } from '@/composables/useFileImport'
 import { generateCollectionBackup } from '@/utils/export'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
+import EnvSelector from '@/components/common/EnvSelector.vue'
 import type { ThemeColorMode } from '@/types'
 
 const router = useRouter()
@@ -95,8 +96,9 @@ function goToSettings() {
       <kbd class="ml-auto rounded border border-dividerDark px-1.5 py-0.5 font-mono text-[10px] leading-none text-secondary">{{ searchKbd }}</kbd>
     </button>
 
-    <!-- 右:导入导出 / 主题 / 设置 -->
+    <!-- 右:环境切换(FR-6,Hoppscotch 式全局入口)/ 导入导出 / 主题 / 设置 -->
     <div class="flex items-center justify-end gap-1">
+      <EnvSelector class="mr-1" />
       <Tippy interactive trigger="click" theme="popover" placement="bottom-end" :offset="[0, 6]">
         <button class="flex h-8 items-center gap-1 rounded-md px-2.5 text-[12px] text-secondary transition-colors hover:bg-primaryDark hover:text-secondaryDark">
           <FileUp :size="15" />

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { ChevronDown, Ellipsis, Layers, Lock, Save, X } from '@lucide/vue'
+import { ChevronDown, Ellipsis, House, Layers, Lock, Save, X } from '@lucide/vue'
 import { Tippy } from 'vue-tippy'
 import { toast } from 'vue-sonner'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useWsStore } from '@/stores/ws'
-import { sendRequest as httpSendRequest } from '@/utils/http'
+import { isWebSocketUrl, sendRequest as httpSendRequest } from '@/utils/http'
 import { resolveScriptChain, resolveInheritedProperties } from '@/utils/inheritance'
 import { responseBodyToBlob, responseContentType, responseFileExtension } from '@/utils/binary-response'
 import {
@@ -16,14 +16,12 @@ import {
   executePreRequestScriptAsync,
 } from '@/utils/pre-request'
 import type { PostResponseData, ScriptResult, ScriptSendRequestInput } from '@/utils/pre-request'
-import { STREAM_MERGE_PRESETS, defaultStreamMergeConfig } from '@/utils/stream-merge'
-import type { StreamMergePreset } from '@/utils/stream-merge'
 import { generateCurl } from '@/utils/export'
 import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
-import type { ApiConfig, AuthConfig, BodyConfig, Collection, CollectionNode, CookieItem, Environment, HttpMethod, KvPair, RequestType, ResponseData, StreamMergeConfig } from '@/types'
+import type { ApiConfig, AuthConfig, BodyConfig, Collection, CollectionNode, CookieItem, Environment, HttpMethod, KvPair, RequestType, ResponseData } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -43,7 +41,13 @@ const urlScrollLeft = ref(0)
 const showExportPanel = ref(false)
 const showCodeGenPanel = ref(false)
 const showActionMenu = ref(false)
+const actionTippyRef = ref<{ hide: () => void } | null>(null)
+function closeActionMenu() {
+  showActionMenu.value = false
+  actionTippyRef.value?.hide()
+}
 const showMethodMenu = ref(false)
+const showBaseUrlMenu = ref(false)
 const customMethodDraft = ref('')
 const customMethodInputRef = ref<HTMLInputElement | null>(null)
 const postSendAction = ref<null | 'download' | 'codegen'>(null)
@@ -137,51 +141,11 @@ const inheritedChips = computed<{ collectionName: string; chips: InheritedChip[]
   return chips.length ? { collectionName: summary.collectionName, chips } : null
 })
 
-// ── Phase 3.1:统一请求类型(REST / SSE / WS)──
-const requestTypes: Array<{ value: RequestType; label: string }> = [
-  { value: 'rest', label: 'REST' },
-  { value: 'sse', label: 'SSE' },
-  { value: 'ws', label: 'WS' },
-]
-const currentRequestType = computed<RequestType>(() => currentApi.value?.requestType ?? 'rest')
-function selectRequestType(type: RequestType) {
-  if (!currentApi.value || isReadonlyModule.value) return
-  store.updateApi(currentApi.value.id, { requestType: type })
-}
+// ── FR-4:请求类型自动识别 —— ws/wss scheme 即 WS 模式,其余统一走流式 HTTP 管道;
+// ApiConfig.requestType 仅保留兼容存量数据,不再作为 UI 分支依据 ──
+const currentRequestType = computed<RequestType>(() => isWebSocketUrl(currentUrl.value) ? 'ws' : 'rest')
 
-// ── Phase 3.3:流式合并配置(SSE)──
-const showStreamMergePanel = ref(false)
-const streamMergeConfig = computed<StreamMergeConfig>(() => ({
-  ...defaultStreamMergeConfig(),
-  ...currentApi.value?.streamMerge,
-}))
-const streamMergeMode = computed({
-  get: () => streamMergeConfig.value.mode,
-  set: (mode: StreamMergeConfig['mode']) => patchStreamMerge({ mode }),
-})
-const streamMergeActive = computed(() => streamMergeConfig.value.mode !== 'off')
-
-function patchStreamMerge(patch: Partial<StreamMergeConfig>) {
-  if (!currentApi.value || isReadonlyModule.value) return
-  store.updateApi(currentApi.value.id, { streamMerge: { ...streamMergeConfig.value, ...patch } })
-}
-
-function applyStreamMergePreset(preset: StreamMergePreset) {
-  patchStreamMerge({ mode: 'custom', dataPath: preset.dataPath })
-}
-
-function onStreamMergeFieldInput(field: 'dataPath' | 'eventFilter' | 'separator' | 'stopMarker', event: Event) {
-  const value = (event.target as HTMLInputElement).value
-  if (field === 'dataPath') patchStreamMerge({ dataPath: value })
-  else if (field === 'eventFilter') patchStreamMerge({ eventFilter: value })
-  else if (field === 'separator') patchStreamMerge({ separator: value })
-  else patchStreamMerge({ stopMarker: value })
-}
-
-function toggleStreamMergePanel() {
-  showStreamMergePanel.value = !showStreamMergePanel.value
-  showActionMenu.value = false
-}
+// (FR-5:流式合并配置已迁入响应卡片 ResponsePanel/StreamMergeConfig)
 
 /** Phase 4.1:解析脚本执行链(集合 → 文件夹根→叶),请求自身脚本始终执行 */
 function resolveScriptSegments(api: ApiConfig, event: 'pre' | 'post'): Array<{ sourceName: string; script: string }> {
@@ -289,10 +253,8 @@ function normalizeUrlSuffix(suffix: string): string {
   return `/${trimmed}`
 }
 
-function applyBaseUrlTemplate(event: Event) {
-  const target = event.target as HTMLSelectElement
-  const key = target.value
-  target.value = ''
+function applyBaseUrlTemplate(key: string) {
+  showBaseUrlMenu.value = false
   if (!key || isReadonlyModule.value) return
   const option = baseUrlOptions.value.find(item => item.key === key)
   if (!option) return
@@ -647,8 +609,8 @@ async function sendScriptInterface(interfaceOrApiId: string, overrides?: ScriptS
 async function send() {
   if (!currentUrl.value.trim()) return
   if (!currentApi.value) return
-  // Phase 3.5:WS 请求不走 HTTP 发送链,由 ws store 管理连接(发送框在 WsPanel)
-  if ((currentApi.value.requestType ?? 'rest') === 'ws') {
+  // FR-4:WS 模式(ws/wss scheme)不走 HTTP 发送链,由 ws store 管理连接(发送框在 WsPanel)
+  if (currentRequestType.value === 'ws') {
     wsStore.toggleConnect(currentApi.value)
     return
   }
@@ -836,10 +798,10 @@ async function send() {
 
     store.scriptLogs = allLogs
 
-    // Add to history(Phase 3.6:流式请求额外记录 streamMerge/mergedText/原始前 64KB,chunks 不入库)
+    // Add to history(FR-4:流式标记记录「实际发生了流式」,与声明的请求类型解耦;chunks 不入库)
     const streamExtras = response.chunks?.length
       ? {
-          requestType: api.requestType ?? 'rest' as const,
+          requestType: 'sse' as const,
           streamMerge: api.streamMerge,
           mergedText: response.mergedText || undefined,
           rawPreview: response.body.slice(0, 64 * 1024),
@@ -883,12 +845,12 @@ async function send() {
 }
 
 function openExport() {
-  showActionMenu.value = false
+  closeActionMenu()
   showExportPanel.value = true
 }
 
 function openCodeGen() {
-  showActionMenu.value = false
+  closeActionMenu()
   showCodeGenPanel.value = true
 }
 
@@ -903,7 +865,7 @@ function copyAsCurl() {
   const api = currentApi.value
   if (!api) return
   void navigator.clipboard.writeText(generateCurl(api, store.getEnvVariables()))
-  showActionMenu.value = false
+  closeActionMenu()
   toast.success('已复制 cURL')
 }
 
@@ -920,7 +882,7 @@ function downloadResponse(response: ResponseData) {
 }
 
 async function sendAndThen(action: 'download' | 'codegen') {
-  showActionMenu.value = false
+  closeActionMenu()
   postSendAction.value = action
   await send()
 }
@@ -928,6 +890,7 @@ async function sendAndThen(action: 'download' | 'codegen') {
 function closeMenus() {
   showActionMenu.value = false
   showMethodMenu.value = false
+  showBaseUrlMenu.value = false
 }
 
 function handleGlobalSend() {
@@ -976,24 +939,9 @@ onUnmounted(() => {
       </template>
     </div>
 
-    <!-- 请求行(FR-1.1) -->
+    <!-- 请求行(FR-1.1;FR-4:无类型切换,ws/wss scheme 自动进入 WS 模式) -->
     <div class="request-line" @click="closeMenus">
-      <!-- 请求类型(REST/SSE/WS) -->
-      <div class="type-picker" role="radiogroup" aria-label="请求类型">
-        <button
-          v-for="t in requestTypes"
-          :key="t.value"
-          type="button"
-          class="type-option"
-          :class="{ active: currentRequestType === t.value }"
-          :disabled="isReadonlyModule"
-          role="radio"
-          :aria-checked="currentRequestType === t.value"
-          @click="selectRequestType(t.value)"
-        >{{ t.label }}</button>
-      </div>
-
-      <!-- method 彩色下拉(含 CUSTOM) -->
+      <!-- method 彩色下拉(含 CUSTOM;WS 模式无 method) -->
       <div v-if="currentRequestType !== 'ws'" class="method-picker relative">
         <button
           type="button"
@@ -1075,18 +1023,34 @@ onUnmounted(() => {
             :disabled="isReadonlyModule"
           />
         </div>
-        <select
-          v-if="baseUrlOptions.length"
-          class="base-url-select"
-          title="选择基础地址变量并保留当前路径"
-          :disabled="isReadonlyModule"
-          @change="applyBaseUrlTemplate"
-        >
-          <option value="">⌂</option>
-          <option v-for="item in baseUrlOptions" :key="item.key" :value="item.key">
-            {{ item.key }} · {{ item.preview }}
-          </option>
-        </select>
+        <div v-if="baseUrlOptions.length" class="base-url-picker">
+          <button
+            type="button"
+            class="base-url-btn"
+            title="选择基础地址变量并保留当前路径"
+            :disabled="isReadonlyModule"
+            aria-haspopup="listbox"
+            :aria-expanded="showBaseUrlMenu"
+            @click.stop="showBaseUrlMenu = !showBaseUrlMenu"
+          >
+            <House :size="13" />
+            <ChevronDown :size="11" class="opacity-60" />
+          </button>
+          <div v-if="showBaseUrlMenu" class="base-url-menu" role="listbox">
+            <button
+              v-for="item in baseUrlOptions"
+              :key="item.key"
+              type="button"
+              class="base-url-option"
+              role="option"
+              :title="item.preview"
+              @click.stop="applyBaseUrlTemplate(item.key)"
+            >
+              <span class="base-url-key">{{ item.key }}</span>
+              <span class="base-url-preview">{{ item.preview }}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- 发送 / 取消 -->
@@ -1115,95 +1079,18 @@ onUnmounted(() => {
       </button>
 
       <!-- 更多操作 -->
-      <Tippy interactive trigger="click" theme="popover" placement="bottom-end" :offset="[0, 4]">
-        <button class="action-btn" title="更多操作" @click.stop><Ellipsis :size="16" /></button>
+      <Tippy ref="actionTippyRef" interactive trigger="click" theme="popover" placement="bottom-end" :offset="[0, 4]">
+        <button class="action-btn" title="更多操作"><Ellipsis :size="16" /></button>
         <template #content>
           <div class="flex w-44 flex-col">
-            <button class="menu-item" @click="showActionMenu = false; sendAndThen('download')">发送并下载响应</button>
-            <button class="menu-item" @click="showActionMenu = false; sendAndThen('codegen')">发送后生成代码</button>
+            <button class="menu-item" @click="closeActionMenu(); sendAndThen('download')">发送并下载响应</button>
+            <button class="menu-item" @click="closeActionMenu(); sendAndThen('codegen')">发送后生成代码</button>
             <button class="menu-item" @click="copyAsCurl">复制为 cURL</button>
             <button class="menu-item" @click="openCodeGen">生成代码</button>
             <button class="menu-item" @click="openExport">导出请求</button>
           </div>
         </template>
       </Tippy>
-
-      <!-- 流式合并(SSE) -->
-      <div v-if="currentRequestType === 'sse' && !isReadonlyModule" class="relative" @click.stop>
-        <button
-          type="button"
-          class="stream-merge-btn"
-          :class="{ active: streamMergeActive }"
-          title="流式合并:逐块提取 SSE/NDJSON 载荷字段并拼接"
-          @click="toggleStreamMergePanel"
-        >流式合并<span v-if="streamMergeActive" class="sm-dot"></span></button>
-        <div v-if="showStreamMergePanel" class="stream-merge-pop">
-          <div class="sm-head">
-            <strong>流式合并</strong>
-            <small>SSE / NDJSON 逐块提取拼接</small>
-          </div>
-          <div class="sm-mode-row">
-            <label class="sm-mode-item"><input v-model="streamMergeMode" type="radio" value="off" />关闭</label>
-            <label class="sm-mode-item"><input v-model="streamMergeMode" type="radio" value="auto" />自动探测</label>
-            <label class="sm-mode-item"><input v-model="streamMergeMode" type="radio" value="custom" />自定义路径</label>
-          </div>
-          <template v-if="streamMergeMode !== 'off'">
-            <label class="sm-field">
-              <span>取值路径 dataPath</span>
-              <input
-                type="text"
-                class="sm-input"
-                :value="streamMergeConfig.dataPath"
-                :disabled="streamMergeMode === 'auto'"
-                placeholder="data.content"
-                @input="onStreamMergeFieldInput('dataPath', $event)"
-              />
-            </label>
-            <div class="sm-presets">
-              <button
-                v-for="preset in STREAM_MERGE_PRESETS"
-                :key="preset.id"
-                type="button"
-                class="sm-preset"
-                :title="preset.dataPath"
-                @click="applyStreamMergePreset(preset)"
-              >{{ preset.label.split('(')[0] }}</button>
-            </div>
-            <div class="sm-grid">
-              <label class="sm-field">
-                <span>event 过滤</span>
-                <input
-                  type="text"
-                  class="sm-input"
-                  :value="streamMergeConfig.eventFilter ?? ''"
-                  placeholder="留空 = 全部"
-                  @input="onStreamMergeFieldInput('eventFilter', $event)"
-                />
-              </label>
-              <label class="sm-field">
-                <span>拼接符</span>
-                <input
-                  type="text"
-                  class="sm-input"
-                  :value="streamMergeConfig.separator"
-                  placeholder="直接拼接"
-                  @input="onStreamMergeFieldInput('separator', $event)"
-                />
-              </label>
-              <label class="sm-field">
-                <span>终止标记</span>
-                <input
-                  type="text"
-                  class="sm-input"
-                  :value="streamMergeConfig.stopMarker ?? ''"
-                  placeholder="[DONE]"
-                  @input="onStreamMergeFieldInput('stopMarker', $event)"
-                />
-              </label>
-            </div>
-          </template>
-        </div>
-      </div>
     </div>
 
     <div v-if="isReadonlyModule" class="readonly-hint"><Lock :size="13" /> 当前集合为只读模式:可发送请求,但接口定义只能通过导入/同步更新。</div>
@@ -1290,43 +1177,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0;
-}
-
-/* 请求类型(REST/SSE/WS) */
-.type-picker {
-  display: inline-flex;
-  align-items: center;
-  height: 34px;
-  border: 1px solid var(--divider-dark-color);
-  border-right: none;
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.type-option {
-  height: 100%;
-  padding: 0 8px;
-  background: transparent;
-  color: var(--secondary-color);
-  font-size: var(--font-size-tiny);
-  font-weight: 700;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-.type-option:hover:not(:disabled) {
-  background: var(--primary-dark-color);
-  color: var(--secondary-dark-color);
-}
-
-.type-option.active {
-  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
-  color: var(--accent-color);
-}
-
-.type-option:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 /* method 下拉:与 URL 输入方角拼接 */
@@ -1474,23 +1324,83 @@ onUnmounted(() => {
   border-bottom-color: var(--status-critical-error-color);
 }
 
-.base-url-select {
-  max-width: 44px;
+.base-url-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.base-url-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   height: 26px;
   margin-right: 4px;
-  padding: 0 20px 0 6px;
+  padding: 0 6px;
   border: 1px solid var(--divider-dark-color);
   border-radius: var(--radius-sm);
   background-color: var(--primary-light-color);
   color: var(--secondary-color);
   font-size: var(--font-size-tiny);
   outline: none;
-  flex-shrink: 0;
+  cursor: pointer;
 }
 
-.base-url-select:hover:not(:disabled) {
+.base-url-btn:hover:not(:disabled) {
   color: var(--secondary-dark-color);
   border-color: var(--accent-color);
+}
+
+.base-url-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.base-url-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 110;
+  min-width: 340px;
+  max-width: 440px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--popover-color);
+  box-shadow: var(--shadow-lg);
+}
+
+.base-url-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-body);
+}
+
+.base-url-option:hover {
+  background: var(--primary-dark-color);
+}
+
+.base-url-key {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-weight: 600;
+  color: var(--secondary-dark-color);
+  white-space: nowrap;
+}
+
+.base-url-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-color);
 }
 
 /* 发送 / 保存 */
@@ -1565,132 +1475,6 @@ onUnmounted(() => {
 .action-btn:hover {
   background: var(--primary-dark-color);
   color: var(--secondary-dark-color);
-}
-
-/* 流式合并 */
-.stream-merge-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 34px;
-  margin-left: 4px;
-  padding: 0 10px;
-  border: 1px solid var(--divider-dark-color);
-  border-radius: var(--radius-md);
-  background: var(--primary-light-color);
-  color: var(--secondary-color);
-  font-size: var(--font-size-tiny);
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.stream-merge-btn.active {
-  border-color: color-mix(in srgb, var(--accent-color) 50%, var(--divider-dark-color));
-  color: var(--accent-color);
-}
-
-.sm-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--status-success-color);
-}
-
-.stream-merge-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  width: 300px;
-  padding: 12px;
-  border: 1px solid var(--divider-dark-color);
-  border-radius: var(--radius-md);
-  background: var(--popover-color);
-  box-shadow: var(--shadow-lg);
-  z-index: 120;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.sm-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.sm-head small {
-  color: var(--secondary-light-color);
-  font-weight: 400;
-}
-
-.sm-mode-row {
-  display: flex;
-  gap: 10px;
-}
-
-.sm-mode-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--secondary-color);
-  font-size: var(--font-size-tiny);
-  cursor: pointer;
-}
-
-.sm-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--secondary-color);
-  font-size: var(--font-size-tiny);
-}
-
-.sm-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sm-input {
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--divider-dark-color);
-  border-radius: var(--radius-sm);
-  background: var(--primary-color);
-  color: var(--secondary-dark-color);
-  font-size: var(--font-size-tiny);
-  font-family: var(--font-code);
-  outline: none;
-}
-
-.sm-input:focus {
-  border-color: var(--accent-color);
-}
-
-.sm-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.sm-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.sm-preset {
-  padding: 3px 8px;
-  border: 1px solid var(--divider-dark-color);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--secondary-color);
-  font-size: var(--font-size-tiny);
-  transition: border-color 0.12s ease, color 0.12s ease;
-}
-
-.sm-preset:hover {
-  border-color: var(--accent-color);
-  color: var(--accent-color);
 }
 
 .readonly-hint {
