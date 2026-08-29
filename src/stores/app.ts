@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
-import type { ApiConfig, Category, Environment, HistoryEntry, InterfaceNode, Module as ApiModule, ResponseData, AppSettings, Group } from '@/types'
+import type { ApiConfig, Category, CollectionExportDocument, CollectionVariable, Environment, HistoryEntry, InterfaceNode, Module as ApiModule, ResponseData, AppSettings, Group } from '@/types'
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
+import type { ImportedPostmanTree } from '@/utils/import'
 import { db } from '@/db'
 import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
 import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
 import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
+import { collectionFromModule } from '@/utils/collection-migration'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -143,25 +145,46 @@ async function seedStarterWorkspace(): Promise<void> {
     }, now),
   ]
   const interfaces: InterfaceNode[] = [
-    { id: 'interface:starter-jsonplaceholder-posts', moduleId: modules[0].id, apiId: apis[0].id, nodeType: 'request', parentId: null, name: apis[0].name, method: apis[0].method, url: apis[0].url, order: 0, createdAt: now, updatedAt: now },
-    { id: 'interface:starter-jsonplaceholder-create-post', moduleId: modules[0].id, apiId: apis[1].id, nodeType: 'request', parentId: null, name: apis[1].name, method: apis[1].method, url: apis[1].url, order: 1, createdAt: now, updatedAt: now },
-    { id: 'interface:starter-weather-current', moduleId: modules[1].id, apiId: apis[2].id, nodeType: 'request', parentId: null, name: apis[2].name, method: apis[2].method, url: apis[2].url, order: 0, createdAt: now, updatedAt: now },
+    { id: 'interface:starter-jsonplaceholder-posts', moduleId: modules[0].id, collectionId: modules[0].id, apiId: apis[0].id, nodeType: 'request', parentId: null, name: apis[0].name, method: apis[0].method, url: apis[0].url, order: 0, createdAt: now, updatedAt: now },
+    { id: 'interface:starter-jsonplaceholder-create-post', moduleId: modules[0].id, collectionId: modules[0].id, apiId: apis[1].id, nodeType: 'request', parentId: null, name: apis[1].name, method: apis[1].method, url: apis[1].url, order: 1, createdAt: now, updatedAt: now },
+    { id: 'interface:starter-weather-current', moduleId: modules[1].id, collectionId: modules[1].id, apiId: apis[2].id, nodeType: 'request', parentId: null, name: apis[2].name, method: apis[2].method, url: apis[2].url, order: 0, createdAt: now, updatedAt: now },
   ]
   const environment: Environment = {
     id: 'env:starter-local',
     name: '本地开发',
+    collectionId: 'global',
     variables: [
       { key: 'jsonplaceholderBaseUrl', value: 'https://jsonplaceholder.typicode.com', enabled: true },
       { key: 'weatherBaseUrl', value: 'https://api.open-meteo.com/v1', enabled: true },
     ],
   }
+  // 每个示例集合自带独立环境(Phase 2 起按集合解析)
+  const collectionEnvironments: Environment[] = [
+    {
+      id: 'env:starter-jsonplaceholder-local',
+      name: 'local',
+      collectionId: modules[0].id,
+      variables: [{ key: 'jsonplaceholderBaseUrl', value: 'https://jsonplaceholder.typicode.com', enabled: true }],
+    },
+    {
+      id: 'env:starter-weather-local',
+      name: 'local',
+      collectionId: modules[1].id,
+      variables: [{ key: 'weatherBaseUrl', value: 'https://api.open-meteo.com/v1', enabled: true }],
+    },
+  ]
+  const collections = modules.map((module, index) => ({
+    ...collectionFromModule(module, category, index),
+    selectedEnvId: collectionEnvironments[index].id,
+  }))
 
-  await db.transaction('rw', [db.apis, db.environments, db.categories, db.modules, db.interfaces, db.settings], async () => {
+  await db.transaction('rw', [db.apis, db.environments, db.categories, db.modules, db.interfaces, db.collections, db.settings], async () => {
     await db.categories.put(category)
     await db.modules.bulkPut(modules)
     await db.interfaces.bulkPut(interfaces)
+    await db.collections.bulkPut(collections)
     await db.apis.bulkPut(apis)
-    await db.environments.put(environment)
+    await db.environments.bulkPut([environment, ...collectionEnvironments])
     await db.settings.put({ key: 'starterSeeded', value: true })
   })
 }
@@ -286,6 +309,83 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** Phase 4.4:Postman v2.1 树形导入 —— 建集合 + 文件夹树 + 请求,集合/文件夹级 auth/变量/脚本落位 */
+  async function importPostmanCollectionTree(tree: ImportedPostmanTree): Promise<string | null> {
+    const workspace = useWorkspaceStore()
+    const module = await workspace.ensureModuleForLegacyGroup(tree.name)
+    if (!module) return null
+
+    const toCollectionVars = (pairs: Array<{ key: string; value: string; enabled?: boolean }>): CollectionVariable[] =>
+      pairs.filter(item => item.key).map(item => ({
+        key: item.key,
+        initialValue: item.value,
+        currentValue: item.value,
+        secret: false,
+        enabled: item.enabled !== false,
+      }))
+
+    await workspace.updateCollectionSettings(module.id, {
+      ...(tree.description ? { description: tree.description } : {}),
+      ...(tree.auth ? { auth: normalizeAuthConfig(tree.auth) } : {}),
+      preRequestScript: tree.preRequestScript,
+      postRequestScript: tree.postRequestScript,
+      variables: toCollectionVars(tree.variables),
+    })
+
+    const folderIdByKey = new Map<string, string>()
+    for (const folder of tree.folders) {
+      const parentId = folder.parentKey ? folderIdByKey.get(folder.parentKey) ?? null : null
+      const node = await workspace.addFolder(module.id, folder.name, parentId)
+      folderIdByKey.set(folder.key, node.id)
+      await workspace.updateInterfaceNode(node.id, {
+        preRequestScript: folder.preRequestScript,
+        postRequestScript: folder.postRequestScript,
+        ...(folder.auth ? { auth: normalizeAuthConfig(folder.auth) } : {}),
+        ...(folder.variables.some(item => item.key) ? { variables: toCollectionVars(folder.variables) } : {}),
+      })
+    }
+
+    for (const { parentKey, api } of tree.requests) {
+      const parentId = parentKey ? folderIdByKey.get(parentKey) ?? null : null
+      await addApi(api, module.id, parentId)
+    }
+    return module.id
+  }
+
+  /** Phase 4.5:恢复自有带版本备份(按 id 合并,secret 值已在导出时剥离) */
+  async function restoreCollectionBackup(doc: CollectionExportDocument): Promise<{ collections: number; nodes: number; apis: number; environments: number }> {
+    const workspace = useWorkspaceStore()
+    await workspace.restoreCollectionBackupData(doc.collections ?? [], doc.nodes ?? [])
+    const apiEntries = Object.values(doc.apis ?? {})
+    for (const api of apiEntries) {
+      apis.value[api.id] = api
+      await db.apis.put(api)
+    }
+    for (const env of doc.environments ?? []) {
+      await upsertEnvironment(env)
+    }
+    return {
+      collections: doc.collections?.length ?? 0,
+      nodes: doc.nodes?.length ?? 0,
+      apis: apiEntries.length,
+      environments: doc.environments?.length ?? 0,
+    }
+  }
+
+  /** Phase 4.4:Postman environment JSON 导入为指定集合的环境 */
+  async function importCollectionEnvironment(collectionId: string, name: string, variables: Array<{ key: string; value: string; enabled?: boolean; secret?: boolean }>): Promise<Environment | null> {
+    const env: Environment = {
+      id: `env:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      name: name.trim() || '导入环境',
+      collectionId,
+      variables: variables
+        .filter(item => item.key)
+        .map(item => ({ key: item.key, value: item.value, enabled: item.enabled !== false, secret: item.secret })),
+    }
+    await upsertEnvironment(env)
+    return env
+  }
+
   function deleteApi(id: string) {
     delete apis.value[id]
     if (currentApiId.value === id) {
@@ -338,60 +438,116 @@ export const useAppStore = defineStore('app', () => {
     } else {
       environments.value[idx] = env
     }
-    currentEnvId.value = env.id
+    if (!env.collectionId || env.collectionId === 'global') {
+      currentEnvId.value = env.id
+    }
     await db.environments.put(env)
   }
 
   async function deleteEnvironment(id: string): Promise<void> {
+    const env = environments.value.find(e => e.id === id)
     environments.value = environments.value.filter(e => e.id !== id)
     if (currentEnvId.value === id) {
-      currentEnvId.value = environments.value[0]?.id ?? null
+      currentEnvId.value = environments.value.find(e => !e.collectionId || e.collectionId === 'global')?.id ?? null
     }
     await db.environments.delete(id)
+    // 若被删环境是某集合的当前选择,清空该选择
+    if (env?.collectionId && env.collectionId !== 'global') {
+      const workspace = useWorkspaceStore()
+      const collection = workspace.collections.find(item => item.id === env.collectionId)
+      if (collection?.selectedEnvId === id) {
+        await workspace.updateCollectionSettings(collection.id, { selectedEnvId: null })
+      }
+    }
   }
 
-  function getEnvVariables(): Record<string, string> {
-    const env = environments.value.find(e => e.id === currentEnvId.value)
+  /** 新建集合环境(每个集合独立的环境列表,如 local/test/prod) */
+  async function addCollectionEnvironment(collectionId: string, name: string): Promise<Environment> {
+    const env: Environment = {
+      id: `env:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      name: name.trim() || '新环境',
+      collectionId,
+      variables: [],
+    }
+    await upsertEnvironment(env)
+    return env
+  }
+
+  /** 切换集合的当前环境 */
+  async function selectCollectionEnvironment(collectionId: string, envId: string | null): Promise<void> {
+    await useWorkspaceStore().updateCollectionSettings(collectionId, { selectedEnvId: envId })
+  }
+
+  function isGlobalEnv(env: Environment): boolean {
+    return !env.collectionId || env.collectionId === 'global'
+  }
+
+  /**
+   * 请求的完整变量解析(Phase 2.2,Postman 优先级):
+   * 请求变量 > 脚本运行时变量(发送时另行合并)> 当前集合所选环境 > 集合变量(父→子就近覆盖)> 全局环境变量
+   */
+  function getEnvVariablesForApi(apiId: string | null): Record<string, string> {
     const vars: Record<string, string> = {}
-
-    if (env) {
-      for (const v of env.variables) {
-        if (v.enabled) vars[v.key] = v.value
-      }
-    }
-
     const workspace = useWorkspaceStore()
-    const interfaceNode = workspace.interfaces.find(item => item.apiId === currentApiId.value)
-    const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
-    for (const [key, value] of Object.entries(module?.variables ?? {})) {
-      if (value.remote) vars[key] = value.remote
-      if (currentEnvId.value && value.environmentValues?.[currentEnvId.value]) {
-        vars[key] = value.environmentValues[currentEnvId.value]
-      }
-      if (value.local) vars[key] = value.local
-    }
-    for (const item of workspace.modules) {
-      for (const [key, value] of Object.entries(item.variables ?? {})) {
-        const scopedValue = (currentEnvId.value && value.environmentValues?.[currentEnvId.value])
-          || value.local
-          || value.remote
-        if (scopedValue) vars[`${item.name}.${key}`] = scopedValue
+
+    // 1) 全局环境变量(优先级最低)
+    const globalEnv = environments.value.find(e => e.id === currentEnvId.value && isGlobalEnv(e))
+      ?? environments.value.find(e => isGlobalEnv(e))
+    if (globalEnv) {
+      for (const v of globalEnv.variables) {
+        if (v.enabled && v.key) vars[v.key] = v.value
       }
     }
-    const currentApi = currentApiId.value ? apis.value[currentApiId.value] : null
-    for (const item of currentApi?.requestVariables ?? []) {
+
+    // 2) 集合变量 + 祖先文件夹变量(父→子,近者覆盖)
+    const node = apiId ? workspace.interfaces.find(item => item.apiId === apiId || item.id === apiId) : null
+    const collectionId = node ? (node.collectionId ?? node.moduleId) : null
+    const collection = collectionId ? workspace.collections.find(item => item.id === collectionId) : null
+    if (collection) {
+      for (const v of collection.variables) {
+        if (v.enabled && v.key) vars[v.key] = v.currentValue || v.initialValue
+      }
+      for (const folder of workspace.getAncestorFolders(node?.id ?? apiId ?? '')) {
+        for (const v of folder.variables ?? []) {
+          if (v.enabled && v.key) vars[v.key] = v.currentValue || v.initialValue
+        }
+      }
+
+      // 3) 当前集合所选环境
+      const selectedEnv = collection.selectedEnvId
+        ? environments.value.find(e => e.id === collection.selectedEnvId)
+        : null
+      if (selectedEnv) {
+        for (const v of selectedEnv.variables) {
+          if (v.enabled && v.key) vars[v.key] = v.value
+        }
+      }
+    }
+
+    // 4) 请求自身变量(优先级最高)
+    const api = apiId ? apis.value[apiId] : null
+    for (const item of api?.requestVariables ?? []) {
       if (item.enabled && item.key) vars[item.key] = item.value
     }
     return vars
   }
 
-  async function saveGroupOrder(): Promise<void> {
-    await db.settings.put({ key: 'groupOrder', value: groupOrder.value })
+  /** 当前请求的变量解析(getEnvVariablesForApi 的快捷方式) */
+  function getEnvVariables(): Record<string, string> {
+    return getEnvVariablesForApi(currentApiId.value)
   }
 
   async function saveSettings(): Promise<void> {
     const entries = Object.entries(settings.value).map(([key, value]) => ({ key, value }))
     await db.settings.bulkPut(entries)
+  }
+
+  /** Phase 5.1:主题切换(settings 的唯一真源在本 store,useSettings 只是代理) */
+  function toggleTheme(): void {
+    const themes: AppSettings['theme'][] = ['light', 'dark', 'system']
+    const idx = themes.indexOf(settings.value.theme)
+    settings.value.theme = themes[(idx + 1) % themes.length]
+    void saveSettings()
   }
 
   function setRequestAbortController(controller: AbortController | null): void {
@@ -418,7 +574,9 @@ export const useAppStore = defineStore('app', () => {
     init, getCurrentApi, updateApi, addApi, deleteApi,
     addHistory, toggleStar, deleteHistoryEntry, clearHistory,
     upsertEnvironment, deleteEnvironment,
-    getEnvVariables, saveGroupOrder, saveSettings,
+    addCollectionEnvironment, selectCollectionEnvironment, isGlobalEnv,
+    importPostmanCollectionTree, importCollectionEnvironment, restoreCollectionBackup,
+    getEnvVariables, getEnvVariablesForApi, saveSettings, toggleTheme,
     setRequestAbortController, clearRequestAbortController, cancelCurrentRequest,
   }
 })

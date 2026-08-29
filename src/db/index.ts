@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie'
-import type { ApiConfig, Environment, HistoryEntry, Group, Category, Module, InterfaceNode, ModuleAuditLog, ModuleSyncLog } from '@/types'
+import type { ApiConfig, Environment, HistoryEntry, Group, Category, Module, InterfaceNode, Collection, ModuleAuditLog, ModuleSyncLog } from '@/types'
+import { upgradeToCollections } from '@/utils/collection-migration'
 
 export class ApiFixDB extends Dexie {
   apis!: Table<ApiConfig, string>
@@ -10,6 +11,8 @@ export class ApiFixDB extends Dexie {
   categories!: Table<Category, string>
   modules!: Table<Module, string>
   interfaces!: Table<InterfaceNode, string>
+  /** @deprecated Collection 化过渡期镜像表,Phase 1 后随旧 UI 一并移除 */
+  collections!: Table<Collection, string>
   moduleAuditLogs!: Table<ModuleAuditLog, string>
   moduleSyncLogs!: Table<ModuleSyncLog, string>
 
@@ -126,6 +129,22 @@ export class ApiFixDB extends Dexie {
       moduleAuditLogs: 'id, moduleId, action, createdAt',
       moduleSyncLogs: 'id, moduleId, timestamp, [moduleId+timestamp]',
     })
+
+    // v10:Collection 化。collections 成为唯一真源;
+    // environments/interfaces 增加 collectionId 索引;旧表保留数据以便回滚。
+    this.version(10).stores({
+      apis: 'id, name, method, folder, updatedAt',
+      environments: 'id, name, collectionId',
+      history: 'id, apiId, moduleId, interfaceId, method, status, timestamp, [moduleId+timestamp], [interfaceId+timestamp]',
+      settings: 'key',
+      groups: 'name',
+      categories: 'id, name, order, updatedAt',
+      modules: 'id, categoryId, name, order, legacyGroupName, updatedAt',
+      interfaces: 'id, moduleId, collectionId, parentId, nodeType, apiId, name, method, order, updatedAt',
+      moduleAuditLogs: 'id, moduleId, action, createdAt',
+      moduleSyncLogs: 'id, moduleId, timestamp, [moduleId+timestamp]',
+      collections: 'id, name, order, updatedAt',
+    }).upgrade(upgradeToCollections)
   }
 }
 

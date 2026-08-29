@@ -1,11 +1,20 @@
 import type { ApiConfig, HttpMethod, KvPair, BodyConfig, Environment, EnvVariable, HistoryEntry } from '@/types'
-import { loadFromStorage } from './storage'
 
 const LEGACY_KEYS = {
   DATA: 'apifix_bin_data',
   ENV: 'apifix_env_vars',
   HISTORY: 'apifix_history',
 } as const
+
+/** Phase 5.4:原 utils/storage.ts 已删除,这里内联一个带类型的 localStorage 读取 */
+function readLegacyJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -162,7 +171,7 @@ export function migrateLegacyData(): MigrationResult {
   }
 
   // Migrate APIs and groups
-  const legacyData = loadFromStorage<LegacyData>(LEGACY_KEYS.DATA, {} as LegacyData)
+  const legacyData = readLegacyJson<LegacyData>(LEGACY_KEYS.DATA, {} as LegacyData)
   if (legacyData.apis && Object.keys(legacyData.apis).length > 0) {
     result.migrated = true
     for (const [id, legacyApi] of Object.entries(legacyData.apis)) {
@@ -189,7 +198,7 @@ export function migrateLegacyData(): MigrationResult {
   }
 
   // Migrate environment variables
-  const legacyEnv = loadFromStorage<LegacyEnvVar[]>(LEGACY_KEYS.ENV, [])
+  const legacyEnv = readLegacyJson<LegacyEnvVar[]>(LEGACY_KEYS.ENV, [])
   if (legacyEnv.length > 0) {
     result.migrated = true
     const env: Environment = {
@@ -206,7 +215,7 @@ export function migrateLegacyData(): MigrationResult {
   }
 
   // Migrate history
-  const legacyHistory = loadFromStorage<LegacyHistoryEntry[]>(LEGACY_KEYS.HISTORY, [])
+  const legacyHistory = readLegacyJson<LegacyHistoryEntry[]>(LEGACY_KEYS.HISTORY, [])
   if (legacyHistory.length > 0) {
     result.migrated = true
     result.history = legacyHistory.map(h => ({

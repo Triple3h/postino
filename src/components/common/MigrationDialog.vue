@@ -4,7 +4,9 @@ import { useAppStore } from '@/stores/app'
 import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
 import { migrateLegacyData, hasLegacyData } from '@/utils/migration'
 import { db } from '@/db'
-import { STORAGE_KEYS, removeFromStorage } from '@/utils/storage'
+
+// Phase 5.4:迁移成功后清理的旧 localStorage 键(原 utils/storage.ts 已删除)
+const LEGACY_STORAGE_KEYS = ['apifix_bin_data', 'apifix_env_vars', 'apifix_history'] as const
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -54,9 +56,9 @@ async function doMigrate() {
         await db.history.bulkAdd(migrationResult.value.history)
       }
 
-      removeFromStorage(STORAGE_KEYS.DATA)
-      removeFromStorage(STORAGE_KEYS.ENV)
-      removeFromStorage(STORAGE_KEYS.HISTORY)
+      for (const key of LEGACY_STORAGE_KEYS) {
+        localStorage.removeItem(key)
+      }
     } catch (e) {
       console.error('Failed to write migrated data to IndexedDB:', e)
     }

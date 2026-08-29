@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { db } from '@/db'
-import type { ApiConfig, Category, Group, InterfaceNode, Module as ApiModule, ModuleExportConfig, ModuleStats, ModuleType, PlannedWorkspaceModel } from '@/types'
+import type { ApiConfig, Category, Collection, CollectionNode, Group, InterfaceNode, Module as ApiModule, ModuleExportConfig, ModuleStats, ModuleType, PlannedWorkspaceModel } from '@/types'
+import { collectionFromModule, collectionVarsToModuleVars, assignGlobalCollectionOrder } from '@/utils/collection-migration'
 
 export const DEFAULT_CATEGORY_ID = 'category:default'
 export const DEFAULT_CATEGORY_NAME = '默认分组'
@@ -233,8 +234,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const categories = ref<Category[]>([])
   const modules = ref<ApiModule[]>([])
   const interfaces = ref<InterfaceNode[]>([])
+  /** Collection 真源状态(Phase 0 起与 modules 双写同步,Phase 1 后 modules 移除) */
+  const collections = ref<Collection[]>([])
   const activeSelectionType = ref<WorkspaceSelectionType>(null)
   const activeSelectionId = ref<string | null>(null)
+
+  const activeCollection = computed(() => activeSelectionType.value === 'module'
+    ? collections.value.find(collection => collection.id === activeSelectionId.value) ?? null
+    : null)
 
   const activeCategory = computed(() => activeSelectionType.value === 'category'
     ? categories.value.find(category => category.id === activeSelectionId.value) ?? null
@@ -253,24 +260,100 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       ...item,
       nodeType: item.nodeType ?? 'request',
       parentId: item.parentId ?? null,
-      preScript: item.preScript ?? item.preRequestScript ?? '',
-      postScript: item.postScript ?? item.postRequestScript ?? '',
+      collectionId: item.collectionId ?? item.moduleId,
+      preRequestScript: item.preRequestScript ?? '',
+      postRequestScript: item.postRequestScript ?? '',
     }
+  }
+
+  // ─── Collection 镜像(过渡期:modules 变更时双写 collections 表,Phase 1 移除)───
+
+  async function mirrorModule(module: ApiModule): Promise<void> {
+    const category = categories.value.find(item => item.id === module.categoryId)
+    const collection = collectionFromModule(module, category)
+    const idx = collections.value.findIndex(item => item.id === collection.id)
+    if (idx === -1) collections.value.push(collection)
+    else collections.value[idx] = collection
+    await db.collections.put(collection)
+  }
+
+  async function unmirrorModule(moduleId: string): Promise<void> {
+    collections.value = collections.value.filter(item => item.id !== moduleId)
+    await db.collections.delete(moduleId)
+  }
+
+  /** 全量重建镜像(replaceModel / init 防御路径用) */
+  async function rebuildCollectionMirror(moduleList: ApiModule[], categoryList: Category[]): Promise<void> {
+    const pairs = assignGlobalCollectionOrder(moduleList, categoryList)
+    collections.value = pairs.map(item => item.collection)
+    await db.transaction('rw', db.collections, async () => {
+      await db.collections.clear()
+      if (collections.value.length > 0) await db.collections.bulkPut(collections.value)
+    })
+  }
+
+  /** Phase 4.5:恢复自有备份 —— 按 id 合并集合/节点,并为集合补齐 modules 双写桥 */
+  async function restoreCollectionBackupData(collectionsInput: Collection[], nodesInput: CollectionNode[]): Promise<void> {
+    const now = Date.now()
+    await ensureDefaultCategory()
+    const categoryId = categories.value[0]?.id ?? DEFAULT_CATEGORY_ID
+
+    const restoredCollections = collectionsInput.map(item => ({ ...item, updatedAt: item.updatedAt ?? now }))
+    await db.collections.bulkPut(restoredCollections)
+    for (const collection of restoredCollections) {
+      const idx = collections.value.findIndex(existing => existing.id === collection.id)
+      if (idx === -1) collections.value.push(collection)
+      else collections.value[idx] = collection
+
+      // 双写桥:旧 UI 与桥接逻辑依赖 modules 表存在同 id 行
+      const module = normalizeModule({
+        id: collection.id,
+        categoryId,
+        name: collection.name,
+        type: 'generic',
+        description: collection.description,
+        color: collection.color,
+        icon: collection.icon,
+        order: collection.order,
+        createdAt: collection.createdAt,
+        updatedAt: collection.updatedAt,
+      } as ApiModule)
+      const midx = modules.value.findIndex(existing => existing.id === module.id)
+      if (midx === -1) modules.value.push(module)
+      else modules.value[midx] = module
+      await db.modules.put(module)
+    }
+
+    const nodeIds = new Set(nodesInput.map(node => node.id))
+    const restoredNodes = nodesInput.map(node => normalizeInterfaceNode({ ...node, updatedAt: node.updatedAt ?? now }))
+    if (restoredNodes.length > 0) await db.interfaces.bulkPut(restoredNodes)
+    interfaces.value = sortByOrder([
+      ...interfaces.value.filter(existing => !nodeIds.has(existing.id)),
+      ...restoredNodes,
+    ])
   }
 
   async function init(): Promise<void> {
     if (initialized) return
     initialized = true
 
-    const [categoryList, moduleList, interfaceList] = await Promise.all([
+    const [categoryList, moduleList, interfaceList, collectionList] = await Promise.all([
       db.categories.orderBy('order').toArray(),
       db.modules.orderBy('order').toArray(),
       db.interfaces.orderBy('order').toArray(),
+      db.collections.orderBy('order').toArray(),
     ])
 
     categories.value = uniqueById(categoryList)
     modules.value = uniqueById(moduleList.map(normalizeModule))
     interfaces.value = interfaceList.map(normalizeInterfaceNode)
+
+    if (collectionList.length > 0) {
+      collections.value = collectionList
+    } else if (modules.value.length > 0) {
+      // v10 升级遗漏或旧版本写入的防御路径:按当前 modules 重建 collections
+      await rebuildCollectionMirror(modules.value, categories.value)
+    }
   }
 
   function getModel(): PlannedWorkspaceModel {
@@ -283,7 +366,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function replaceModel(model: PlannedWorkspaceModel): Promise<void> {
     const normalizedModules = model.modules.map(normalizeModule)
-    const normalizedInterfaces = model.interfaces.map(normalizeInterfaceNode)
+    const normalizedInterfaces = model.interfaces.map(item => normalizeInterfaceNode({
+      ...item,
+      collectionId: item.collectionId ?? item.moduleId,
+    }))
     await db.transaction('rw', db.categories, db.modules, db.interfaces, async () => {
       await Promise.all([
         db.categories.clear(),
@@ -300,6 +386,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     categories.value = sortByOrder(model.categories)
     modules.value = sortByOrder(normalizedModules)
     interfaces.value = sortByOrder(normalizedInterfaces)
+    await rebuildCollectionMirror(modules.value, categories.value)
   }
 
   async function replaceFromLegacyGroups(
@@ -355,6 +442,39 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     categories.value = sortByOrder(uniqueById(categories.value.map(category => category.id === id
       ? { ...category, ...updates, updatedAt }
       : category)))
+    // 类目的颜色/图标会传导到集合镜像
+    if (updates.color !== undefined || updates.icon !== undefined) {
+      const affected = modules.value.filter(module => module.categoryId === id)
+      for (const module of affected) await mirrorModule(module)
+    }
+  }
+
+  /**
+   * Collection 级设置(Phase 1 设置面板入口):
+   * auth/headers/变量/脚本/环境选择,直接写 collections 真源;
+   * variables 同步镜像回 ModuleVariables(过渡期旧 UI 兼容)。
+   */
+  async function updateCollectionSettings(
+    id: string,
+    updates: Partial<Pick<Collection, 'auth' | 'headers' | 'variables' | 'preRequestScript' | 'postRequestScript' | 'selectedEnvId' | 'description' | 'color' | 'icon'>>,
+  ): Promise<void> {
+    const existing = collections.value.find(item => item.id === id)
+    if (!existing) return
+    const updatedAt = Date.now()
+    const next: Collection = { ...existing, ...updates, updatedAt }
+    await db.collections.put(next)
+    collections.value = collections.value.map(item => item.id === id ? next : item)
+
+    if (updates.variables) {
+      const moduleUpdates = {
+        variables: collectionVarsToModuleVars(updates.variables),
+        updatedAt,
+      }
+      await db.modules.update(id, moduleUpdates)
+      modules.value = sortByOrder(modules.value.map(module => module.id === id
+        ? normalizeModule({ ...module, ...moduleUpdates })
+        : module))
+    }
   }
 
   async function addModule(categoryId: string, name: string): Promise<ApiModule> {
@@ -383,6 +503,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const normalized = normalizeModule(module)
     await db.modules.put(normalized)
     modules.value = sortByOrder([...uniqueById(modules.value).filter(item => item.id !== normalized.id), normalized])
+    await mirrorModule(normalized)
     return normalized
   }
 
@@ -399,9 +520,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       },
     }
     await db.modules.update(id, nextUpdates)
-    modules.value = sortByOrder(uniqueById(modules.value.map(module => module.id === id
+    const updated = modules.value.map(module => module.id === id
       ? normalizeModule({ ...module, ...nextUpdates })
-      : module)))
+      : module)
+    modules.value = sortByOrder(uniqueById(updated))
+    const changed = updated.find(module => module.id === id)
+    if (changed) await mirrorModule(changed)
   }
 
   async function ensureModuleForLegacyGroup(groupName: string): Promise<ApiModule> {
@@ -431,6 +555,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const normalized = normalizeModule(module)
     await db.modules.put(normalized)
     modules.value = sortByOrder([...modules.value, normalized])
+    await mirrorModule(normalized)
     return normalized
   }
 
@@ -459,6 +584,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const normalized = normalizeModule(module)
     await db.modules.put(normalized)
     modules.value = sortByOrder([...modules.value, normalized])
+    await mirrorModule(normalized)
     return normalized
   }
 
@@ -471,6 +597,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const interfaceNode: InterfaceNode = {
       id: existing?.id ?? stableId('interface', api.id),
       moduleId: targetModule.id,
+      collectionId: targetModule.id,
       apiId: api.id,
       nodeType: 'request',
       parentId,
@@ -479,8 +606,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       url: api.url,
       preRequestScript: api.preRequestScript,
       postRequestScript: api.postRequestScript,
-      preScript: api.preRequestScript,
-      postScript: api.postRequestScript,
       order: existing && existing.moduleId === targetModule.id && (existing.parentId ?? null) === parentId
         ? existing.order
         : nextOrder(interfaces.value.filter(item => item.moduleId === targetModule.id && (item.parentId ?? null) === parentId)),
@@ -502,6 +627,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const folder: InterfaceNode = {
       id: stableId('folder', `${module.id}/${parentId ?? 'root'}/${name}/${now}`),
       moduleId: module.id,
+      collectionId: module.id,
       apiId: '',
       nodeType: 'folder',
       parentId,
@@ -510,8 +636,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       url: '',
       preRequestScript: '',
       postRequestScript: '',
-      preScript: '',
-      postScript: '',
+      scriptsInherit: true,
       order: nextOrder(interfaces.value.filter(item => item.moduleId === module.id && (item.parentId ?? null) === parentId)),
       createdAt: now,
       updatedAt: now,
@@ -543,12 +668,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       url: api.url,
       preRequestScript: api.preRequestScript,
       postRequestScript: api.postRequestScript,
-      preScript: api.preRequestScript,
-      postScript: api.postRequestScript,
       updatedAt,
     })))
     interfaces.value = interfaces.value.map(item => item.apiId === api.id && (item.nodeType ?? 'request') === 'request'
-      ? { ...item, name: api.name, method: api.method, url: api.url, preRequestScript: api.preRequestScript, postRequestScript: api.postRequestScript, preScript: api.preRequestScript, postScript: api.postRequestScript, updatedAt }
+      ? { ...item, name: api.name, method: api.method, url: api.url, preRequestScript: api.preRequestScript, postRequestScript: api.postRequestScript, updatedAt }
       : item)
   }
 
@@ -609,6 +732,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const reordered = siblings.map((item, order) => ({
       ...item,
       moduleId: targetModuleId,
+      collectionId: targetModuleId,
       parentId: targetParentId,
       order,
       updatedAt,
@@ -619,6 +743,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const descendants = getDescendantNodes(nodeId).map(item => ({
       ...item,
       moduleId: targetModuleId,
+      collectionId: targetModuleId,
       updatedAt,
     }))
     await db.interfaces.bulkPut([...reordered, ...descendants])
@@ -639,6 +764,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await db.modules.bulkPut(reordered)
     const updatedById = new Map(reordered.map(item => [item.id, item]))
     modules.value = sortByOrder(modules.value.map(item => updatedById.get(item.id) ?? item))
+    const moved = modules.value.find(item => item.id === moduleId)
+    if (moved) await mirrorModule(moved)
   }
 
   function getAncestorFolders(interfaceOrApiId: string): InterfaceNode[] {
@@ -730,6 +857,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ...sourceNode,
         id: newNodeId,
         moduleId: newModuleId,
+        collectionId: newModuleId,
         apiId: newApiId,
         parentId: sourceNode.parentId ? (parentIdMapping.get(sourceNode.parentId) ?? null) : null,
         createdAt: now,
@@ -749,6 +877,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // Update reactive state
     modules.value = sortByOrder([...modules.value, normalized])
     interfaces.value = sortByOrder([...interfaces.value, ...newInterfaceNodes])
+    await mirrorModule(normalized)
 
     // Select the new module
     selectModule(newModuleId)
@@ -804,12 +933,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function deleteModule(moduleId: string): Promise<void> {
-    await db.transaction('rw', db.modules, db.interfaces, async () => {
+    await db.transaction('rw', db.modules, db.interfaces, db.collections, async () => {
       await db.modules.delete(moduleId)
       await db.interfaces.where('moduleId').equals(moduleId).delete()
+      await db.collections.delete(moduleId)
     })
     modules.value = modules.value.filter(module => module.id !== moduleId)
     interfaces.value = interfaces.value.filter(item => item.moduleId !== moduleId)
+    collections.value = collections.value.filter(item => item.id !== moduleId)
   }
 
   async function deleteCategory(categoryId: string): Promise<void> {
@@ -817,26 +948,30 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       .filter(module => module.categoryId === categoryId)
       .map(module => module.id)
 
-    await db.transaction('rw', db.categories, db.modules, db.interfaces, async () => {
+    await db.transaction('rw', db.categories, db.modules, db.interfaces, db.collections, async () => {
       await db.categories.delete(categoryId)
       await db.modules.where('categoryId').equals(categoryId).delete()
       await Promise.all(moduleIds.map(moduleId => db.interfaces.where('moduleId').equals(moduleId).delete()))
+      await Promise.all(moduleIds.map(moduleId => db.collections.delete(moduleId)))
     })
 
     categories.value = categories.value.filter(category => category.id !== categoryId)
     modules.value = modules.value.filter(module => module.categoryId !== categoryId)
     interfaces.value = interfaces.value.filter(item => !moduleIds.includes(item.moduleId))
+    collections.value = collections.value.filter(item => !moduleIds.includes(item.id))
   }
 
   return {
     categories,
     modules,
     interfaces,
+    collections,
     activeSelectionType,
     activeSelectionId,
     activeCategory,
     activeModule,
     activeInterface,
+    activeCollection,
     init,
     getModel,
     replaceModel,
@@ -846,9 +981,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     updateCategory,
     addModule,
     updateModule,
+    updateCollectionSettings,
     ensureModuleForLegacyGroup,
     ensureUngroupedModule,
     addInterfaceForApi,
+    restoreCollectionBackupData,
     addFolder,
     updateInterfaceNode,
     syncInterfaceFromApi,

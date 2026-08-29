@@ -390,8 +390,6 @@ async function reloadSharedState(scope: SyncMessage['scope']): Promise<void> {
     ...item,
     nodeType: item.nodeType ?? 'request',
     parentId: item.parentId ?? null,
-    preScript: item.preScript ?? item.preRequestScript ?? '',
-    postScript: item.postScript ?? item.postRequestScript ?? '',
   }))
 }
 
