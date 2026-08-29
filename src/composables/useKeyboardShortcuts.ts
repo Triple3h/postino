@@ -135,8 +135,11 @@ export function useKeyboardShortcuts() {
   function handleKeydown(e: KeyboardEvent) {
     if (e.defaultPrevented) return
     const target = e.target as HTMLElement | null
-    // 文本输入中不响应单键快捷键(如 ?)
-    const inEditable = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable || Boolean(target?.closest('.cm-content'))
+    // 文本输入中不响应单键快捷键(如 ?);target 可能是非元素(如 window),需安全探测
+    const inEditable = target instanceof HTMLInputElement
+      || target instanceof HTMLTextAreaElement
+      || target?.isContentEditable === true
+      || (target && typeof target.closest === 'function' && Boolean(target.closest('.cm-content')))
     const shortcuts = getEffectiveShortcuts(store.settings.customShortcuts)
     for (const item of SHORTCUT_ACTIONS) {
       if (!matchesShortcut(e, shortcuts[item.action])) continue
