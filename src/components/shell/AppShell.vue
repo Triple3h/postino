@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
-import { Toaster } from 'vue-sonner'
+import { onMounted, onUnmounted } from 'vue'
 import { FileUp } from '@lucide/vue'
 import AppHeader from './AppHeader.vue'
 import AppSidenav from './AppSidenav.vue'
@@ -9,19 +8,10 @@ import MigrationDialog from '@/components/common/MigrationDialog.vue'
 import SaveRequestModal from '@/components/sidebar/SaveRequestModal.vue'
 import ShortcutsPrompt from '@/components/common/ShortcutsPrompt.vue'
 import { useFileImport } from '@/composables/useFileImport'
-import { useSettings } from '@/composables/useSettings'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 
 const { dragImportDepth, bindWindowDragImport, unbindWindowDragImport } = useFileImport()
-const { settings } = useSettings()
 useKeyboardShortcuts()
-
-const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)')
-const sonnerTheme = computed<'dark' | 'light'>(() => {
-  const mode = settings.value.theme
-  if (mode === 'system') return systemPrefersDark.matches ? 'dark' : 'light'
-  return mode === 'light' ? 'light' : 'dark'
-})
 
 onMounted(bindWindowDragImport)
 onUnmounted(unbindWindowDragImport)
@@ -47,9 +37,6 @@ onUnmounted(unbindWindowDragImport)
         </div>
       </div>
     </Transition>
-
-    <!-- 全局 toast(FR-9.1) -->
-    <Toaster :theme="sonnerTheme" position="top-right" rich-colors close-button :duration="3200" />
 
     <GlobalSearch />
     <MigrationDialog />
