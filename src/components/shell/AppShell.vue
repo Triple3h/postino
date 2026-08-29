@@ -7,11 +7,14 @@ import AppSidenav from './AppSidenav.vue'
 import GlobalSearch from '@/components/common/GlobalSearch.vue'
 import MigrationDialog from '@/components/common/MigrationDialog.vue'
 import SaveRequestModal from '@/components/sidebar/SaveRequestModal.vue'
+import ShortcutsPrompt from '@/components/common/ShortcutsPrompt.vue'
 import { useFileImport } from '@/composables/useFileImport'
 import { useSettings } from '@/composables/useSettings'
+import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 
 const { dragImportDepth, bindWindowDragImport, unbindWindowDragImport } = useFileImport()
 const { settings } = useSettings()
+useKeyboardShortcuts()
 
 const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)')
 const sonnerTheme = computed<'dark' | 'light'>(() => {
@@ -51,6 +54,7 @@ onUnmounted(unbindWindowDragImport)
     <GlobalSearch />
     <MigrationDialog />
     <SaveRequestModal />
+    <ShortcutsPrompt />
   </div>
 </template>
 

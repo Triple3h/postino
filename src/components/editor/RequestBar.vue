@@ -315,7 +315,7 @@ function methodColor(method: HttpMethod): string {
 
 const isCustomMethod = computed(() => !methods.includes(currentMethod.value))
 
-// ── Alt+↑/↓ 循环切换 method(FR-1.1 / FR-8.1)──
+// ── Alt+↑/↓ 循环切换 method(FR-1.1 / FR-8.1;由全局快捷键派发)──
 function cycleMethod(direction: 1 | -1) {
   if (isReadonlyModule.value || currentRequestType.value === 'ws') return
   const base = isCustomMethod.value ? -1 : methods.indexOf(currentMethod.value)
@@ -323,11 +323,26 @@ function cycleMethod(direction: 1 | -1) {
   currentMethod.value = methods[next]
 }
 
-function handleBarKeydown(event: KeyboardEvent) {
-  if (event.altKey && !event.ctrlKey && !event.metaKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-    event.preventDefault()
-    cycleMethod(event.key === 'ArrowDown' ? 1 : -1)
-  }
+function onCycleMethodEvent(event: Event) {
+  const direction = (event as CustomEvent<{ direction?: 1 | -1 }>).detail?.direction ?? 1
+  cycleMethod(direction)
+}
+
+/** FR-8.1:Ctrl+I 重置请求(清空响应 + 重置参数) */
+function resetRequest() {
+  const api = currentApi.value
+  if (!api || isReadonlyModule.value) return
+  store.response = null
+  currentUrl.value = ''
+  currentMethod.value = 'GET'
+  store.updateApi(api.id, {
+    method: 'GET',
+    url: '',
+    headers: [],
+    params: [],
+    body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
+  })
+  toast.success('请求已重置')
 }
 
 // ── CUSTOM method ──
@@ -916,7 +931,12 @@ function closeMenus() {
 }
 
 function handleGlobalSend() {
-  if (!store.loading && currentUrl.value.trim()) {
+  // FR-8.1:Ctrl+Enter 发送/取消 —— 发送中再按一次取消
+  if (store.loading) {
+    store.cancelCurrentRequest()
+    return
+  }
+  if (currentUrl.value.trim()) {
     send()
   }
 }
@@ -928,15 +948,19 @@ function handleGlobalOpenCodeGen() {
 onMounted(() => {
   window.addEventListener('apifix:send-current-request', handleGlobalSend)
   window.addEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
+  window.addEventListener('apifix:cycle-method', onCycleMethodEvent)
+  window.addEventListener('apifix:reset-request', resetRequest)
 })
 onUnmounted(() => {
   window.removeEventListener('apifix:send-current-request', handleGlobalSend)
   window.removeEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
+  window.removeEventListener('apifix:cycle-method', onCycleMethodEvent)
+  window.removeEventListener('apifix:reset-request', resetRequest)
 })
 </script>
 
 <template>
-  <div class="request-bar-area" @keydown="handleBarKeydown">
+  <div class="request-bar-area">
     <!-- 请求名 + 继承标记 -->
     <div class="request-meta-row">
       <span class="request-name-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>

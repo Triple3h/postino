@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Clock3, FolderTree, Layers, Plus, Search } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import CollectionsTree from './CollectionsTree.vue'
@@ -24,6 +24,15 @@ const propertiesTarget = ref<{ type: 'collection' | 'folder'; id: string } | nul
 watch(activeTab, (tab) => {
   try { localStorage.setItem(TAB_STORAGE_KEY, tab) } catch { /* 忽略 */ }
 })
+
+/** Alt+E / Alt+H 跳转(FR-8.1):切换侧栏 tab */
+function onGotoSidebarTab(event: Event) {
+  const tab = (event as CustomEvent<{ tab?: 'collections' | 'environments' | 'history' }>).detail?.tab
+  if (tab && tabs.some(item => item.key === tab)) activeTab.value = tab
+}
+
+onMounted(() => window.addEventListener('apifix:goto-sidebar-tab', onGotoSidebarTab))
+onUnmounted(() => window.removeEventListener('apifix:goto-sidebar-tab', onGotoSidebarTab))
 
 const tabs: Array<{ key: SidebarTab; label: string; icon: unknown }> = [
   { key: 'collections', label: '集合', icon: FolderTree },

@@ -39,7 +39,7 @@ const themeLabel = computed(() => {
 })
 
 function openSearch() {
-  window.dispatchEvent(new CustomEvent('apifix:open-global-search'))
+  window.dispatchEvent(new CustomEvent('apifix:open-spotlight'))
 }
 
 function pickImportFile() {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Clock3, Copy, Download, FileText, Play, TriangleAlert, Wifi, Zap } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -562,6 +562,24 @@ function isErrorResponse(): boolean {
   if (!r) return false
   return r.status === 0 && !isCancelled.value && !isStreaming.value
 }
+
+// ── 全局快捷键动作(FR-8.1:Ctrl+J 下载 / Ctrl+. 复制)──
+function onDownloadEvent() {
+  if (store.response) saveResponse()
+}
+
+function onCopyEvent() {
+  void copyResponse()
+}
+
+onMounted(() => {
+  window.addEventListener('apifix:download-response', onDownloadEvent)
+  window.addEventListener('apifix:copy-response', onCopyEvent)
+})
+onUnmounted(() => {
+  window.removeEventListener('apifix:download-response', onDownloadEvent)
+  window.removeEventListener('apifix:copy-response', onCopyEvent)
+})
 
 function retrySend() {
   window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
