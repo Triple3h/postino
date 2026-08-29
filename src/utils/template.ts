@@ -57,21 +57,6 @@ export function resolveTemplateVars(
       return match
     }
 
-    // Cross-module reference: {{moduleB.varName}}
-    if (expr.includes('.')) {
-      const [moduleName, varName] = expr.split('.', 2)
-      const env = scopes.environments?.find(e => e.name === moduleName)
-      if (env) {
-        const v = env.variables.find(v => v.key === varName && v.enabled)
-        if (v) return v.value
-      }
-      if (scopes.requestVars && expr in scopes.requestVars) return scopes.requestVars[expr]
-      if (scopes.localVars && expr in scopes.localVars) return scopes.localVars[expr]
-      if (scopes.remoteVars && expr in scopes.remoteVars) return scopes.remoteVars[expr]
-      if (scopes.globalVars && expr in scopes.globalVars) return scopes.globalVars[expr]
-      return match
-    }
-
     // Default value syntax: {{var:default}}
     const colonIdx = expr.indexOf(':')
     const key = colonIdx > 0 ? expr.slice(0, colonIdx).trim() : expr
