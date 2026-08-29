@@ -6,6 +6,8 @@ import type { AuthConfig } from '@/types'
 const props = defineProps<{
   modelValue: AuthConfig
   readonly?: boolean
+  /** 显示"继承父级"选项(集合树内节点使用;集合根设置不显示) */
+  allowInherit?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,6 +20,7 @@ const auth = computed({
 })
 
 const authTypes: { value: AuthConfig['type']; label: string }[] = [
+  ...(props.allowInherit ? [{ value: 'inherit' as const, label: '继承父级(集合/文件夹)' }] : []),
   { value: 'none', label: '无认证' },
   { value: 'bearer', label: 'Bearer Token' },
   { value: 'basic', label: 'Basic Auth' },

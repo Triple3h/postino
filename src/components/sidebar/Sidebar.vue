@@ -14,7 +14,6 @@ import {
   Folder,
   Globe2,
   MoreVertical,
-  PackagePlus,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -26,14 +25,17 @@ import {
 } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { importCurl, importHar, importPostman } from '@/utils/import'
-import { generateCurl } from '@/utils/export'
+import { importCurl, importHar, importPostman, importPostmanTree, importPostmanEnvironment } from '@/utils/import'
+import { generateCurl, generateCollectionBackup, generatePostmanCollectionTree, generatePostmanEnvironmentFiles, parseCollectionBackup } from '@/utils/export'
 import { sendRequest } from '@/utils/http'
 import { executePreRequestScriptAsync } from '@/utils/pre-request'
+import { createDefaultAuthConfig } from '@/utils/auth'
+import AuthConfig from '@/components/editor/AuthConfig.vue'
 import { importOpenApi } from '@/utils/openapi-import'
 import { db } from '@/db'
 import { useDialog } from '@/composables/useDialog'
-import type { ApiConfig, Category, HttpMethod, InterfaceNode, KvPair, Module as ApiModule, ResponseData } from '@/types'
+import CollectionSettingsModal from '@/components/sidebar/CollectionSettingsModal.vue'
+import type { ApiConfig, Collection, CollectionNode, HttpMethod, InterfaceNode, KvPair, ResponseData } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -58,21 +60,22 @@ const comparePair = ref<ApiCompareState | null>(null)
 const folderSettings = ref<{
   id: string
   name: string
+  scriptsInherit: boolean
   preRequestScript: string
+  postRequestScript: string
+  auth: import('@/types').AuthConfig
+  authOverride: boolean
+  headers: KvPair[]
+  variables: import('@/types').CollectionVariable[]
+  folderTab: 'auth' | 'headers' | 'variables' | 'scripts'
 } | null>(null)
-const dropTarget = ref<{ kind: 'category' | 'module-root' | 'folder' | 'before'; id: string } | null>(null)
-const selectedCategoryId = computed(() => {
-  if (workspace.activeSelectionType === 'category') return workspace.activeSelectionId
-  if (workspace.activeSelectionType === 'module') {
-    return workspace.modules.find(item => item.id === workspace.activeSelectionId)?.categoryId ?? null
-  }
-  if (workspace.activeSelectionType === 'interface') {
-    const interfaceNode = workspace.interfaces.find(item => item.id === workspace.activeSelectionId || item.apiId === workspace.activeSelectionId)
-    const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
-    return module?.categoryId ?? null
-  }
-  return null
-})
+const dropTarget = ref<{ kind: 'module-root' | 'folder' | 'before'; id: string } | null>(null)
+const collectionSettingsId = ref<string | null>(null)
+
+function openCollectionSettings(collectionId: string) {
+  closeContextMenu()
+  collectionSettingsId.value = collectionId
+}
 const selectedModuleId = computed(() => {
   if (workspace.activeSelectionType === 'module') return workspace.activeSelectionId
   if (workspace.activeSelectionType === 'interface') {
@@ -80,16 +83,14 @@ const selectedModuleId = computed(() => {
   }
   return null
 })
-const contextMenu = ref<{ x: number; y: number; apiId?: string; categoryId?: string; moduleId?: string; folderId?: string } | null>(null)
+const contextMenu = ref<{ x: number; y: number; apiId?: string; moduleId?: string; folderId?: string } | null>(null)
 
 // --- Inline rename state ---
-const renamingCategoryId = ref<string | null>(null)
-const renamingInput = ref('')
 const renamingModuleId = ref<string | null>(null)
 const renamingModuleInput = ref('')
 
 // --- Color picker state ---
-const colorPickerCategoryId = ref<string | null>(null)
+const colorPickerCollectionId = ref<string | null>(null)
 
 // --- Move-to submenu state ---
 const moveToInterfaceId = ref<string | null>(null)
@@ -149,7 +150,7 @@ onUnmounted(() => {
   if (collapsedPreviewTimer) clearTimeout(collapsedPreviewTimer)
 })
 
-interface SidebarModule extends ApiModule {
+interface SidebarCollection extends Collection {
   interfaces: InterfaceNode[]
   requestCount: number
 }
@@ -168,31 +169,20 @@ interface ApiCompareState {
   sections: ApiCompareSection[]
 }
 
-interface SidebarCategory extends Category {
-  modules: SidebarModule[]
-}
-
-const sidebarTree = computed<SidebarCategory[]>(() => {
+const sidebarTree = computed<SidebarCollection[]>(() => {
   const q = searchQuery.value.toLowerCase()
   const searching = q.trim().length > 0
 
-  return [...workspace.categories]
+  return [...workspace.collections]
     .sort((a, b) => a.order - b.order)
-    .map(category => {
-      const modules = workspace.modules
-        .filter(module => module.categoryId === category.id)
+    .map(collection => {
+      const interfaces = workspace.interfaces
+        .filter(item => (item.collectionId ?? item.moduleId) === collection.id)
         .sort((a, b) => a.order - b.order)
-        .map(module => {
-          const interfaces = workspace.interfaces
-            .filter(item => item.moduleId === module.id)
-            .sort((a, b) => a.order - b.order)
-          const requestCount = interfaces.filter(item => !isFolderNode(item)).length
-          return { ...module, interfaces, requestCount }
-        })
-        .filter(module => !searching || module.name.toLowerCase().includes(q) || module.interfaces.some(item => nodeMatchesSearch(item, q)))
-      return { ...category, modules }
+      const requestCount = interfaces.filter(item => !isFolderNode(item)).length
+      return { ...collection, interfaces, requestCount }
     })
-    .filter(category => !searching || category.modules.length > 0 || category.name.toLowerCase().includes(q))
+    .filter(collection => !searching || collection.name.toLowerCase().includes(q) || collection.interfaces.some(item => nodeMatchesSearch(item, q)))
 })
 
 const hasVisibleItems = computed(() => sidebarTree.value.length > 0)
@@ -233,15 +223,15 @@ function nodeOrDescendantMatches(node: InterfaceNode, allNodes: InterfaceNode[],
     .some(child => nodeOrDescendantMatches(child, allNodes, query))
 }
 
-function getVisibleNodes(module: SidebarModule): Array<{ node: InterfaceNode; depth: number }> {
+function getVisibleNodes(collection: SidebarCollection): Array<{ node: InterfaceNode; depth: number }> {
   const q = searchQuery.value.toLowerCase().trim()
   const rows: Array<{ node: InterfaceNode; depth: number }> = []
   const visit = (parentId: string | null, depth: number) => {
-    const children = module.interfaces
+    const children = collection.interfaces
       .filter(item => (item.parentId ?? null) === parentId)
       .sort((a, b) => a.order - b.order)
     for (const node of children) {
-      if (!nodeOrDescendantMatches(node, module.interfaces, q)) continue
+      if (!nodeOrDescendantMatches(node, collection.interfaces, q)) continue
       rows.push({ node, depth })
       if (isFolderNode(node) && isExpanded(getNodeStorageKey(node.id))) {
         visit(node.id, depth + 1)
@@ -254,10 +244,6 @@ function getVisibleNodes(module: SidebarModule): Array<{ node: InterfaceNode; de
 
 function getModuleStorageKey(moduleId: string): string {
   return `module:${moduleId}`
-}
-
-function getCategoryStorageKey(categoryId: string): string {
-  return `category:${categoryId}`
 }
 
 function getNodeStorageKey(nodeId: string): string {
@@ -287,21 +273,6 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
-async function addApiToLegacyGroup(apiId: string, groupName: string): Promise<void> {
-  const group = store.groups[groupName] ?? { name: groupName, apiIds: [] }
-  if (!group.apiIds.includes(apiId)) {
-    group.apiIds.push(apiId)
-  }
-  store.groups[groupName] = group
-  if (!store.groupOrder.includes(groupName)) {
-    store.groupOrder.push(groupName)
-  }
-  await Promise.all([
-    db.groups.put({ name: groupName, group }),
-    store.saveGroupOrder(),
-  ])
-}
-
 async function addApiToModule(api: ApiConfig, moduleName: string | null, parentId: string | null = null): Promise<void> {
   if (!moduleName) {
     const parent = parentId ? workspace.interfaces.find(item => item.id === parentId) : null
@@ -309,9 +280,9 @@ async function addApiToModule(api: ApiConfig, moduleName: string | null, parentI
     return
   }
 
+  // Phase 5.4:集合树是唯一真源,legacy groups 双写已移除
   const module = await workspace.ensureModuleForLegacyGroup(moduleName)
   store.addApi(api, module.id, parentId)
-  await addApiToLegacyGroup(api.id, moduleName)
 }
 
 async function createNewApi(parentFolderId: string | null = null) {
@@ -333,12 +304,6 @@ async function createNewApi(parentFolderId: string | null = null) {
   }
   await addApiToModule(api, null, parentFolderId)
   selectApi(api.id)
-}
-
-function openCategory(categoryId: string) {
-  workspace.selectCategory(categoryId)
-  store.currentApiId = null
-  store.response = null
 }
 
 function openModule(moduleId: string) {
@@ -494,38 +459,8 @@ interface FolderBatchResult {
 }
 
 function buildEnvVariablesForApi(apiId: string): Record<string, string> {
-  const env = store.environments.find(item => item.id === store.currentEnvId)
-  const vars: Record<string, string> = {}
-
-  if (env) {
-    for (const item of env.variables) {
-      if (item.enabled) vars[item.key] = item.value
-    }
-  }
-
-  const interfaceNode = workspace.interfaces.find(item => item.apiId === apiId)
-  const module = interfaceNode ? workspace.modules.find(item => item.id === interfaceNode.moduleId) : null
-  for (const [key, value] of Object.entries(module?.variables ?? {})) {
-    if (value.remote) vars[key] = value.remote
-    if (store.currentEnvId && value.environmentValues?.[store.currentEnvId]) {
-      vars[key] = value.environmentValues[store.currentEnvId]
-    }
-    if (value.local) vars[key] = value.local
-  }
-  for (const item of workspace.modules) {
-    for (const [key, value] of Object.entries(item.variables ?? {})) {
-      const scopedValue = (store.currentEnvId && value.environmentValues?.[store.currentEnvId])
-        || value.local
-        || value.remote
-      if (scopedValue) vars[`${item.name}.${key}`] = scopedValue
-    }
-  }
-
-  const api = store.apis[apiId]
-  for (const item of api?.requestVariables ?? []) {
-    if (item.enabled && item.key) vars[item.key] = item.value
-  }
-  return vars
+  // Phase 2:统一走集合环境解析(请求变量 > 集合环境 > 集合变量 > 全局)
+  return store.getEnvVariablesForApi(apiId)
 }
 
 function headerRecordToPairs(headers: Record<string, string>): KvPair[] {
@@ -785,40 +720,25 @@ function deleteApi(id: string) {
   store.deleteApi(id)
 }
 
-async function addGroup() {
+async function addCollection() {
   const name = await dialog.prompt({
-    title: '新建分组',
-    message: '分组用于组织多个模块与接口。',
+    title: '新建集合',
+    message: '集合用于组织接口、环境与脚本,是顶层组织单元。',
     placeholder: '例如：用户中心',
     confirmText: '创建',
   })
   if (!name?.trim()) return
-  const category = await workspace.addCategory(name.trim())
-  openCategory(category.id)
-}
-
-async function addModule(categoryId?: string) {
-  let targetCategoryId = categoryId ?? selectedCategoryId.value ?? workspace.categories[0]?.id
-  if (!targetCategoryId) {
-    targetCategoryId = (await workspace.ensureDefaultCategory()).id
-  }
-
-  const name = await dialog.prompt({
-    title: '新建模块',
-    message: '模块用于承载同一业务域下的接口。',
-    placeholder: '例如：登录鉴权',
-    confirmText: '创建',
-  })
-  if (!name?.trim()) return
-  const module = await workspace.addModule(targetCategoryId, name.trim())
+  let categoryId = workspace.categories[0]?.id
+  if (!categoryId) categoryId = (await workspace.ensureDefaultCategory()).id
+  const module = await workspace.addModule(categoryId, name.trim())
   openModule(module.id)
-  const key = getCategoryStorageKey(module.categoryId)
+  const key = getModuleStorageKey(module.id)
   if (!isExpanded(key)) toggleExpanded(key)
 }
 
 async function deleteModule(moduleId: string) {
   const module = workspace.modules.find(item => item.id === moduleId)
-  if (!window.confirm(`确认删除模块「${module?.name ?? moduleId}」及其所有接口？此操作不可撤销。`)) return
+  if (!window.confirm(`确认删除集合「${module?.name ?? moduleId}」及其所有接口？此操作不可撤销。`)) return
   const apiIds = workspace.interfaces
     .filter(item => item.moduleId === moduleId && !isFolderNode(item) && item.apiId)
     .map(item => item.apiId)
@@ -827,82 +747,7 @@ async function deleteModule(moduleId: string) {
     deleteApi(id)
   }
 
-  if (module?.legacyGroupName) {
-    delete store.groups[module.legacyGroupName]
-    store.groupOrder = store.groupOrder.filter(name => name !== module.legacyGroupName)
-    await Promise.all([
-      db.groups.delete(module.legacyGroupName),
-      store.saveGroupOrder(),
-    ])
-  }
-
   await workspace.deleteModule(moduleId)
-}
-
-async function moveModuleToCategoryFromContext(moduleId: string) {
-  const module = workspace.modules.find(item => item.id === moduleId)
-  closeContextMenu()
-  if (!module) return
-  const categoryOptions = workspace.categories
-    .filter(item => item.id !== module.categoryId)
-    .map(item => item.name)
-  if (categoryOptions.length === 0) {
-    window.alert('当前没有其它大类可移动。')
-    return
-  }
-  const targetName = await dialog.prompt({
-    title: '移动模块到大类',
-    message: `输入目标大类名称：${categoryOptions.join(' / ')}`,
-    placeholder: categoryOptions[0],
-    confirmText: '移动',
-  })
-  if (!targetName?.trim()) return
-  const targetCategory = workspace.categories.find(item => item.name === targetName.trim())
-  if (!targetCategory || targetCategory.id === module.categoryId) {
-    window.alert('未找到可移动的目标大类。')
-    return
-  }
-  await workspace.moveModule(moduleId, targetCategory.id)
-  if (!isExpanded(getCategoryStorageKey(targetCategory.id))) toggleExpanded(getCategoryStorageKey(targetCategory.id))
-  openModule(moduleId)
-}
-
-async function deleteCategory(categoryId: string) {
-  const category = workspace.categories.find(item => item.id === categoryId)
-  if (!window.confirm(`确认删除分组「${category?.name ?? categoryId}」及其所有模块/接口？此操作不可撤销。`)) return
-  const modules = workspace.modules.filter(item => item.categoryId === categoryId)
-  const moduleIds = modules.map(item => item.id)
-  const apiIds = workspace.interfaces
-    .filter(item => moduleIds.includes(item.moduleId) && !isFolderNode(item) && item.apiId)
-    .map(item => item.apiId)
-
-  for (const id of apiIds) {
-    deleteApi(id)
-  }
-
-  const legacyGroupNames = modules
-    .map(module => module.legacyGroupName)
-    .filter((name): name is string => Boolean(name))
-  for (const name of legacyGroupNames) {
-    delete store.groups[name]
-  }
-  if (legacyGroupNames.length > 0) {
-    store.groupOrder = store.groupOrder.filter(name => !legacyGroupNames.includes(name))
-    await Promise.all([
-      db.groups.bulkDelete(legacyGroupNames),
-      store.saveGroupOrder(),
-    ])
-  }
-
-  await workspace.deleteCategory(categoryId)
-  if (workspace.activeSelectionId === categoryId || (workspace.activeSelectionId && moduleIds.includes(workspace.activeSelectionId))) {
-    workspace.clearSelection()
-  }
-}
-
-function handleCategoryContextMenu(e: MouseEvent, categoryId: string) {
-  e.preventDefault()
-  contextMenu.value = { x: e.clientX, y: e.clientY, categoryId }
 }
 
 function handleModuleContextMenu(e: MouseEvent, moduleId: string) {
@@ -964,19 +809,36 @@ function openImportModalFromCollapsed() {
 
 function exportWorkspaceData() {
   closeCollapsedMenus()
-  const payload = {
-    version: 'apifix-bin-pro-workspace-v1',
-    exportedAt: new Date().toISOString(),
-    apis: store.apis,
-    groups: store.groups,
-    groupOrder: store.groupOrder,
+  // Phase 4.5:自有带版本备份格式(主备份格式,secret 值剥离)
+  const payload = generateCollectionBackup({
+    collections: workspace.collections,
+    nodes: workspace.interfaces,
     environments: store.environments,
-    workspace: workspace.getModel(),
-    settings: store.settings,
-  }
+    apis: store.apis,
+  })
   const stamp = formatBatchTimestamp().replace(/[-: ]/g, '')
-  downloadTextFile(`apifix-workspace-${stamp}.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8')
-  showToast('已导出工作区 JSON')
+  downloadTextFile(`apifix-backup-v1-${stamp}.json`, payload, 'application/json;charset=utf-8')
+  showToast('已导出备份 JSON（secret 值已剥离）')
+}
+
+/** Phase 4.5:单集合导出 Postman v2.1 树(含集合级脚本/变量/auth),集合环境另存文件 */
+async function exportCollectionPostmanTree(moduleId: string) {
+  const collection = workspace.collections.find(item => item.id === moduleId)
+  if (!collection) return
+  closeContextMenu()
+  const nodes = workspace.interfaces.filter(item => (item.collectionId ?? item.moduleId) === moduleId)
+  const json = generatePostmanCollectionTree({ collection, nodes, apis: store.apis })
+  const stamp = formatBatchTimestamp().replace(/[-: ]/g, '')
+  const safeName = collection.name.replace(/[\\/:*?"<>|]/g, '_') || 'collection'
+  downloadTextFile(`${safeName}-postman-v21-${stamp}.json`, json, 'application/json;charset=utf-8')
+  const envs = store.environments.filter(item => item.collectionId === moduleId && !store.isGlobalEnv(item))
+  for (const [index, content] of generatePostmanEnvironmentFiles(envs).entries()) {
+    const envName = envs[index]?.name.replace(/[\\/:*?"<>|]/g, '_') || `env-${index + 1}`
+    window.setTimeout(() => {
+      downloadTextFile(`${safeName}-${envName}-env.json`, content, 'application/json;charset=utf-8')
+    }, 150 * (index + 1))
+  }
+  showToast(envs.length ? `已导出 Postman 集合与 ${envs.length} 个环境` : '已导出 Postman 集合')
 }
 
 function sanitizeNavIcon(value?: string): string {
@@ -990,12 +852,8 @@ function getNameInitial(name: string): string {
   return /[a-z0-9]/i.test(first) ? first.toUpperCase() : chars.slice(0, Math.min(2, chars.length)).join('')
 }
 
-function getCategoryNavIcon(category: SidebarCategory | Category): string {
-  return sanitizeNavIcon(category.icon) || getNameInitial(category.name)
-}
-
-function getModuleNavIcon(module: SidebarModule | ApiModule): string {
-  return sanitizeNavIcon(module.icon) || getNameInitial(module.name)
+function getCollectionNavIcon(collection?: SidebarCollection | Collection | null): string {
+  return sanitizeNavIcon(collection?.icon) || getNameInitial(collection?.name ?? '') || '·'
 }
 
 function navIconStyle(icon: string | undefined, fallbackColor: string): Record<string, string> {
@@ -1004,27 +862,12 @@ function navIconStyle(icon: string | undefined, fallbackColor: string): Record<s
     : { backgroundColor: fallbackColor }
 }
 
-async function setCategoryIconFromContext(categoryId: string) {
-  const category = workspace.categories.find(item => item.id === categoryId)
-  closeContextMenu()
-  if (!category) return
-  const icon = await dialog.prompt({
-    title: '设置分组图标',
-    message: '输入 1 个 Emoji 或 1-2 个字符；留空则恢复自动首字图标。',
-    placeholder: '例如：AP',
-    defaultValue: category.icon ?? '',
-    confirmText: '保存',
-  })
-  if (icon == null) return
-  await workspace.updateCategory(categoryId, { icon: sanitizeNavIcon(icon) || undefined })
-}
-
 async function setModuleIconFromContext(moduleId: string) {
   const module = workspace.modules.find(item => item.id === moduleId)
   closeContextMenu()
   if (!module) return
   const icon = await dialog.prompt({
-    title: '设置模块图标',
+    title: '设置集合图标',
     message: '输入 1 个 Emoji 或 1-2 个字符；留空则恢复自动首字图标。',
     placeholder: '例如：API',
     defaultValue: module.icon ?? '',
@@ -1067,12 +910,8 @@ function keepCollapsedModulePreview() {
   }
 }
 
-function getPreviewModule(moduleId: string): SidebarModule | null {
-  for (const category of sidebarTree.value) {
-    const module = category.modules.find(item => item.id === moduleId)
-    if (module) return module
-  }
-  return null
+function getPreviewModule(moduleId: string): SidebarCollection | null {
+  return sidebarTree.value.find(item => item.id === moduleId) ?? null
 }
 
 function getModulePreviewItems(moduleId: string): InterfaceNode[] {
@@ -1082,29 +921,7 @@ function getModulePreviewItems(moduleId: string): InterfaceNode[] {
     .slice(0, 5)
 }
 
-// --- Category rename ---
-function startRenameCategory(categoryId: string) {
-  const category = workspace.categories.find(item => item.id === categoryId)
-  if (!category) return
-  renamingCategoryId.value = categoryId
-  renamingInput.value = category.name
-  closeContextMenu()
-}
-
-function confirmRenameCategory() {
-  const id = renamingCategoryId.value
-  if (!id) return
-  const newName = renamingInput.value.trim()
-  if (!newName) { renamingCategoryId.value = null; return }
-  workspace.updateCategory(id, { name: newName })
-  renamingCategoryId.value = null
-}
-
-function cancelRenameCategory() {
-  renamingCategoryId.value = null
-}
-
-// --- Module rename ---
+// --- Collection rename ---
 function startRenameModule(moduleId: string) {
   const module = workspace.modules.find(item => item.id === moduleId)
   if (!module) return
@@ -1126,17 +943,17 @@ function cancelRenameModule() {
   renamingModuleId.value = null
 }
 
-// --- Category color picker ---
-function selectCategoryColor(color: string) {
-  const id = colorPickerCategoryId.value
+// --- Collection color picker ---
+function selectCollectionColor(color: string) {
+  const id = colorPickerCollectionId.value
   if (!id) return
-  workspace.updateCategory(id, { color })
-  colorPickerCategoryId.value = null
+  workspace.updateModule(id, { color })
+  colorPickerCollectionId.value = null
   closeContextMenu()
 }
 
 function cancelColorPicker() {
-  colorPickerCategoryId.value = null
+  colorPickerCollectionId.value = null
   closeContextMenu()
 }
 
@@ -1188,13 +1005,6 @@ function cancelMoveTo() {
   closeContextMenu()
 }
 
-// --- Double-click to enter settings ---
-function handleCategoryDblClick(categoryId: string) {
-  workspace.selectCategory(categoryId)
-  store.currentApiId = null
-  store.response = null
-}
-
 function handleModuleDblClick(moduleId: string) {
   workspace.selectModule(moduleId)
   store.currentApiId = null
@@ -1231,16 +1041,8 @@ function getApiDisplayPath(node: InterfaceNode): string {
   }
 }
 
-function getCategoryColorForModule(moduleId: string): string {
-  const module = workspace.modules.find(m => m.id === moduleId)
-  if (!module) return '#6366f1'
-  const category = workspace.categories.find(c => c.id === module.categoryId)
-  return category?.color || '#6366f1'
-}
-
-// --- Category module count ---
-function getCategoryModuleCount(categoryId: string): number {
-  return workspace.modules.filter(m => m.categoryId === categoryId).length
+function getCollectionColor(collectionId: string): string {
+  return workspace.collections.find(item => item.id === collectionId)?.color || '#6366f1'
 }
 
 // --- Collapsed mode: expand sidebar and focus search ---
@@ -1253,25 +1055,6 @@ function expandAndFocusSearch() {
 }
 
 // --- Bottom bar actions ---
-function getUniqueCategoryDraftName(baseName = '新分组'): string {
-  const usedNames = new Set(workspace.categories.map(item => item.name))
-  if (!usedNames.has(baseName)) return baseName
-
-  let index = 2
-  let candidate = `${baseName}${index}`
-  while (usedNames.has(candidate)) {
-    index += 1
-    candidate = `${baseName}${index}`
-  }
-  return candidate
-}
-
-async function handleNewCategory() {
-  const category = await workspace.addCategory(getUniqueCategoryDraftName())
-  openCategory(category.id)
-  startRenameCategory(category.id)
-}
-
 function handleOpenEnvVars() {
   window.dispatchEvent(new CustomEvent('apifix:open-env-panel'))
 }
@@ -1344,7 +1127,7 @@ function buildNodeDragPayload(nodeId: string): { content: string; payload: Recor
   }
 }
 
-function markDropTarget(kind: 'category' | 'module-root' | 'folder' | 'before', id: string) {
+function markDropTarget(kind: 'module-root' | 'folder' | 'before', id: string) {
   if (!draggingNodeId.value && !draggingModuleId.value) return
   dropTarget.value = { kind, id }
 }
@@ -1353,7 +1136,7 @@ function clearDropTarget() {
   dropTarget.value = null
 }
 
-function isDropTarget(kind: 'category' | 'module-root' | 'folder' | 'before', id: string): boolean {
+function isDropTarget(kind: 'module-root' | 'folder' | 'before', id: string): boolean {
   return dropTarget.value?.kind === kind && dropTarget.value.id === id
 }
 
@@ -1363,11 +1146,21 @@ function clearDragState() {
   dropTarget.value = null
 }
 
-async function handleCategoryDrop(event: DragEvent, categoryId: string) {
+async function handleCollectionDrop(event: DragEvent, targetId: string) {
   event.preventDefault()
-  if (!draggingModuleId.value) return
-  await workspace.moveModule(draggingModuleId.value, categoryId)
+  const draggedId = draggingModuleId.value
   clearDragState()
+  if (!draggedId || draggedId === targetId) return
+  const ordered = sidebarTree.value
+  const targetModule = workspace.modules.find(item => item.id === targetId)
+  if (!targetModule) return
+  const insertAt = ordered.filter(item => item.id !== draggedId).findIndex(item => item.id === targetId)
+  await workspace.moveModule(draggedId, targetModule.categoryId, Math.max(0, insertAt))
+}
+
+function handleCollectionHeaderDrop(event: DragEvent, targetId: string) {
+  if (draggingModuleId.value) return handleCollectionDrop(event, targetId)
+  return dropNodeToModuleRoot(event, targetId)
 }
 
 function handleNodeDragStart(event: DragEvent, nodeId: string) {
@@ -1442,7 +1235,7 @@ async function editFolderPreScript(folderId: string) {
     confirmText: '保存',
   })
   if (script == null) return
-  await workspace.updateInterfaceNode(folder.id, { preRequestScript: script, preScript: script })
+  await workspace.updateInterfaceNode(folder.id, { preRequestScript: script })
 }
 
 function openFolderSettings(folderId: string) {
@@ -1451,7 +1244,14 @@ function openFolderSettings(folderId: string) {
   folderSettings.value = {
     id: folder.id,
     name: folder.name,
-    preRequestScript: folder.preRequestScript ?? folder.preScript ?? '',
+    scriptsInherit: folder.scriptsInherit !== false,
+    preRequestScript: folder.preRequestScript ?? '',
+    postRequestScript: folder.postRequestScript ?? '',
+    auth: folder.auth ? { ...folder.auth } : createDefaultAuthConfig(),
+    authOverride: Boolean(folder.auth),
+    headers: (folder.headers ?? []).map(item => ({ ...item })),
+    variables: (folder.variables ?? []).map(item => ({ ...item })),
+    folderTab: 'scripts',
   }
   closeContextMenu()
 }
@@ -1461,12 +1261,33 @@ async function saveFolderSettings() {
   if (!draft) return
   const name = draft.name.trim()
   if (!name) return
-  await workspace.updateInterfaceNode(draft.id, {
+  const updates: Partial<CollectionNode> = {
     name,
+    scriptsInherit: draft.scriptsInherit,
     preRequestScript: draft.preRequestScript,
-    preScript: draft.preRequestScript,
-  })
+    postRequestScript: draft.postRequestScript,
+    headers: draft.headers.filter(item => item.key.trim()),
+    variables: draft.variables.filter(item => item.key.trim()),
+  }
+  if (draft.authOverride) updates.auth = draft.auth
+  else if (draft.auth) updates.auth = undefined
+  await workspace.updateInterfaceNode(draft.id, updates)
   folderSettings.value = null
+}
+
+function addFolderHeader() {
+  if (!folderSettings.value) return
+  folderSettings.value.headers.push({ key: '', value: '', enabled: true })
+}
+function removeFolderHeader(index: number) {
+  folderSettings.value?.headers.splice(index, 1)
+}
+function addFolderVariable() {
+  if (!folderSettings.value) return
+  folderSettings.value.variables.push({ key: '', initialValue: '', currentValue: '', secret: false, enabled: true })
+}
+function removeFolderVariable(index: number) {
+  folderSettings.value?.variables.splice(index, 1)
 }
 
 async function deleteFolder(folderId: string) {
@@ -1485,6 +1306,16 @@ async function deleteFolder(folderId: string) {
 async function doImport() {
   if (!importText.value.trim()) return
 
+  // Phase 4.5:自有备份格式优先识别(与所选导入类型无关)
+  const backup = parseCollectionBackup(importText.value)
+  if (backup) {
+    const stats = await store.restoreCollectionBackup(backup)
+    showToast(`已恢复备份：集合 ${stats.collections} · 节点 ${stats.nodes} · 接口 ${stats.apis} · 环境 ${stats.environments}`)
+    showImportModal.value = false
+    importText.value = ''
+    return
+  }
+
   if (importType.value === 'curl') {
     const api = importCurl(importText.value)
     if (api) {
@@ -1492,12 +1323,30 @@ async function doImport() {
       selectApi(api.id)
     }
   } else if (importType.value === 'postman') {
-    const apis = importPostman(importText.value)
-    for (const api of apis) {
-      await addApiToModule(api, api.folder)
-    }
-    if (apis.length > 0) {
-      selectApi(apis[0].id)
+    // Phase 4.4:优先树形导入(保留文件夹层级 + 集合/文件夹级 auth/变量/脚本),其次环境 JSON,最后兼容拍平
+    const tree = importPostmanTree(importText.value)
+    if (tree) {
+      const collectionId = await store.importPostmanCollectionTree(tree)
+      const first = tree.requests[0]?.api
+      if (first) {
+        selectApi(first.id)
+      } else if (collectionId) {
+        workspace.selectModule(collectionId)
+      }
+    } else {
+      const envDraft = importPostmanEnvironment(importText.value)
+      if (envDraft && selectedModuleId.value) {
+        await store.importCollectionEnvironment(selectedModuleId.value, envDraft.name, envDraft.variables)
+        showToast(`已导入环境：${envDraft.name}`)
+      } else {
+        const apis = importPostman(importText.value)
+        for (const api of apis) {
+          await addApiToModule(api, api.folder)
+        }
+        if (apis.length > 0) {
+          selectApi(apis[0].id)
+        }
+      }
     }
   } else if (importType.value === 'openapi') {
     const apis = importOpenApi(importText.value)
@@ -1529,7 +1378,7 @@ async function doImport() {
         <span class="sidebar-logo"><Zap :size="18" /></span>
         <div>
           <strong>接口目录</strong>
-          <small>{{ workspace.categories.length }} 分组 · {{ workspace.modules.length }} 模块</small>
+          <small>{{ workspace.collections.length }} 集合 · 环境按集合隔离</small>
         </div>
         <button class="collapse-btn" :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'" @click.stop="toggleSidebarCollapsed">
           <component :is="sidebarCollapsed ? PanelLeftOpen : PanelLeftClose" :size="16" />
@@ -1547,128 +1396,91 @@ async function doImport() {
     </div>
     <div class="sidebar-actions">
       <button class="btn btn-sm btn-primary" @click="createNewApi()"><FilePlus2 :size="14" /> 请求</button>
-      <button class="btn btn-sm" title="新建顶层分组" @click="addGroup">新增大类</button>
+      <button class="btn btn-sm" title="新建顶层集合" @click="addCollection">新建集合</button>
     </div>
     <div class="sidebar-content">
-      <div v-for="category in sidebarTree" :key="category.id" class="category-section">
+      <div v-for="collection in sidebarTree" :key="collection.id" class="group-section collection-section">
         <div
-          :class="['category-header', { selected: selectedCategoryId === category.id, 'drop-target': isDropTarget('category', category.id) }]"
-          :title="sidebarCollapsed ? category.name : undefined"
-          @click="openCategory(category.id)"
-          @dblclick="handleCategoryDblClick(category.id)"
-          @contextmenu="handleCategoryContextMenu($event, category.id)"
-          @dragover.prevent="markDropTarget('category', category.id)"
+          :class="['group-header collection-header', { selected: selectedModuleId === collection.id, 'drop-target': isDropTarget('module-root', collection.id) }]"
+          :title="sidebarCollapsed ? collection.name : undefined"
+          draggable="true"
+          @click="openModule(collection.id)"
+          @dblclick="handleModuleDblClick(collection.id)"
+          @contextmenu="handleModuleContextMenu($event, collection.id)"
+          @dragstart="handleModuleDragStart($event, collection.id)"
+          @dragend="clearDragState"
+          @dragover.prevent="markDropTarget('module-root', collection.id)"
           @dragleave="clearDropTarget"
-          @drop="handleCategoryDrop($event, category.id)"
+          @drop="handleCollectionHeaderDrop($event, collection.id)"
+          @mouseenter="showCollapsedModulePreview($event, collection.id)"
+          @mouseleave="scheduleHideCollapsedModulePreview"
         >
-          <button class="expand-icon" type="button" @click.stop="toggleExpanded(getCategoryStorageKey(category.id))">
-            <ChevronDown v-if="isExpanded(getCategoryStorageKey(category.id))" :size="14" />
+          <button class="expand-icon" type="button" @click.stop="toggleExpanded(getModuleStorageKey(collection.id))">
+            <ChevronDown v-if="isExpanded(getModuleStorageKey(collection.id))" :size="14" />
             <ChevronRight v-else :size="14" />
           </button>
-          <span class="category-color" :style="{ backgroundColor: category.color || '#6366f1' }"></span>
-          <span class="node-kind category-kind">分组</span>
-          <span class="collapsed-badge category-collapsed-badge" :style="navIconStyle(category.icon, category.color || '#6366f1')">{{ getCategoryNavIcon(category) }}</span>
-          <template v-if="renamingCategoryId === category.id">
+          <span class="category-color" :style="{ backgroundColor: collection.color || '#6366f1' }"></span>
+          <span class="node-kind module-kind">集合</span>
+          <span class="collapsed-badge module-collapsed-badge" :style="navIconStyle(collection.icon, collection.color || '#6366f1')">{{ getCollectionNavIcon(collection) }}</span>
+          <template v-if="renamingModuleId === collection.id">
             <input
               class="rename-input"
-              v-model="renamingInput"
-              @keydown.enter="confirmRenameCategory"
-              @keydown.escape="cancelRenameCategory"
-              @blur="confirmRenameCategory"
+              v-model="renamingModuleInput"
+              @keydown.enter="confirmRenameModule"
+              @keydown.escape="cancelRenameModule"
+              @blur="confirmRenameModule"
               @click.stop
               autofocus
             />
           </template>
           <template v-else>
-            <span class="category-name">{{ category.name }}</span>
+            <span class="group-name">{{ collection.name }}</span>
           </template>
-
+          <span class="count-badge module-count-badge" title="请求数">{{ collection.requestCount }}</span>
         </div>
-        <template v-if="isExpanded(getCategoryStorageKey(category.id))">
-          <div v-for="module in category.modules" :key="module.id" class="group-section">
-            <div
-              :class="['group-header', { selected: selectedModuleId === module.id, 'drop-target': isDropTarget('module-root', module.id) }]"
-              :title="sidebarCollapsed ? module.name : undefined"
-              draggable="true"
-              @click="openModule(module.id)"
-              @dblclick="handleModuleDblClick(module.id)"
-              @contextmenu="handleModuleContextMenu($event, module.id)"
-              @dragstart="handleModuleDragStart($event, module.id)"
-              @dragend="clearDragState"
-              @dragover.prevent="markDropTarget('module-root', module.id)"
-              @dragleave="clearDropTarget"
-              @drop="dropNodeToModuleRoot($event, module.id)"
-              @mouseenter="showCollapsedModulePreview($event, module.id)"
-              @mouseleave="scheduleHideCollapsedModulePreview"
-            >
-              <button class="expand-icon" type="button" @click.stop="toggleExpanded(getModuleStorageKey(module.id))">
-                <ChevronDown v-if="isExpanded(getModuleStorageKey(module.id))" :size="14" />
+        <template v-if="isExpanded(getModuleStorageKey(collection.id))">
+          <div
+            v-for="row in getVisibleNodes(collection)"
+            :key="row.node.id"
+            :class="[
+              isFolderNode(row.node) ? 'folder-item' : 'api-item',
+              {
+                active: !isFolderNode(row.node) && store.currentApiId === row.node.apiId,
+                dragging: draggingNodeId === row.node.id,
+                'drop-into': isFolderNode(row.node) && isDropTarget('folder', row.node.id),
+                'drop-before': !isFolderNode(row.node) && isDropTarget('before', row.node.id)
+              }
+            ]"
+            :style="{ paddingLeft: (isFolderNode(row.node) ? 30 : 44) + row.depth * 14 + 'px' }"
+            :title="sidebarCollapsed ? (getInterfaceApi(row.node)?.name ?? row.node.name) : undefined"
+            draggable="true"
+            @click="isFolderNode(row.node) ? toggleExpanded(getNodeStorageKey(row.node.id)) : selectApi(row.node.apiId)"
+            @contextmenu="isFolderNode(row.node) ? handleFolderContextMenu($event, row.node.id) : handleApiContextMenu($event, row.node.apiId)"
+            @dragstart="handleNodeDragStart($event, row.node.id)"
+            @dragend="clearDragState"
+            @dragover.prevent="markDropTarget(isFolderNode(row.node) ? 'folder' : 'before', row.node.id)"
+            @dragleave="clearDropTarget"
+            @drop="dropNodeOnRow($event, row.node)"
+          >
+            <template v-if="isFolderNode(row.node)">
+              <span class="expand-icon">
+                <ChevronDown v-if="isExpanded(getNodeStorageKey(row.node.id))" :size="14" />
                 <ChevronRight v-else :size="14" />
-              </button>
-              <span class="node-kind module-kind">模块</span>
-              <span class="collapsed-badge module-collapsed-badge" :style="navIconStyle(module.icon, getCategoryColorForModule(module.id))">{{ getModuleNavIcon(module) }}</span>
-              <template v-if="renamingModuleId === module.id">
-                <input
-                  class="rename-input"
-                  v-model="renamingModuleInput"
-                  @keydown.enter="confirmRenameModule"
-                  @keydown.escape="cancelRenameModule"
-                  @blur="confirmRenameModule"
-                  @click.stop
-                  autofocus
-                />
-              </template>
-              <template v-else>
-                <span class="group-name">{{ module.name }}</span>
-              </template>
+              </span>
+              <span class="node-kind folder-kind">文件夹</span>
+              <span class="folder-name">{{ row.node.name }}</span>
+              <span v-if="row.node.preRequestScript" class="script-dot" title="有文件夹前置脚本"><FileCode2 :size="12" /></span>
+            </template>
+            <template v-else>
+              <span :class="['method-badge', (getInterfaceApi(row.node)?.method ?? row.node.method).toLowerCase()]">
+                {{ getInterfaceApi(row.node)?.method ?? row.node.method }}
+              </span>
+              <span class="method-dot" :style="{ backgroundColor: getMethodColor(getInterfaceApi(row.node)?.method ?? row.node.method) }"></span>
+              <span class="api-copy">
+                <span class="api-url api-path">{{ getApiDisplayPath(row.node) }}</span>
+                <span class="api-name">{{ getInterfaceApi(row.node)?.name ?? row.node.name }}</span>
+              </span>
 
-
-            </div>
-            <template v-if="isExpanded(getModuleStorageKey(module.id))">
-              <div
-                v-for="row in getVisibleNodes(module)"
-                :key="row.node.id"
-                :class="[
-                  isFolderNode(row.node) ? 'folder-item' : 'api-item',
-                  {
-                    active: !isFolderNode(row.node) && store.currentApiId === row.node.apiId,
-                    dragging: draggingNodeId === row.node.id,
-                    'drop-into': isFolderNode(row.node) && isDropTarget('folder', row.node.id),
-                    'drop-before': !isFolderNode(row.node) && isDropTarget('before', row.node.id)
-                  }
-                ]"
-                :style="{ paddingLeft: (isFolderNode(row.node) ? 30 : 44) + row.depth * 14 + 'px' }"
-                :title="sidebarCollapsed ? (getInterfaceApi(row.node)?.name ?? row.node.name) : undefined"
-                draggable="true"
-                @click="isFolderNode(row.node) ? toggleExpanded(getNodeStorageKey(row.node.id)) : selectApi(row.node.apiId)"
-                @contextmenu="isFolderNode(row.node) ? handleFolderContextMenu($event, row.node.id) : handleApiContextMenu($event, row.node.apiId)"
-                @dragstart="handleNodeDragStart($event, row.node.id)"
-                @dragend="clearDragState"
-                @dragover.prevent="markDropTarget(isFolderNode(row.node) ? 'folder' : 'before', row.node.id)"
-                @dragleave="clearDropTarget"
-                @drop="dropNodeOnRow($event, row.node)"
-              >
-                <template v-if="isFolderNode(row.node)">
-                  <span class="expand-icon">
-                    <ChevronDown v-if="isExpanded(getNodeStorageKey(row.node.id))" :size="14" />
-                    <ChevronRight v-else :size="14" />
-                  </span>
-                  <span class="node-kind folder-kind">文件夹</span>
-                  <span class="folder-name">{{ row.node.name }}</span>
-                  <span v-if="row.node.preRequestScript || row.node.preScript" class="script-dot" title="有文件夹前置脚本"><FileCode2 :size="12" /></span>
-                </template>
-                <template v-else>
-                  <span :class="['method-badge', (getInterfaceApi(row.node)?.method ?? row.node.method).toLowerCase()]">
-                    {{ getInterfaceApi(row.node)?.method ?? row.node.method }}
-                  </span>
-                  <span class="method-dot" :style="{ backgroundColor: getMethodColor(getInterfaceApi(row.node)?.method ?? row.node.method) }"></span>
-                  <span class="api-copy">
-                    <span class="api-url api-path">{{ getApiDisplayPath(row.node) }}</span>
-                    <span class="api-name">{{ getInterfaceApi(row.node)?.name ?? row.node.name }}</span>
-                  </span>
-
-                </template>
-              </div>
             </template>
           </div>
         </template>
@@ -1692,15 +1504,12 @@ async function doImport() {
         <button class="context-item" @click="copyInterfaceCurl(contextMenu.apiId)">复制 cURL</button>
         <button class="context-item" @click="showMoveToSubmenu(contextMenu.apiId)">移动到...</button>
         <div v-if="moveToInterfaceId === contextMenu.apiId" class="context-submenu">
-          <div v-for="cat in sidebarTree" :key="cat.id" class="context-submenu-group">
-            <div class="context-submenu-label">{{ cat.name }}</div>
-            <button
-              v-for="mod in cat.modules"
-              :key="mod.id"
-              class="context-submenu-item"
-              @click="moveInterfaceToModule(mod.id)"
-            >{{ mod.name }}</button>
-          </div>
+          <button
+            v-for="col in sidebarTree"
+            :key="col.id"
+            class="context-submenu-item"
+            @click="moveInterfaceToModule(col.id)"
+          >{{ col.name }}</button>
           <button class="context-item context-submenu-cancel" @click="cancelMoveTo">取消</button>
         </div>
         <div class="context-divider"></div>
@@ -1711,37 +1520,30 @@ async function doImport() {
         <button class="context-item" @click="deleteApi(contextMenu.apiId); closeContextMenu()">删除请求</button>
       </template>
 
-      <!-- Category context items -->
-      <template v-if="contextMenu.categoryId">
-        <button class="context-item" @click="startRenameCategory(contextMenu.categoryId)">重命名</button>
-        <button class="context-item" @click="colorPickerCategoryId = contextMenu.categoryId">修改颜色</button>
-        <button class="context-item" @click="setCategoryIconFromContext(contextMenu.categoryId)">设置导航图标</button>
-        <div v-if="colorPickerCategoryId === contextMenu.categoryId" class="color-picker-row">
+      <!-- Collection context items -->
+      <template v-if="contextMenu.moduleId">
+        <button class="context-item" @click="startRenameModule(contextMenu.moduleId)">重命名</button>
+        <button class="context-item" @click="colorPickerCollectionId = contextMenu.moduleId">修改颜色</button>
+        <div v-if="colorPickerCollectionId === contextMenu.moduleId" class="color-picker-row">
           <button
             v-for="color in PRESET_COLORS"
             :key="color"
             class="color-dot"
             :style="{ backgroundColor: color }"
-            @click="selectCategoryColor(color)"
+            @click="selectCollectionColor(color)"
           ></button>
           <button class="context-item context-submenu-cancel" @click="cancelColorPicker">取消</button>
         </div>
-        <button class="context-item" @click="openCategory(contextMenu.categoryId); closeContextMenu()">分组设置</button>
-        <button class="context-item" @click="addModule(contextMenu.categoryId); closeContextMenu()">新建模块</button>
-        <div class="context-divider"></div>
-        <button class="context-item" @click="deleteCategory(contextMenu.categoryId); closeContextMenu()">删除分组</button>
-      </template>
-
-      <!-- Module context items -->
-      <template v-if="contextMenu.moduleId">
-        <button class="context-item" @click="startRenameModule(contextMenu.moduleId)">重命名</button>
-        <button class="context-item" @click="duplicateModuleFromContext(contextMenu.moduleId)">复制模块</button>
         <button class="context-item" @click="setModuleIconFromContext(contextMenu.moduleId)">设置导航图标</button>
-        <button class="context-item" @click="openModule(contextMenu.moduleId); closeContextMenu()">模块设置</button>
+        <button class="context-item" @click="duplicateModuleFromContext(contextMenu.moduleId)">复制集合</button>
+        <button class="context-item" @click="openCollectionSettings(contextMenu.moduleId)">集合设置</button>
+        <button class="context-item" @click="exportCollectionPostmanTree(contextMenu.moduleId)">导出 Postman v2.1</button>
         <div class="context-divider"></div>
         <button class="context-item" @click="addFolder(contextMenu.moduleId); closeContextMenu()">新建文件夹</button>
+        <button class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'serial')">批量发送（串行）</button>
+        <button class="context-item" :disabled="batchSendingModuleId === contextMenu.moduleId" @click="runModuleBatchFromContext(contextMenu.moduleId, 'parallel')">批量发送（并行）</button>
         <div class="context-divider"></div>
-        <button class="context-item" @click="deleteModule(contextMenu.moduleId); closeContextMenu()">删除模块</button>
+        <button class="context-item" @click="deleteModule(contextMenu.moduleId); closeContextMenu()">删除集合</button>
       </template>
 
       <!-- Folder context items -->
@@ -1759,13 +1561,20 @@ async function doImport() {
       </div>
     </Teleport>
 
+    <!-- Collection Settings Modal -->
+    <CollectionSettingsModal
+      v-if="collectionSettingsId"
+      :collection-id="collectionSettingsId"
+      @close="collectionSettingsId = null"
+    />
+
     <!-- Folder Settings Modal -->
     <div v-if="folderSettings" class="modal-overlay" @click.self="folderSettings = null">
       <div class="modal-content folder-settings-modal">
         <div class="compare-header">
           <div>
             <h3>文件夹设置</h3>
-            <p>配置文件夹名称和发送子请求前自动执行的前置脚本。</p>
+            <p>脚本默认继承父级(集合 → 父文件夹 → 本文件夹);Auth/Headers/变量缺省时同样继承。</p>
           </div>
           <button class="btn btn-sm" @click="folderSettings = null">关闭</button>
         </div>
@@ -1776,19 +1585,71 @@ async function doImport() {
         <div class="folder-settings-stats">
           <span>子文件夹：{{ getFolderStats(folderSettings.id).childFolders }}</span>
           <span>子请求：{{ getFolderStats(folderSettings.id).requests }}</span>
-          <span>脚本：{{ folderSettings.preRequestScript.trim() ? '已配置' : '未配置' }}</span>
+          <span>脚本：{{ folderSettings.preRequestScript.trim() || folderSettings.postRequestScript.trim() ? '已配置' : '未配置' }}</span>
         </div>
-        <label class="folder-settings-field">
-          <span>文件夹前置脚本</span>
-          <textarea
-            v-model="folderSettings.preRequestScript"
-            class="import-textarea folder-script-editor"
-            spellcheck="false"
-            placeholder="例如：pm.request.headers.set('X-Folder', 'true')"
-          ></textarea>
+        <label class="folder-settings-field inherit-toggle">
+          <input v-model="folderSettings.scriptsInherit" type="checkbox" />
+          <span>脚本继承父级(关闭后仅执行本文件夹自身脚本,不执行集合/祖先脚本)</span>
         </label>
-        <div class="folder-settings-hint">
-          文件夹前置脚本会按祖先文件夹顺序执行，再执行接口自身前置脚本，适合批量注入 Header、Query 或共享变量。
+        <div class="folder-tabs">
+          <button :class="['settings-tab', { active: folderSettings.folderTab === 'scripts' }]" @click="folderSettings.folderTab = 'scripts'">脚本</button>
+          <button :class="['settings-tab', { active: folderSettings.folderTab === 'auth' }]" @click="folderSettings.folderTab = 'auth'">Auth</button>
+          <button :class="['settings-tab', { active: folderSettings.folderTab === 'headers' }]" @click="folderSettings.folderTab = 'headers'">Headers</button>
+          <button :class="['settings-tab', { active: folderSettings.folderTab === 'variables' }]" @click="folderSettings.folderTab = 'variables'">变量</button>
+        </div>
+        <div class="folder-tab-body">
+          <template v-if="folderSettings.folderTab === 'scripts'">
+            <label class="folder-settings-field">
+              <span>前置脚本(Pre Request)</span>
+              <textarea
+                v-model="folderSettings.preRequestScript"
+                class="import-textarea folder-script-editor"
+                spellcheck="false"
+                placeholder="例如：pm.request.headers.set('X-Folder', 'true')"
+              ></textarea>
+            </label>
+            <label class="folder-settings-field">
+              <span>后置脚本(Post Response / Tests)</span>
+              <textarea
+                v-model="folderSettings.postRequestScript"
+                class="import-textarea folder-script-editor"
+                spellcheck="false"
+                placeholder="例如：pm.test('状态码 200', () => pm.expect(pm.response.code).to.equal(200))"
+              ></textarea>
+            </label>
+            <div class="folder-settings-hint">
+              执行顺序(Postman 兼容):Pre = 集合 → 文件夹(根→叶) → 请求自身;Post = 请求自身 → 文件夹(叶→根) → 集合。
+            </div>
+          </template>
+          <template v-else-if="folderSettings.folderTab === 'auth'">
+            <label class="folder-settings-field inherit-toggle">
+              <input v-model="folderSettings.authOverride" type="checkbox" />
+              <span>在此文件夹覆盖 Auth(关闭 = 继承最近的集合/祖先定义)</span>
+            </label>
+            <AuthConfig v-if="folderSettings.authOverride" v-model="folderSettings.auth" />
+            <p v-else class="folder-settings-hint">当前继承祖先级 Auth。</p>
+          </template>
+          <template v-else-if="folderSettings.folderTab === 'headers'">
+            <p class="folder-settings-hint">文件夹级 Headers 与集合/请求自身合并,同名 key 以更近层级为准。</p>
+            <div v-for="(header, index) in folderSettings.headers" :key="index" class="kv-row">
+              <input v-model="header.enabled" type="checkbox" class="kv-check" title="启用" />
+              <input v-model="header.key" type="text" placeholder="Header 名称" class="kv-key" />
+              <input v-model="header.value" type="text" placeholder="值" class="kv-value" />
+              <button class="kv-remove" @click="removeFolderHeader(index)"><X :size="14" /></button>
+            </div>
+            <button class="btn btn-sm" @click="addFolderHeader">+ 添加 Header</button>
+          </template>
+          <template v-else>
+            <p class="folder-settings-hint">文件夹级变量,解析时近层覆盖远层(集合 → 父文件夹 → 本文件夹)。</p>
+            <div v-for="(variable, index) in folderSettings.variables" :key="index" class="kv-row">
+              <input v-model="variable.enabled" type="checkbox" class="kv-check" title="启用" />
+              <input v-model="variable.key" type="text" placeholder="变量名" class="kv-key" />
+              <input v-model="variable.initialValue" type="text" placeholder="初始值" class="kv-value" />
+              <input v-model="variable.currentValue" :type="variable.secret ? 'password' : 'text'" placeholder="当前值" class="kv-value" />
+              <button class="kv-remove" @click="removeFolderVariable(index)"><X :size="14" /></button>
+            </div>
+            <button class="btn btn-sm" @click="addFolderVariable">+ 添加变量</button>
+          </template>
         </div>
         <div class="modal-actions">
           <button class="btn btn-sm" @click="folderSettings = null">取消</button>
@@ -1868,7 +1729,7 @@ async function doImport() {
       @click.stop
     >
       <div class="preview-title">
-        <span>{{ getModuleNavIcon(getPreviewModule(collapsedModulePreview.moduleId) || { name: '', id: '', categoryId: '', order: 0, createdAt: 0, updatedAt: 0 }) }}</span>
+        <span>{{ getCollectionNavIcon(getPreviewModule(collapsedModulePreview.moduleId)) }}</span>
         <strong>{{ getPreviewModule(collapsedModulePreview.moduleId)?.name }}</strong>
       </div>
       <button
@@ -1913,9 +1774,8 @@ async function doImport() {
           <button class="collapsed-fab" title="新建" @click.stop="toggleCollapsedCreate"><Plus :size="18" /></button>
           <div v-if="collapsedCreateOpen" class="collapsed-popover create-popover" @click.stop>
             <button @click="createNewApi(); closeCollapsedMenus()"><span><FileText :size="15" /> 新建请求</span></button>
-            <button @click="addModule(); closeCollapsedMenus()"><span><Box :size="15" /> 新建模块</span></button>
+            <button @click="addCollection(); closeCollapsedMenus()"><span><Box :size="15" /> 新建集合</span></button>
             <button @click="addFolder(); closeCollapsedMenus()"><span><Folder :size="15" /> 新建文件夹</span></button>
-            <button @click="handleNewCategory(); closeCollapsedMenus()"><span><PackagePlus :size="15" /> 新建分组</span></button>
             <button @click="openImportModalFromCollapsed"><span><Download :size="15" /> 导入</span></button>
           </div>
         </div>
@@ -2739,6 +2599,60 @@ async function doImport() {
   font-size: var(--font-size-small);
   line-height: 1.5;
 }
+
+.folder-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--divider);
+  padding-bottom: 8px;
+}
+
+.folder-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: 44vh;
+  padding-right: 4px;
+}
+
+.inherit-toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  font-weight: 500 !important;
+}
+
+.kv-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kv-row input[type='text'] {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-size-small);
+}
+
+.kv-key { width: 150px; flex-shrink: 0; }
+.kv-value { flex: 1; min-width: 0; }
+.kv-check { flex-shrink: 0; }
+
+.kv-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.kv-remove:hover { color: var(--danger, #ef4444); }
 
 .modal-actions {
   display: flex;
