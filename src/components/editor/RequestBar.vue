@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Check, ChevronDown, Ellipsis, Layers, Lock } from '@lucide/vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ChevronDown, Ellipsis, Layers, Lock, Save, X } from '@lucide/vue'
+import { Tippy } from 'vue-tippy'
+import { toast } from 'vue-sonner'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useWsStore } from '@/stores/ws'
@@ -16,6 +18,7 @@ import {
 import type { PostResponseData, ScriptResult, ScriptSendRequestInput } from '@/utils/pre-request'
 import { STREAM_MERGE_PRESETS, defaultStreamMergeConfig } from '@/utils/stream-merge'
 import type { StreamMergePreset } from '@/utils/stream-merge'
+import { generateCurl } from '@/utils/export'
 import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
@@ -25,7 +28,7 @@ import type { ApiConfig, AuthConfig, BodyConfig, Collection, CollectionNode, Coo
 const store = useAppStore()
 const workspace = useWorkspaceStore()
 const wsStore = useWsStore()
-const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
 const currentApi = computed(() => store.getCurrentApi())
 const currentModule = computed(() => {
@@ -41,18 +44,17 @@ const showExportPanel = ref(false)
 const showCodeGenPanel = ref(false)
 const showActionMenu = ref(false)
 const showMethodMenu = ref(false)
-const showEnvMenu = ref(false)
+const customMethodDraft = ref('')
+const customMethodInputRef = ref<HTMLInputElement | null>(null)
 const postSendAction = ref<null | 'download' | 'codegen'>(null)
-const showCancelButton = ref(false)
-let cancelRevealTimer: ReturnType<typeof setTimeout> | null = null
 
 const envVars = computed(() => store.getEnvVariables())
 const canRetry = computed(() => !store.loading && Boolean(store.response && (store.response.status === 0 || store.response.status >= 400)))
 const wsActiveForCurrent = computed(() => wsStore.activeApiId === currentApi.value?.id && wsStore.isBusy)
 const sendButtonLabel = computed(() => {
   if (currentRequestType.value === 'ws') return wsActiveForCurrent.value ? '断开' : '连接'
-  if (store.loading) return '发送中'
-  return canRetry.value ? '重试' : '发送'
+  if (canRetry.value) return '重试'
+  return '发送'
 })
 const baseUrlOptions = computed(() => {
   const keywordPattern = /(base|url|host|origin|endpoint|api)/i
@@ -74,33 +76,6 @@ const currentCollection = computed<Collection | null>(() => {
   const cid = node ? (node.collectionId ?? node.moduleId) : null
   return cid ? workspace.collections.find(item => item.id === cid) ?? null : null
 })
-const currentCollectionEnvs = computed(() => {
-  const cid = currentCollection.value?.id
-  return cid ? store.environments.filter(env => env.collectionId === cid) : []
-})
-const currentGlobalEnvs = computed(() => store.environments.filter(env => store.isGlobalEnv(env)))
-const activeEnvName = computed(() => {
-  const cid = currentCollection.value?.id
-  const selected = cid && currentCollection.value?.selectedEnvId
-    ? store.environments.find(env => env.id === currentCollection.value!.selectedEnvId)
-    : null
-  if (selected) return selected.name
-  return store.environments.find(item => item.id === store.currentEnvId)?.name ?? '无环境'
-})
-/** 集合当前选中的环境 id(null = 跟随全局) */
-const activeCollectionEnvId = computed(() => currentCollection.value?.selectedEnvId ?? null)
-
-// ── Phase 3.1:统一请求类型(REST / SSE / WS)──
-const requestTypes: Array<{ value: RequestType; label: string }> = [
-  { value: 'rest', label: 'REST' },
-  { value: 'sse', label: 'SSE' },
-  { value: 'ws', label: 'WS' },
-]
-const currentRequestType = computed<RequestType>(() => currentApi.value?.requestType ?? 'rest')
-function selectRequestType(type: RequestType) {
-  if (!currentApi.value || isReadonlyModule.value) return
-  store.updateApi(currentApi.value.id, { requestType: type })
-}
 
 // ── Phase 1.5:继承标记(集合/文件夹级 Auth/Headers/变量/脚本)──
 const inheritedSummary = computed(() => {
@@ -161,6 +136,18 @@ const inheritedChips = computed<{ collectionName: string; chips: InheritedChip[]
   }
   return chips.length ? { collectionName: summary.collectionName, chips } : null
 })
+
+// ── Phase 3.1:统一请求类型(REST / SSE / WS)──
+const requestTypes: Array<{ value: RequestType; label: string }> = [
+  { value: 'rest', label: 'REST' },
+  { value: 'sse', label: 'SSE' },
+  { value: 'ws', label: 'WS' },
+]
+const currentRequestType = computed<RequestType>(() => currentApi.value?.requestType ?? 'rest')
+function selectRequestType(type: RequestType) {
+  if (!currentApi.value || isReadonlyModule.value) return
+  store.updateApi(currentApi.value.id, { requestType: type })
+}
 
 // ── Phase 3.3:流式合并配置(SSE)──
 const showStreamMergePanel = ref(false)
@@ -268,10 +255,6 @@ function syncUrlScroll() {
   urlScrollLeft.value = urlInputRef.value?.scrollLeft ?? 0
 }
 
-function toggleWorkspaceControls() {
-  window.dispatchEvent(new CustomEvent('apifix:toggle-workspace-controls'))
-}
-
 function handleUrlInput() {
   syncUrlScroll()
   urlAutocomplete.handleInput()
@@ -319,15 +302,45 @@ function applyBaseUrlTemplate(event: Event) {
 
 function methodColor(method: HttpMethod): string {
   const colors: Record<string, string> = {
-    GET: 'var(--method-get)',
-    POST: 'var(--method-post)',
-    PUT: 'var(--method-put)',
-    DELETE: 'var(--method-delete)',
-    PATCH: 'var(--method-patch)',
-    HEAD: 'var(--method-head)',
-    OPTIONS: 'var(--method-options)',
+    GET: 'var(--method-get-color)',
+    POST: 'var(--method-post-color)',
+    PUT: 'var(--method-put-color)',
+    DELETE: 'var(--method-delete-color)',
+    PATCH: 'var(--method-patch-color)',
+    HEAD: 'var(--method-head-color)',
+    OPTIONS: 'var(--method-options-color)',
   }
-  return colors[method] || 'var(--text-secondary)'
+  return colors[method] || 'var(--method-default-color)'
+}
+
+const isCustomMethod = computed(() => !methods.includes(currentMethod.value))
+
+// ── Alt+↑/↓ 循环切换 method(FR-1.1 / FR-8.1)──
+function cycleMethod(direction: 1 | -1) {
+  if (isReadonlyModule.value || currentRequestType.value === 'ws') return
+  const base = isCustomMethod.value ? -1 : methods.indexOf(currentMethod.value)
+  const next = (base + direction + methods.length) % methods.length
+  currentMethod.value = methods[next]
+}
+
+function handleBarKeydown(event: KeyboardEvent) {
+  if (event.altKey && !event.ctrlKey && !event.metaKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault()
+    cycleMethod(event.key === 'ArrowDown' ? 1 : -1)
+  }
+}
+
+// ── CUSTOM method ──
+function pickCustomMethod() {
+  customMethodDraft.value = isCustomMethod.value ? currentMethod.value : ''
+  showMethodMenu.value = false
+  nextTick(() => customMethodInputRef.value?.focus())
+}
+
+function commitCustomMethod() {
+  const verb = customMethodDraft.value.trim().toUpperCase()
+  if (verb) currentMethod.value = verb as HttpMethod
+  else if (isCustomMethod.value) currentMethod.value = 'GET'
 }
 
 function headerRecordToPairs(headers: Record<string, string>): KvPair[] {
@@ -337,7 +350,6 @@ function headerRecordToPairs(headers: Record<string, string>): KvPair[] {
     enabled: true,
   }))
 }
-
 
 function cloneKvPairs(items: KvPair[] = []): KvPair[] {
   return items.map(item => ({ ...item }))
@@ -629,9 +641,6 @@ async function send() {
   // Create AbortController for cancellation support
   const abortController = new AbortController()
   store.setRequestAbortController(abortController)
-  showCancelButton.value = false
-  if (cancelRevealTimer) clearTimeout(cancelRevealTimer)
-  cancelRevealTimer = setTimeout(() => { showCancelButton.value = true }, 1000)
 
   store.loading = true
   store.response = null
@@ -854,30 +863,8 @@ async function send() {
     postSendAction.value = null
   } finally {
     store.loading = false
-    showCancelButton.value = false
-    if (cancelRevealTimer) {
-      clearTimeout(cancelRevealTimer)
-      cancelRevealTimer = null
-    }
     store.clearRequestAbortController()
   }
-}
-
-function toggleActionMenu() {
-  showMethodMenu.value = false
-  showActionMenu.value = !showActionMenu.value
-}
-
-function toggleMethodMenu() {
-  if (isReadonlyModule.value) return
-  showActionMenu.value = false
-  showMethodMenu.value = !showMethodMenu.value
-}
-
-function selectMethod(method: HttpMethod) {
-  if (isReadonlyModule.value) return
-  currentMethod.value = method
-  showMethodMenu.value = false
 }
 
 function openExport() {
@@ -890,11 +877,20 @@ function openCodeGen() {
   showCodeGenPanel.value = true
 }
 
+/** FR-2.5:保存按钮 → Save 弹窗(M2 接管);M1 过渡期同时刷新 updatedAt */
 function saveCurrentApi() {
   if (!currentApi.value || isReadonlyModule.value) return
+  window.dispatchEvent(new CustomEvent('apifix:save-request'))
   store.updateApi(currentApi.value.id, { updatedAt: Date.now() })
 }
 
+function copyAsCurl() {
+  const api = currentApi.value
+  if (!api) return
+  void navigator.clipboard.writeText(generateCurl(api, store.getEnvVariables()))
+  showActionMenu.value = false
+  toast.success('已复制 cURL')
+}
 
 function downloadResponse(response: ResponseData) {
   const contentType = responseContentType(response)
@@ -917,25 +913,6 @@ async function sendAndThen(action: 'download' | 'codegen') {
 function closeMenus() {
   showActionMenu.value = false
   showMethodMenu.value = false
-  showEnvMenu.value = false
-}
-
-function toggleEnvMenu() {
-  showEnvMenu.value = !showEnvMenu.value
-  showActionMenu.value = false
-  showMethodMenu.value = false
-}
-
-/** 选中集合环境(null = 清除集合选择,回退跟随全局) */
-function selectCollectionEnvOption(envId: string | null) {
-  const cid = currentCollection.value?.id
-  if (cid) void store.selectCollectionEnvironment(cid, envId)
-  showEnvMenu.value = false
-}
-
-function selectGlobalEnvOption(id: string | null) {
-  store.currentEnvId = id
-  showEnvMenu.value = false
 }
 
 function handleGlobalSend() {
@@ -955,93 +932,30 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('apifix:send-current-request', handleGlobalSend)
   window.removeEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
-  if (cancelRevealTimer) clearTimeout(cancelRevealTimer)
 })
 </script>
 
 <template>
-  <div class="request-shell" @click="closeMenus">
-    <div class="request-context">
-      <span class="request-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
-      <span>{{ currentApi?.name || '未命名请求' }}</span>
-      <small>Enter 发送 · 支持 &#123;&#123;变量&#125;&#125;</small>
-      <div class="request-context-actions" @click.stop>
-        <div class="top-env-picker" title="当前环境" @click.stop>
-          <span>环境</span>
-          <button
-            type="button"
-            class="env-select-btn"
-            :class="{ open: showEnvMenu }"
-            aria-haspopup="listbox"
-            :aria-expanded="showEnvMenu"
-            @click="toggleEnvMenu"
-          >
-            <span class="env-dot"></span>
-            <span class="env-name">{{ activeEnvName }}</span>
-            <span class="env-chevron"><ChevronDown :size="14" /></span>
-          </button>
-          <div v-if="showEnvMenu" class="env-select-menu" role="listbox">
-            <template v-if="currentCollection">
-              <div class="env-menu-group">集合环境</div>
-              <button
-                v-for="env in currentCollectionEnvs"
-                :key="env.id"
-                type="button"
-                class="env-option"
-                :class="{ active: env.id === activeCollectionEnvId }"
-                role="option"
-                :aria-selected="env.id === activeCollectionEnvId"
-                @click="selectCollectionEnvOption(env.id)"
-              >
-                <span class="env-check"><Check v-if="env.id === activeCollectionEnvId" :size="14" /></span>
-                <span>{{ env.name }}</span>
-              </button>
-              <button
-                v-if="currentCollectionEnvs.length"
-                type="button"
-                class="env-option"
-                :class="{ active: !activeCollectionEnvId }"
-                role="option"
-                :aria-selected="!activeCollectionEnvId"
-                @click="selectCollectionEnvOption(null)"
-              >
-                <span class="env-check"><Check v-if="!activeCollectionEnvId" :size="14" /></span>
-                <span>跟随全局</span>
-              </button>
-              <div v-if="!currentCollectionEnvs.length" class="env-menu-empty">当前集合暂无环境</div>
-              <div class="env-menu-group">全局环境</div>
-            </template>
-            <button
-              v-for="env in currentGlobalEnvs"
-              :key="env.id"
-              type="button"
-              class="env-option"
-              :class="{ active: env.id === store.currentEnvId }"
-              role="option"
-              :aria-selected="env.id === store.currentEnvId"
-              @click="selectGlobalEnvOption(env.id)"
-            >
-              <span class="env-check"><Check v-if="env.id === store.currentEnvId" :size="14" /></span>
-              <span>{{ env.name }}</span>
-            </button>
-            <button
-              type="button"
-              class="env-option"
-              :class="{ active: store.currentEnvId === null }"
-              role="option"
-              :aria-selected="store.currentEnvId === null"
-              @click="selectGlobalEnvOption(null)"
-            >
-              <span class="env-check"><Check v-if="store.currentEnvId === null" :size="14" /></span>
-              <span>无环境</span>
-            </button>
-          </div>
-        </div>
-        <button class="btn btn-sm workspace-toggle-btn" title="打开工具抽屉 / 工作台设置" @click="toggleWorkspaceControls">工具</button>
-      </div>
+  <div class="request-bar-area" @keydown="handleBarKeydown">
+    <!-- 请求名 + 继承标记 -->
+    <div class="request-meta-row">
+      <span class="request-name-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
+      <span class="request-name" :title="currentApi?.name">{{ currentApi?.name || '未命名请求' }}</span>
+      <template v-if="inheritedChips">
+        <span class="inherit-chip base"><Layers :size="11" />{{ inheritedChips.collectionName }}</span>
+        <span
+          v-for="chip in inheritedChips.chips"
+          :key="chip.key"
+          class="inherit-chip"
+          :title="chip.title"
+        >{{ chip.label }}</span>
+      </template>
     </div>
-    <div class="request-bar">
-      <div class="type-picker" role="radiogroup" aria-label="请求类型" @click.stop>
+
+    <!-- 请求行(FR-1.1) -->
+    <div class="request-line" @click="closeMenus">
+      <!-- 请求类型(REST/SSE/WS) -->
+      <div class="type-picker" role="radiogroup" aria-label="请求类型">
         <button
           v-for="t in requestTypes"
           :key="t.value"
@@ -1054,22 +968,22 @@ onUnmounted(() => {
           @click="selectRequestType(t.value)"
         >{{ t.label }}</button>
       </div>
-      <div v-if="currentRequestType === 'rest'" class="method-picker" @click.stop>
+
+      <!-- method 彩色下拉(含 CUSTOM) -->
+      <div v-if="currentRequestType !== 'ws'" class="method-picker relative">
         <button
           type="button"
-          class="method-select"
-          :class="{ open: showMethodMenu }"
+          class="method-btn"
           :style="{ color: methodColor(currentMethod) }"
           :disabled="isReadonlyModule"
           aria-haspopup="listbox"
           :aria-expanded="showMethodMenu"
-          @click="toggleMethodMenu"
+          @click.stop="showMethodMenu = !showMethodMenu"
         >
-          <span class="method-option-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
-          <span>{{ currentMethod }}</span>
-          <span class="method-caret"><ChevronDown :size="14" /></span>
+          <span>{{ isCustomMethod ? currentMethod : currentMethod }}</span>
+          <ChevronDown :size="13" class="opacity-60" />
         </button>
-        <div v-if="showMethodMenu" class="method-dropdown" role="listbox">
+        <div v-if="showMethodMenu" class="method-menu" role="listbox">
           <button
             v-for="m in methods"
             :key="m"
@@ -1078,27 +992,39 @@ onUnmounted(() => {
             :class="{ active: m === currentMethod }"
             role="option"
             :aria-selected="m === currentMethod"
-            @click="selectMethod(m)"
+            @click.stop="currentMethod = m; showMethodMenu = false"
           >
-            <span class="method-option-dot" :style="{ backgroundColor: methodColor(m) }"></span>
             <strong :style="{ color: methodColor(m) }">{{ m }}</strong>
           </button>
+          <div class="method-menu-divider"></div>
+          <button
+            type="button"
+            class="method-option"
+            :class="{ active: isCustomMethod }"
+            role="option"
+            :aria-selected="isCustomMethod"
+            @click.stop="pickCustomMethod"
+          >
+            <strong class="text-[color:var(--method-default-color)]">CUSTOM</strong>
+          </button>
+          <div v-if="isCustomMethod" class="p-2">
+            <input
+              ref="customMethodInputRef"
+              v-model="customMethodDraft"
+              type="text"
+              class="custom-method-input"
+              placeholder="自定义动词,如 PURGE"
+              maxlength="12"
+              @keydown.enter.stop="commitCustomMethod(); showMethodMenu = false"
+              @blur="commitCustomMethod"
+              @click.stop
+            />
+          </div>
         </div>
       </div>
+
+      <!-- URL 输入(环境变量高亮 + 自动补全) -->
       <div class="url-field">
-        <span class="url-prefix">URL</span>
-        <select
-          v-if="baseUrlOptions.length"
-          class="base-url-select"
-          title="选择基础地址变量并保留当前路径"
-          :disabled="isReadonlyModule"
-          @change="applyBaseUrlTemplate"
-        >
-          <option value="">基础地址</option>
-          <option v-for="item in baseUrlOptions" :key="item.key" :value="item.key">
-            {{ item.key }} · {{ item.preview }}
-          </option>
-        </select>
         <div class="url-input-wrap">
           <div
             class="url-highlight-layer"
@@ -1109,7 +1035,7 @@ onUnmounted(() => {
               v-for="(segment, index) in highlightedUrlSegments"
               :key="`${index}-${segment.text}`"
               :class="{ 'url-var-token': segment.variable, unresolved: segment.variable && !segment.resolved }"
-              :title="segment.variable ? (segment.resolved ? segment.preview : '未定义变量，点击右侧工具抽屉管理') : undefined"
+              :title="segment.variable ? (segment.resolved ? segment.preview : '未定义变量') : undefined"
             >{{ segment.text }}</span>
           </div>
           <input
@@ -1118,18 +1044,71 @@ onUnmounted(() => {
             type="url"
             class="url-input"
             placeholder="https://api.example.com/users/{{id}}"
+            spellcheck="false"
             @keydown.enter="send"
             @input="handleUrlInput"
             @scroll="syncUrlScroll"
-            @keydown="urlAutocomplete.handleKeydown($event) ? null : null"
             :disabled="isReadonlyModule"
           />
         </div>
+        <select
+          v-if="baseUrlOptions.length"
+          class="base-url-select"
+          title="选择基础地址变量并保留当前路径"
+          :disabled="isReadonlyModule"
+          @change="applyBaseUrlTemplate"
+        >
+          <option value="">⌂</option>
+          <option v-for="item in baseUrlOptions" :key="item.key" :value="item.key">
+            {{ item.key }} · {{ item.preview }}
+          </option>
+        </select>
       </div>
-      <div v-if="currentRequestType === 'sse' && !isReadonlyModule" class="stream-merge-wrap" @click.stop>
+
+      <!-- 发送 / 取消 -->
+      <button
+        v-if="!store.loading"
+        class="send-btn"
+        :class="{ retry: canRetry && currentRequestType !== 'ws' }"
+        :disabled="!currentUrl.trim()"
+        :title="currentRequestType === 'ws' ? '连接 / 断开 WebSocket' : '发送(Ctrl+Enter)'"
+        @click="send"
+      >
+        {{ sendButtonLabel }}
+      </button>
+      <button v-else class="send-btn cancel" @click="store.cancelCurrentRequest()">
+        <X :size="14" /> 取消
+      </button>
+
+      <!-- 保存 -->
+      <button
+        class="save-btn"
+        :disabled="isReadonlyModule || !currentApi"
+        title="保存(Ctrl+S)"
+        @click="saveCurrentApi"
+      >
+        <Save :size="14" />
+      </button>
+
+      <!-- 更多操作 -->
+      <Tippy interactive trigger="click" theme="popover" placement="bottom-end" :offset="[0, 4]">
+        <button class="action-btn" title="更多操作" @click.stop><Ellipsis :size="16" /></button>
+        <template #content>
+          <div class="flex w-44 flex-col">
+            <button class="menu-item" @click="showActionMenu = false; sendAndThen('download')">发送并下载响应</button>
+            <button class="menu-item" @click="showActionMenu = false; sendAndThen('codegen')">发送后生成代码</button>
+            <button class="menu-item" @click="copyAsCurl">复制为 cURL</button>
+            <button class="menu-item" @click="openCodeGen">生成代码</button>
+            <button class="menu-item" @click="openExport">导出请求</button>
+          </div>
+        </template>
+      </Tippy>
+
+      <!-- 流式合并(SSE) -->
+      <div v-if="currentRequestType === 'sse' && !isReadonlyModule" class="relative" @click.stop>
         <button
           type="button"
-          class="btn btn-sm stream-merge-btn"
+          class="stream-merge-btn"
           :class="{ active: streamMergeActive }"
           title="流式合并:逐块提取 SSE/NDJSON 载荷字段并拼接"
           @click="toggleStreamMergePanel"
@@ -1201,38 +1180,9 @@ onUnmounted(() => {
           </template>
         </div>
       </div>
-      <button
-        class="btn btn-primary send-btn"
-        :class="{ retry: canRetry && currentRequestType !== 'ws' }"
-        :disabled="store.loading || !currentUrl.trim()"
-        :title="currentRequestType === 'ws' ? '连接 / 断开 WebSocket' : undefined"
-        @click="send"
-      >
-        <span v-if="store.loading" class="send-spinner"></span>
-        {{ sendButtonLabel }}
-      </button>
-      <button class="btn btn-sm save-request-btn" @click="saveCurrentApi" :disabled="isReadonlyModule || !currentApi" title="Ctrl+S 保存">保存</button>
-      <button v-if="store.loading && showCancelButton" class="btn btn-sm cancel-send-btn" @click="store.cancelCurrentRequest()" title="取消请求">取消</button>
-      <div class="action-menu-wrapper">
-        <button class="btn btn-sm action-btn" @click.stop="toggleActionMenu" title="更多操作"><Ellipsis :size="18" /></button>
-        <div v-if="showActionMenu" class="action-dropdown" @click.stop>
-          <button class="action-item" @click="sendAndThen('download')">发送并下载响应</button>
-          <button class="action-item" @click="sendAndThen('codegen')">发送后生成代码</button>
-          <button class="action-item" @click="openExport">导出请求</button>
-          <button class="action-item" @click="openCodeGen">代码生成</button>
-        </div>
-      </div>
     </div>
-    <div v-if="inheritedChips" class="inherit-bar">
-      <span class="inherit-chip base"><Layers :size="12" />继承自 {{ inheritedChips.collectionName }}</span>
-      <span
-        v-for="chip in inheritedChips.chips"
-        :key="chip.key"
-        class="inherit-chip"
-        :title="chip.title"
-      >{{ chip.label }}</span>
-    </div>
-    <div v-if="isReadonlyModule" class="readonly-hint"><Lock :size="15" /> 当前模块为只读模式：可发送请求，但接口定义只能通过导入/同步更新。</div>
+
+    <div v-if="isReadonlyModule" class="readonly-hint"><Lock :size="13" /> 当前集合为只读模式:可发送请求,但接口定义只能通过导入/同步更新。</div>
   </div>
 
   <ExportPanel
@@ -1260,311 +1210,199 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.request-shell {
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
-  background:
-    linear-gradient(135deg, var(--bg-panel), color-mix(in srgb, var(--primary-light) 30%, var(--bg-panel)));
+.request-bar-area {
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--divider-color);
+  background: var(--primary-light-color);
 }
 
-.request-context {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.request-context-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.top-env-picker {
-  position: relative;
+.request-meta-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-secondary);
-  font-size: var(--font-size-small);
+  margin-bottom: 8px;
+  font-size: var(--font-size-body);
   font-weight: 600;
+  color: var(--secondary-dark-color);
+  min-height: 18px;
 }
 
-.env-select-btn {
-  width: 168px;
-  height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel);
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-}
-
-.env-select-btn:hover,
-.env-select-btn.open {
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
-  background: color-mix(in srgb, var(--primary-light) 30%, var(--bg-panel));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
-}
-
-.env-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-  flex-shrink: 0;
-}
-
-.env-name {
-  flex: 1;
-  min-width: 0;
+.request-name {
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
 }
 
-.env-chevron {
-  color: var(--text-tertiary);
-  font-size: 12px;
-  transition: transform 0.15s ease;
-}
-
-.env-select-btn.open .env-chevron {
-  transform: rotate(180deg);
-}
-
-.env-select-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  width: 196px;
-  max-height: 260px;
-  overflow-y: auto;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-lg);
-  z-index: 1300;
-}
-
-.env-option {
-  width: 100%;
-  min-height: 32px;
-  padding: 7px 9px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: var(--font-size-small);
-  text-align: left;
-}
-
-.env-option:hover {
-  background: var(--bg-hover);
-}
-
-.env-option.active {
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 750;
-}
-
-.env-check {
-  width: 14px;
-  color: var(--primary);
-  font-weight: 800;
-  text-align: center;
+.request-name-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.env-menu-group {
-  padding: 6px 9px 3px;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-}
-
-.env-menu-group:not(:first-child) {
-  margin-top: 4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--divider);
-}
-
-.env-menu-empty {
-  padding: 2px 9px 4px;
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-
-.workspace-toggle-btn {
-  min-height: 28px;
-}
-
-.request-context small {
-  color: var(--text-tertiary);
-  font-weight: 500;
-  margin-left: 2px;
-}
-
-.request-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent);
-}
-
-.request-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.method-picker {
-  position: relative;
-}
-
-.method-select {
+.inherit-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  height: 38px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background-color: var(--bg-panel);
-  font-weight: 850;
-  font-size: var(--font-size-body);
-  cursor: pointer;
-  min-width: 92px;
-  outline: none;
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  gap: 3px;
+  max-width: 200px;
+  padding: 1px 7px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: 999px;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.method-select:hover:not(:disabled),
-.method-select.open {
-  border-color: var(--primary);
-  box-shadow: var(--focus-ring);
+.inherit-chip.base {
+  border-color: color-mix(in srgb, var(--accent-color) 40%, var(--divider-dark-color));
+  color: var(--accent-color);
 }
 
-.method-select:disabled {
+.request-line {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* 请求类型(REST/SSE/WS) */
+.type-picker {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  border: 1px solid var(--divider-dark-color);
+  border-right: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.type-option {
+  height: 100%;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 700;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.type-option:hover:not(:disabled) {
+  background: var(--primary-dark-color);
+  color: var(--secondary-dark-color);
+}
+
+.type-option.active {
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--accent-color);
+}
+
+.type-option:disabled {
   cursor: not-allowed;
-  opacity: 0.68;
+  opacity: 0.55;
 }
 
-.method-caret {
-  color: var(--text-tertiary);
-  font-size: 12px;
+/* method 下拉:与 URL 输入方角拼接 */
+.method-picker {
+  flex-shrink: 0;
 }
 
-.method-dropdown {
+.method-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--divider-dark-color);
+  border-right: none;
+  border-radius: 0;
+  background: var(--primary-light-color);
+  font-weight: 700;
+  font-size: var(--font-size-body);
+  font-family: var(--font-code);
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+.method-btn:hover:not(:disabled) {
+  background: var(--primary-dark-color);
+}
+
+.method-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.method-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 110;
   min-width: 132px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel);
+  padding: 4px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--popover-color);
   box-shadow: var(--shadow-lg);
 }
 
 .method-option {
   display: flex;
   align-items: center;
-  gap: 8px;
   width: 100%;
-  padding: 7px 8px;
-  border: none;
-  border-radius: var(--radius-md);
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--secondary-dark-color);
   cursor: pointer;
   text-align: left;
+  font-size: var(--font-size-body);
 }
 
 .method-option:hover,
 .method-option.active {
-  background: var(--bg-hover);
+  background: var(--primary-dark-color);
 }
 
-.method-option-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 10%, transparent);
+.method-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--divider-color);
 }
 
+.custom-method-input {
+  width: 100%;
+  height: 26px;
+  padding: 0 7px;
+  font-family: var(--font-code);
+  font-size: var(--font-size-tiny);
+  text-transform: uppercase;
+}
+
+/* URL 输入框 */
 .url-field {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  height: 38px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  height: 34px;
+  border: 1px solid var(--divider-dark-color);
+  background: var(--primary-color);
+  transition: border-color 0.12s ease;
 }
 
 .url-field:focus-within {
-  border-color: var(--primary);
-  box-shadow: var(--focus-ring);
-}
-
-.url-prefix {
-  padding: 0 10px;
-  color: var(--text-tertiary);
-  font-size: var(--font-size-small);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  border-right: 1px solid var(--divider);
-}
-
-.base-url-select {
-  max-width: 168px;
-  height: 28px;
-  margin-left: 8px;
-  padding: 0 24px 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-panel);
-  color: var(--text-secondary);
-  font-size: var(--font-size-small);
-  outline: none;
-}
-
-.base-url-select:hover:not(:disabled),
-.base-url-select:focus:not(:disabled) {
-  border-color: var(--primary);
-  color: var(--text-primary);
+  border-color: var(--accent-color);
 }
 
 .url-input-wrap {
   position: relative;
   flex: 1;
   min-width: 0;
-  height: 36px;
+  height: 32px;
   overflow: hidden;
 }
 
@@ -1573,220 +1411,176 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   width: 100%;
-  height: 36px;
-  padding: 0;
+  height: 32px;
+  padding: 0 10px;
   font-size: var(--font-size-body);
   font-family: var(--font-code);
-  line-height: 36px;
+  line-height: 32px;
   white-space: pre;
 }
 
 .url-highlight-layer {
   pointer-events: none;
-  color: var(--text-primary);
+  color: var(--secondary-dark-color);
 }
 
 .url-input {
   border: none;
   background: transparent;
   color: transparent;
-  caret-color: var(--text-primary);
-  box-shadow: none !important;
+  caret-color: var(--secondary-dark-color);
+}
+
+.url-input:disabled {
+  cursor: not-allowed;
 }
 
 .url-input::placeholder {
-  color: var(--text-tertiary);
-}
-
-.url-input::selection {
-  background: rgba(91, 124, 250, 0.22);
+  color: var(--secondary-light-color);
 }
 
 .url-var-token {
-  color: var(--primary);
-  border-bottom: 1px dashed var(--primary);
+  color: var(--accent-color);
+  border-bottom: 1px dashed var(--accent-color);
   font-weight: 700;
 }
 
 .url-var-token.unresolved {
-  color: var(--error);
-  border-bottom-color: var(--error);
+  color: var(--status-critical-error-color);
+  border-bottom-color: var(--status-critical-error-color);
 }
 
+.base-url-select {
+  max-width: 44px;
+  height: 26px;
+  margin-right: 4px;
+  padding: 0 20px 0 6px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--primary-light-color);
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  outline: none;
+  flex-shrink: 0;
+}
+
+.base-url-select:hover:not(:disabled) {
+  color: var(--secondary-dark-color);
+  border-color: var(--accent-color);
+}
+
+/* 发送 / 保存 */
 .send-btn {
-  min-width: 84px;
-  height: 38px;
-  border-radius: var(--radius-xl);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 34px;
+  min-width: 74px;
+  padding: 0 14px;
+  border-radius: 0;
+  background: var(--accent-color);
+  color: var(--accent-contrast-color);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  transition: background 0.12s ease;
 }
 
 .send-btn:hover:not(:disabled) {
-  transform: scale(1.02);
+  background: var(--accent-dark-color);
+}
+
+.send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .send-btn.retry {
-  background: var(--error);
-  border-color: var(--error);
-  color: #fff;
+  background: var(--status-redirect-color);
 }
 
-.send-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.send-btn.cancel {
+  background: var(--status-critical-error-color);
 }
 
-.save-request-btn {
-  height: 38px;
-  border-radius: var(--radius-xl);
+.save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 34px;
+  border: 1px solid var(--divider-dark-color);
+  border-left: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--primary-light-color);
+  color: var(--secondary-color);
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-/* Cancel button next to send button */
-.cancel-send-btn {
-  height: 38px;
-  padding: 0 14px;
-  border: 1px solid var(--error);
-  border-radius: var(--radius-xl);
-  background: transparent;
-  color: var(--error);
-  cursor: pointer;
-  font-size: var(--font-size-small);
-  font-weight: 700;
-  transition: background 0.15s ease, color 0.15s ease;
+.save-btn:hover:not(:disabled) {
+  background: var(--primary-dark-color);
+  color: var(--secondary-dark-color);
 }
 
-.cancel-send-btn:hover {
-  background: var(--error);
-  color: #fff;
-}
-
-.action-menu-wrapper {
-  position: relative;
+.save-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .action-btn {
-  font-size: 16px;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  line-height: 1;
-  border-radius: var(--radius-xl);
-}
-
-.action-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  z-index: 100;
-  min-width: 136px;
-  overflow: hidden;
-}
-
-.action-item {
-  display: block;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-  font-size: var(--font-size-small);
-}
-
-.action-item:hover {
-  background: var(--bg-hover);
-}
-
-.readonly-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  color: var(--text-secondary);
-  font-size: var(--font-size-small);
-}
-
-/* ── 请求类型选择器(REST / SSE / WS)── */
-.type-picker {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  height: 38px;
-  padding: 0 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-sm);
+  justify-content: center;
+  width: 30px;
+  height: 34px;
+  margin-left: 2px;
+  border-radius: var(--radius-md);
+  color: var(--secondary-color);
 }
 
-.type-option {
-  height: 28px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--radius-lg);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--font-size-small);
-  font-weight: 750;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+.action-btn:hover {
+  background: var(--primary-dark-color);
+  color: var(--secondary-dark-color);
 }
 
-.type-option:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.type-option.active {
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.type-option:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-/* ── 流式合并配置(SSE)── */
-.stream-merge-wrap {
-  position: relative;
-}
-
+/* 流式合并 */
 .stream-merge-btn {
-  height: 38px;
-  border-radius: var(--radius-xl);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  margin-left: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--primary-light-color);
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .stream-merge-btn.active {
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
-  color: var(--primary);
+  border-color: color-mix(in srgb, var(--accent-color) 50%, var(--divider-dark-color));
+  color: var(--accent-color);
 }
 
 .sm-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--success);
+  background: var(--status-success-color);
 }
 
 .stream-merge-pop {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  right: 0;
   width: 300px;
   padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--bg-panel);
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--popover-color);
   box-shadow: var(--shadow-lg);
   z-index: 120;
   display: flex;
@@ -1801,8 +1595,8 @@ onUnmounted(() => {
 }
 
 .sm-head small {
-  color: var(--text-tertiary);
-  font-weight: 500;
+  color: var(--secondary-light-color);
+  font-weight: 400;
 }
 
 .sm-mode-row {
@@ -1814,9 +1608,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--text-secondary);
-  font-size: var(--font-size-small);
-  font-weight: 600;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
   cursor: pointer;
 }
 
@@ -1824,9 +1617,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: var(--text-secondary);
-  font-size: var(--font-size-small);
-  font-weight: 600;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
 }
 
 .sm-grid {
@@ -1836,21 +1628,19 @@ onUnmounted(() => {
 }
 
 .sm-input {
-  height: 30px;
+  height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-base);
-  color: var(--text-primary);
-  font-size: var(--font-size-code);
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-color);
+  color: var(--secondary-dark-color);
+  font-size: var(--font-size-tiny);
   font-family: var(--font-code);
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .sm-input:focus {
-  border-color: var(--primary);
-  box-shadow: var(--focus-ring);
+  border-color: var(--accent-color);
 }
 
 .sm-input:disabled {
@@ -1866,54 +1656,41 @@ onUnmounted(() => {
 
 .sm-preset {
   padding: 3px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--divider-dark-color);
   border-radius: 999px;
-  background: var(--bg-panel);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  background: transparent;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  transition: border-color 0.12s ease, color 0.12s ease;
 }
 
 .sm-preset:hover {
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
-  background: var(--primary-soft);
-  color: var(--primary);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
 }
 
-/* ── 继承标记条(Phase 1.5)── */
-.inherit-bar {
+.readonly-hint {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-top: 8px;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
 }
 
-.inherit-chip {
-  display: inline-flex;
+.menu-item {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  max-width: 260px;
-  padding: 2px 9px;
-  border: 1px solid var(--divider);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--primary-light) 16%, var(--bg-panel));
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 650;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-body);
+  color: var(--secondary-dark-color);
+  text-align: left;
 }
 
-.inherit-chip.base {
-  border-color: color-mix(in srgb, var(--primary) 28%, var(--divider));
-  color: var(--primary);
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.menu-item:hover {
+  background: var(--primary-dark-color);
 }
 </style>

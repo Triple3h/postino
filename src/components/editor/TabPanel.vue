@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { ChevronDown } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import KvEditor from '@/components/common/KvEditor.vue'
@@ -8,6 +7,7 @@ import BodyEditor from '@/components/editor/BodyEditor.vue'
 import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
+import EnvSelector from '@/components/common/EnvSelector.vue'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem } from '@/types'
 
@@ -15,8 +15,6 @@ const store = useAppStore()
 const workspace = useWorkspaceStore()
 const activeTab = ref('params')
 const tabPanelRef = ref<HTMLElement | null>(null)
-const showScriptMenu = ref(false)
-const showAdvancedMenu = ref(false)
 
 const currentApi = computed(() => store.getCurrentApi())
 const currentModule = computed(() => {
@@ -25,19 +23,16 @@ const currentModule = computed(() => {
 })
 const isReadonlyModule = computed(() => currentModule.value?.type === 'readonly')
 
+/** FR-1.2:七个编辑 tab(变量 tab = 请求级变量) */
 const tabs = [
-  { key: 'params', label: 'Params' },
+  { key: 'params', label: '参数' },
   { key: 'body', label: 'Body' },
   { key: 'headers', label: 'Headers' },
   { key: 'auth', label: 'Auth' },
-  { key: 'cookies', label: 'Cookies' },
-  { key: 'variables', label: '请求变量' },
   { key: 'pre-script', label: '前置脚本' },
   { key: 'post-script', label: '后置脚本' },
+  { key: 'variables', label: '变量' },
 ]
-const primaryTabs = tabs.filter(tab => ['params', 'body', 'headers', 'auth'].includes(tab.key))
-const scriptTabs = tabs.filter(tab => ['pre-script', 'post-script'].includes(tab.key))
-const advancedTabs = tabs.filter(tab => ['cookies', 'variables'].includes(tab.key))
 
 function updateParams(params: KvPair[]) {
   if (isReadonlyModule.value) return
@@ -96,7 +91,6 @@ const scriptSnippets = [
 
 const recentScriptLogs = computed(() => store.scriptLogs.slice(-8))
 
-
 interface EditorCursorDetail {
   field?: string
   start?: number
@@ -112,12 +106,6 @@ function activeTabLabel(): string {
 
 function selectTab(key: string) {
   activeTab.value = key
-  showScriptMenu.value = false
-  showAdvancedMenu.value = false
-}
-
-function isInGroup(group: Array<{ key: string; label: string }>): boolean {
-  return group.some(tab => tab.key === activeTab.value)
 }
 
 function selectionSnippet(text: string, start: number, end: number): string {
@@ -246,20 +234,6 @@ function appendPostSnippet(code: string) {
   updatePostScript(next)
 }
 
-function resetPreScript() {
-  if (isReadonlyModule.value || !currentApi.value) return
-  if (!currentApi.value.preRequestScript || window.confirm('确认清空当前前置脚本？')) {
-    updatePreScript('')
-  }
-}
-
-function resetPostScript() {
-  if (isReadonlyModule.value || !currentApi.value) return
-  if (!currentApi.value.postRequestScript || window.confirm('确认清空当前后置脚本？')) {
-    updatePostScript('')
-  }
-}
-
 function runCurrentScriptFlow() {
   window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
 }
@@ -277,38 +251,15 @@ function formatLogTime(ts: number): string {
   <div ref="tabPanelRef" class="tab-panel" @focusin="handleSelectionActivity" @pointerdown="handleSelectionActivity" @keyup="handleSelectionActivity" @mouseup="handleSelectionActivity" @input="handleSelectionActivity">
     <div class="tab-header">
       <button
-        v-for="tab in primaryTabs"
+        v-for="tab in tabs"
         :key="tab.key"
         :class="['tab-btn', { active: activeTab === tab.key }]"
         @click="selectTab(tab.key)"
       >
         {{ tab.label }}
       </button>
-      <div class="tab-menu-wrap">
-        <button :class="['tab-btn', { active: isInGroup(scriptTabs) }]" @click="showScriptMenu = !showScriptMenu; showAdvancedMenu = false">
-          脚本 <ChevronDown :size="14" />
-        </button>
-        <div v-if="showScriptMenu" class="tab-dropdown">
-          <button
-            v-for="tab in scriptTabs"
-            :key="tab.key"
-            :class="['tab-menu-item', { active: activeTab === tab.key }]"
-            @click="selectTab(tab.key)"
-          >{{ tab.label }}</button>
-        </div>
-      </div>
-      <div class="tab-menu-wrap">
-        <button :class="['tab-btn', { active: isInGroup(advancedTabs) }]" @click="showAdvancedMenu = !showAdvancedMenu; showScriptMenu = false">
-          高级 <ChevronDown :size="14" />
-        </button>
-        <div v-if="showAdvancedMenu" class="tab-dropdown">
-          <button
-            v-for="tab in advancedTabs"
-            :key="tab.key"
-            :class="['tab-menu-item', { active: activeTab === tab.key }]"
-            @click="selectTab(tab.key)"
-          >{{ tab.label }}</button>
-        </div>
+      <div class="ml-auto flex items-center">
+        <EnvSelector />
       </div>
     </div>
     <div class="tab-content">
@@ -330,24 +281,28 @@ function formatLogTime(ts: number): string {
           :readonly="isReadonlyModule"
         />
       </div>
-      <div v-if="activeTab === 'headers'" class="tab-inner">
-        <KvEditor
-          :model-value="currentApi?.headers || []"
-          @update:model-value="updateHeaders"
-          key-placeholder="Header 名"
-          value-placeholder="值"
-          show-description
-          :readonly="isReadonlyModule"
-        />
-      </div>
-      <div v-if="activeTab === 'cookies'" class="tab-inner">
-        <CookieConfig
-          :model-value="currentApi?.cookies || []"
-          :auto-carry="store.autoCarryCookies"
-          @update:model-value="updateCookies"
-          @update:auto-carry="updateAutoCarryCookies"
-          :readonly="isReadonlyModule"
-        />
+      <div v-if="activeTab === 'headers'" class="tab-inner headers-inner">
+        <div class="headers-section">
+          <div class="section-label">Headers</div>
+          <KvEditor
+            :model-value="currentApi?.headers || []"
+            @update:model-value="updateHeaders"
+            key-placeholder="Header 名"
+            value-placeholder="值"
+            show-description
+            :readonly="isReadonlyModule"
+          />
+        </div>
+        <details class="cookies-section">
+          <summary class="section-label">Cookies <small>({{ currentApi?.cookies?.length || 0 }})</small></summary>
+          <CookieConfig
+            :model-value="currentApi?.cookies || []"
+            :auto-carry="store.autoCarryCookies"
+            @update:model-value="updateCookies"
+            @update:auto-carry="updateAutoCarryCookies"
+            :readonly="isReadonlyModule"
+          />
+        </details>
       </div>
       <div v-if="activeTab === 'auth'" class="tab-inner">
         <AuthConfig
@@ -359,7 +314,7 @@ function formatLogTime(ts: number): string {
       <div v-if="activeTab === 'variables'" class="tab-inner request-vars-tab">
         <div class="request-vars-hint">
           <strong>请求级临时变量</strong>
-          <span>仅当前接口生效，优先级高于模块本地/远程值和全局环境变量，可在 URL、Header、Body、脚本中用 <code>&#123;&#123;变量名&#125;&#125;</code> 引用。</span>
+          <span>仅当前接口生效,优先级高于集合变量和全局环境变量,可在 URL、Header、Body、脚本中用 <code>&#123;&#123;变量名&#125;&#125;</code> 引用。</span>
         </div>
         <KvEditor
           :model-value="currentApi?.requestVariables || []"
@@ -373,7 +328,6 @@ function formatLogTime(ts: number): string {
       <div v-if="activeTab === 'pre-script'" class="tab-inner script-tab-inner">
         <div class="script-toolbar">
           <button class="btn btn-sm btn-primary" @click="runCurrentScriptFlow">运行脚本</button>
-          <button class="btn btn-sm" :disabled="isReadonlyModule || !currentApi?.preRequestScript" @click="resetPreScript">重置</button>
           <button
             v-for="snippet in scriptSnippets"
             :key="`pre-${snippet.label}`"
@@ -383,9 +337,10 @@ function formatLogTime(ts: number): string {
           >{{ snippet.label }}</button>
         </div>
         <CodeMirrorEditor
+          class="script-editor"
           :model-value="currentApi?.preRequestScript || ''"
           language="javascript"
-          placeholder="// 前置脚本：在请求发送前执行"
+          placeholder="// 前置脚本:在请求发送前执行"
           @update:model-value="updatePreScript"
           :readonly="isReadonlyModule"
         />
@@ -402,7 +357,6 @@ function formatLogTime(ts: number): string {
       <div v-if="activeTab === 'post-script'" class="tab-inner script-tab-inner">
         <div class="script-toolbar">
           <button class="btn btn-sm btn-primary" @click="runCurrentScriptFlow">运行脚本</button>
-          <button class="btn btn-sm" :disabled="isReadonlyModule || !currentApi?.postRequestScript" @click="resetPostScript">重置</button>
           <button
             v-for="snippet in scriptSnippets"
             :key="`post-${snippet.label}`"
@@ -412,9 +366,10 @@ function formatLogTime(ts: number): string {
           >{{ snippet.label }}</button>
         </div>
         <CodeMirrorEditor
+          class="script-editor"
           :model-value="currentApi?.postRequestScript || ''"
           language="javascript"
-          placeholder="// 后置脚本：在收到响应后执行"
+          placeholder="// 后置脚本:在收到响应后执行"
           @update:model-value="updatePostScript"
           :readonly="isReadonlyModule"
         />
@@ -437,78 +392,37 @@ function formatLogTime(ts: number): string {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-panel);
+  background: var(--primary-color);
 }
 
 .tab-header {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  padding: 8px 12px 0;
-  background: var(--bg-panel-elevated);
-  overflow: visible;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--divider-color);
+  padding: 0 8px;
+  min-height: 34px;
 }
 
 .tab-btn {
-  padding: 8px 12px;
+  padding: 8px 10px;
   border: none;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--secondary-color);
   cursor: pointer;
   font-size: var(--font-size-body);
-  font-weight: 650;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  transition: all 0.15s;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s ease, border-color 0.12s ease;
 }
 
 .tab-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--secondary-dark-color);
 }
 
 .tab-btn.active {
-  color: var(--primary);
-  background: var(--bg-panel);
-  border-color: var(--border);
-  box-shadow: 0 -2px 0 var(--primary) inset;
-}
-
-.tab-menu-wrap {
-  position: relative;
-}
-
-.tab-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 40;
-  min-width: 132px;
-  padding: 5px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-lg);
-}
-
-.tab-menu-item {
-  display: block;
-  width: 100%;
-  padding: 7px 9px;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  text-align: left;
-  font-size: var(--font-size-small);
-  font-weight: 700;
-}
-
-.tab-menu-item:hover,
-.tab-menu-item.active {
-  color: var(--primary);
-  background: var(--primary-soft);
+  color: var(--accent-color);
+  border-bottom-color: var(--accent-color);
 }
 
 .tab-content {
@@ -517,12 +431,35 @@ function formatLogTime(ts: number): string {
 }
 
 .tab-inner {
-  padding: 12px;
+  padding: 10px 12px;
   height: 100%;
 }
 
-.script-tab-inner {
-  min-height: 200px;
+.headers-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-label {
+  font-size: var(--font-size-tiny);
+  font-weight: 700;
+  color: var(--secondary-color);
+  margin-bottom: 6px;
+}
+
+.cookies-section summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.cookies-section summary::before {
+  content: '▸ ';
+  color: var(--secondary-light-color);
+}
+
+.cookies-section[open] summary::before {
+  content: '▾ ';
 }
 
 .request-vars-tab {
@@ -535,21 +472,33 @@ function formatLogTime(ts: number): string {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-lg);
-  background: var(--bg-code);
-  color: var(--text-secondary);
-  font-size: var(--font-size-small);
+  padding: 8px 10px;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-md);
+  background: var(--primary-light-color);
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
   line-height: 1.6;
 }
 
 .request-vars-hint strong {
-  color: var(--text-primary);
+  color: var(--secondary-dark-color);
 }
 
 .request-vars-hint code {
-  color: var(--primary);
+  color: var(--accent-color);
+}
+
+.script-tab-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 220px;
+}
+
+.script-editor {
+  flex: 1;
+  min-height: 140px;
 }
 
 .script-toolbar {
@@ -557,69 +506,63 @@ function formatLogTime(ts: number): string {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
 }
 
 .script-log-panel {
-  margin-top: 10px;
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-lg);
-  background: var(--bg-code);
-  overflow: hidden;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-md);
+  background: var(--primary-light-color);
   font-family: var(--font-code);
-  font-size: var(--font-size-code);
+  font-size: var(--font-size-tiny);
+  max-height: 140px;
+  overflow-y: auto;
 }
 
 .script-log-panel strong {
   display: block;
-  padding: 7px 9px;
-  border-bottom: 1px solid var(--divider);
-  background: var(--bg-panel-elevated);
-  color: var(--text-primary);
+  position: sticky;
+  top: 0;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--divider-color);
+  background: var(--primary-dark-color);
+  color: var(--secondary-dark-color);
   font-family: var(--font-ui);
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-tiny);
 }
 
 .script-log-empty {
-  padding: 10px;
-  color: var(--text-tertiary);
+  padding: 8px;
+  color: var(--secondary-light-color);
   font-family: var(--font-ui);
 }
 
 .script-log-line {
   display: grid;
-  grid-template-columns: 102px 46px minmax(0, 1fr);
-  gap: 7px;
-  padding: 4px 9px;
-  border-bottom: 1px solid color-mix(in srgb, var(--divider) 55%, transparent);
-  color: var(--text-secondary);
-}
-
-.script-log-line:last-child {
-  border-bottom: none;
+  grid-template-columns: 90px 40px minmax(0, 1fr);
+  gap: 6px;
+  padding: 3px 8px;
+  color: var(--secondary-color);
 }
 
 .script-log-line em {
   font-style: normal;
-  font-weight: 800;
-  color: var(--primary);
+  font-weight: 700;
+  color: var(--accent-color);
 }
 
 .script-log-line code {
-  color: var(--text-primary);
+  color: var(--secondary-dark-color);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .script-log-line.log-error em,
 .script-log-line.log-error code {
-  color: var(--error);
+  color: var(--status-critical-error-color);
 }
 
 .script-log-line.log-warn em,
 .script-log-line.log-warn code {
-  color: var(--warning);
+  color: var(--status-redirect-color);
 }
-
-
 </style>
