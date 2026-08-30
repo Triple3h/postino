@@ -22,7 +22,7 @@ jobs:
             artifact_name: postino-win
             artifact_path: desktop/dist/*.exe
           - os: macos-latest
-            build_cmd: npm run build:mac
+            build_cmd: npm run build:desktop:mac
             artifact_name: postino-mac
             artifact_path: desktop/dist/*.dmg
 
