@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, toRaw, onMounted, onUnmounted } from 'vue'
-import { ChevronDown, Trash2, X } from '@lucide/vue'
+import { ChevronDown, Ellipsis, Plus, SquarePen, Trash2, X } from '@lucide/vue'
+import { useDialog } from '@/composables/useDialog'
 import type { KvPair } from '@/types'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
@@ -23,6 +24,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: KvPair[]]
 }>()
+
+const dialog = useDialog()
 
 const rows = ref<KvPair[]>([...props.modelValue])
 const fileInputRefs = ref<Map<number, HTMLInputElement>>(new Map())
@@ -176,6 +179,21 @@ function update() {
 
 function addRow() {
   rows.value.push({ key: '', value: '', enabled: true, description: '', type: 'text' })
+  update()
+}
+
+const hasContent = computed(() => rows.value.some(row => row.key.trim() || row.value.trim()))
+
+/** 清空全部行(Hoppscotch 式 🗑):有内容时二次确认 */
+async function clearAllRows() {
+  if (!hasContent.value) return
+  const ok = await dialog.confirm({
+    title: '清空全部',
+    message: `将清空当前 ${rows.value.length} 行内容,不可撤销。`,
+    confirmText: '清空',
+  })
+  if (!ok) return
+  rows.value = []
   update()
 }
 
@@ -504,10 +522,9 @@ const duplicateKeyIndices = computed(() => {
 
 <template>
   <div class="kv-editor">
-    <!-- Header row with action buttons -->
+    <!-- Header row with action buttons(Hoppscotch 式:右侧 🗑 清空 / ✏️ 批量编辑 / ＋ 新增 图标钮) -->
     <div class="kv-toolbar">
       <div class="kv-toolbar-left">
-        <button class="toolbar-btn add-inline-btn" @click="addRow" :disabled="readonly || bulkMode">+ 添加参数</button>
         <div v-if="presets?.length" class="kv-toolbar-menu" @click.stop>
           <button
             class="toolbar-btn"
@@ -526,14 +543,38 @@ const duplicateKeyIndices = computed(() => {
           </div>
         </div>
       </div>
-      <div class="kv-toolbar-menu" @click.stop>
-        <button class="toolbar-btn" :class="{ active: bulkMode || showActionsMenu }" @click="showActionsMenu = !showActionsMenu" :disabled="readonly" title="更多表格操作">
-          批量编辑 <ChevronDown :size="14" />
-        </button>
-        <div v-if="showActionsMenu" class="kv-action-dropdown">
-          <button class="kv-action-item" @click="toggleBulkMode">{{ bulkMode ? '完成批量编辑' : '批量编辑' }}</button>
-          <button class="kv-action-item" @click="sortRows" :disabled="bulkMode">按键名排序</button>
-          <button class="kv-action-item" @click="openImportDialog" :disabled="bulkMode">从文本导入</button>
+      <div class="kv-toolbar-right" @click.stop>
+        <button
+          class="toolbar-icon danger"
+          :disabled="readonly || !hasContent"
+          title="清空全部"
+          @click="clearAllRows"
+        ><Trash2 :size="14" /></button>
+        <button
+          class="toolbar-icon"
+          :class="{ active: bulkMode }"
+          :disabled="readonly && !bulkMode"
+          :title="bulkMode ? '完成批量编辑' : '批量编辑'"
+          @click="toggleBulkMode"
+        ><SquarePen :size="14" /></button>
+        <button
+          class="toolbar-icon"
+          :disabled="readonly || bulkMode"
+          title="新增一行"
+          @click="addRow"
+        ><Plus :size="14" /></button>
+        <div class="kv-toolbar-menu">
+          <button
+            class="toolbar-icon"
+            :class="{ active: showActionsMenu }"
+            :disabled="readonly || bulkMode"
+            title="按键名排序 / 从文本导入"
+            @click="showActionsMenu = !showActionsMenu"
+          ><Ellipsis :size="14" /></button>
+          <div v-if="showActionsMenu" class="kv-action-dropdown">
+            <button class="kv-action-item" @click="sortRows">按键名排序</button>
+            <button class="kv-action-item" @click="openImportDialog">从文本导入</button>
+          </div>
         </div>
       </div>
     </div>
@@ -755,6 +796,13 @@ const duplicateKeyIndices = computed(() => {
   position: relative;
 }
 
+.kv-toolbar-right {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .toolbar-btn {
   height: 24px;
   padding: 0 8px;
@@ -767,6 +815,40 @@ const duplicateKeyIndices = computed(() => {
   font-weight: 500;
   white-space: nowrap;
   transition: all 0.15s;
+}
+
+.toolbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbar-icon:hover:not(:disabled) {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.toolbar-icon.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.toolbar-icon.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-critical-error-color, #ef4444) 12%, transparent);
+  color: var(--status-critical-error-color, #ef4444);
+}
+
+.toolbar-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .toolbar-btn:hover:not(:disabled) {
@@ -783,11 +865,6 @@ const duplicateKeyIndices = computed(() => {
 .toolbar-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.add-inline-btn {
-  border-style: dashed;
-  color: var(--primary);
 }
 
 .kv-action-dropdown {
