@@ -8,6 +8,7 @@ import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 import { createDefaultAuthConfig } from '@/utils/auth'
+import { COMMON_HEADER_NAMES } from '@/utils/common-headers'
 import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem } from '@/types'
 
 const store = useAppStore()
@@ -306,6 +307,7 @@ function formatLogTime(ts: number): string {
             :readonly="isReadonlyModule"
             :presets="commonHeaders"
             presets-title="常用请求头"
+            :key-suggestions="COMMON_HEADER_NAMES"
           />
         </div>
         <details class="cookies-section">

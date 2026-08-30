@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick, toRaw, onMounted, onUnmounted } from 'vue'
 import { ChevronDown, Trash2, X } from '@lucide/vue'
 import type { KvPair } from '@/types'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
@@ -16,6 +16,8 @@ const props = defineProps<{
   presets?: Array<{ key: string; value?: string; label?: string }>
   /** 预设下拉按钮文案(默认「常用模板」) */
   presetsTitle?: string
+  /** key 输入自动补全数据源(如常见请求头名,Hoppscotch 式输入即过滤) */
+  keySuggestions?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -37,20 +39,139 @@ const showActionsMenu = ref(false)
 // --- Presets dropdown ---
 const showPresetsMenu = ref(false)
 
+// --- Key 输入自动补全(Hoppscotch EnvInput 式:输入即过滤,↑↓ 选择,Enter 确认,Esc 关闭) ---
+const keySuggestRow = ref<number | null>(null)
+const showKeySuggest = ref(false)
+const keySuggestIndex = ref(-1)
+const keyInputRefs = ref<Map<number, HTMLInputElement>>(new Map())
+const keySuggestDropdownRef = ref<HTMLElement | null>(null)
+/** 面板用 fixed 定位(Teleport 到 body),避免被 .kv-rows 的 overflow 裁剪 */
+const keySuggestPos = ref({ top: 0, left: 0, width: 260 })
+
+const keySuggestList = computed<string[]>(() => {
+  const source = props.keySuggestions
+  if (!source || source.length === 0 || keySuggestRow.value == null) return []
+  const value = rows.value[keySuggestRow.value]?.key ?? ''
+  if (value.trim()) {
+    const query = value.trim().toLowerCase()
+    return source.filter(item => item.toLowerCase().includes(query))
+  }
+  return []
+})
+
+function updateKeySuggestPos() {
+  if (keySuggestRow.value == null) return
+  const input = keyInputRefs.value.get(keySuggestRow.value)
+  if (!input) return
+  const rect = input.getBoundingClientRect()
+  keySuggestPos.value = {
+    top: rect.bottom + 4,
+    left: rect.left,
+    width: Math.max(rect.width, 260),
+  }
+}
+
+function openKeySuggest(rowIndex: number) {
+  if (!props.keySuggestions?.length || props.readonly || bulkMode.value) return
+  keySuggestRow.value = rowIndex
+  keySuggestIndex.value = -1
+  updateKeySuggestPos()
+  showKeySuggest.value = true
+}
+
+function closeKeySuggest() {
+  showKeySuggest.value = false
+  keySuggestIndex.value = -1
+}
+
+function moveKeySuggest(delta: 1 | -1) {
+  if (!showKeySuggest.value) {
+    showKeySuggest.value = true
+    return
+  }
+  const list = keySuggestList.value
+  if (!list.length) return
+  keySuggestIndex.value = Math.min(Math.max(keySuggestIndex.value + delta, 0), list.length - 1)
+}
+
+function onKeySuggestKeydown(rowIndex: number, event: KeyboardEvent) {
+  if (!showKeySuggest.value || keySuggestRow.value !== rowIndex) return
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    moveKeySuggest(1)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    moveKeySuggest(-1)
+  } else if (event.key === 'Enter') {
+    const list = keySuggestList.value
+    if (keySuggestIndex.value > -1 && list[keySuggestIndex.value]) {
+      event.preventDefault()
+      applyKeySuggestion(list[keySuggestIndex.value], rowIndex)
+    } else {
+      event.preventDefault()
+      closeKeySuggest()
+    }
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    closeKeySuggest()
+  }
+}
+
+function applyKeySuggestion(suggestion: string, rowIndex: number) {
+  const row = rows.value[rowIndex]
+  if (row) row.key = suggestion
+  closeKeySuggest()
+  update()
+  const input = keyInputRefs.value.get(rowIndex)
+  if (input) {
+    input.focus()
+    const end = input.value.length
+    input.setSelectionRange(end, end)
+  }
+}
+
+watch(keySuggestIndex, (idx) => {
+  if (idx < 0) return
+  nextTick(() => {
+    keySuggestDropdownRef.value?.querySelector('.key-suggest-item.active')?.scrollIntoView({ block: 'nearest' })
+  })
+})
+
+function onWindowScrollCapture() {
+  if (showKeySuggest.value) updateKeySuggestPos()
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', onWindowScrollCapture, true)
+  window.addEventListener('resize', updateKeySuggestPos)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', onWindowScrollCapture, true)
+  window.removeEventListener('resize', updateKeySuggestPos)
+})
+
 // --- Drag and drop ---
 const dragIndex = ref<number | null>(null)
 const dropIndex = ref<number | null>(null)
 
+// 最近一次 emit 给父组件的数组引用:update() 会把 rows 过滤后的数组发给父组件,
+// 父组件写回 modelValue 后会被 reactive 代理包裹,须用 toRaw 解包才能比对上同一数组。
+// 若不识别这个回声,deep watch 会用过滤结果覆盖 rows,
+// 把刚添加、还没填 key 的空行瞬间删掉(History:Headers/参数表格无法编辑的根因)。
+let lastEmitted: KvPair[] | null = null
+
 watch(() => props.modelValue, (val) => {
-  // 回声抑制:update() emit 的数组(经父组件写回)包含的仍是 rows 里的同一批对象引用,
-  // 此时不能用它覆盖 rows,否则"添加参数"的空 key 行会被 filter 掉导致行瞬间消失、无法输入。
-  const known = new Set(rows.value)
-  if (val.length > 0 && val.every(item => known.has(item))) return
+  if (val === lastEmitted || toRaw(val) === lastEmitted) return
+  lastEmitted = null
   rows.value = [...val]
+  // 切换请求/外部重置时收起补全面板(自身 emit 的回声不触发)
+  closeKeySuggest()
 }, { deep: true })
 
 function update() {
-  emit('update:modelValue', rows.value.filter(r => r.key.trim()))
+  lastEmitted = rows.value.filter(r => r.key.trim())
+  emit('update:modelValue', lastEmitted)
 }
 
 function addRow() {
@@ -451,11 +572,14 @@ const duplicateKeyIndices = computed(() => {
         </div>
         <div class="kv-col kv-col-key" :class="{ 'has-duplicate': duplicateKeyIndices.has(i) }">
           <input
+            :ref="(el) => { if (el) keyInputRefs.set(i, el as HTMLInputElement) }"
             type="text"
             v-model="row.key"
             :placeholder="keyPlaceholder || 'Key'"
             :disabled="readonly || !row.enabled"
-            @input="update"
+            @input="update(); openKeySuggest(i)"
+            @keydown="onKeySuggestKeydown(i, $event)"
+            @blur="closeKeySuggest"
           />
           <span
             v-if="duplicateKeyIndices.has(i)"
@@ -567,6 +691,32 @@ const duplicateKeyIndices = computed(() => {
       </div>
     </Teleport>
   </div>
+
+  <!-- key 补全面板(参考 Hoppscotch):Teleport + fixed 定位,避免被表格滚动容器裁剪;
+       mousedown.prevent 避免点击项时输入框先失焦 -->
+  <Teleport to="body">
+    <div
+      v-if="showKeySuggest && keySuggestRow != null && keySuggestList.length"
+      ref="keySuggestDropdownRef"
+      class="key-suggest-dropdown"
+      :style="{ top: keySuggestPos.top + 'px', left: keySuggestPos.left + 'px', width: keySuggestPos.width + 'px' }"
+    >
+      <div class="key-suggest-list">
+        <button
+          v-for="(suggestion, si) in keySuggestList"
+          :key="suggestion"
+          type="button"
+          class="key-suggest-item"
+          :class="{ active: si === keySuggestIndex }"
+          :title="suggestion"
+          @mousedown.prevent
+          @mouseenter="keySuggestIndex = si"
+          @click="keySuggestRow != null && applyKeySuggestion(suggestion, keySuggestRow)"
+        >{{ suggestion }}</button>
+      </div>
+      <div class="key-suggest-hint"><kbd>↑↓</kbd> 选择 <kbd>Enter</kbd> 选中 <kbd>Esc</kbd> 关闭</div>
+    </div>
+  </Teleport>
 
   <VariableAutocomplete
     :visible="valueAutocomplete.showAutocomplete.value"
@@ -785,6 +935,69 @@ const duplicateKeyIndices = computed(() => {
 
 .kv-col-key.has-duplicate input[type="text"] {
   padding-right: 26px;
+}
+
+/* ========== Key 补全面板(Hoppscotch 式) ========== */
+
+.key-suggest-dropdown {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-elevated, var(--bg-panel));
+  box-shadow: var(--shadow-lg);
+}
+
+.key-suggest-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.key-suggest-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono, 'Menlo', 'Consolas', monospace);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-suggest-item.active,
+.key-suggest-item:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.key-suggest-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 10px 3px;
+  border-top: 1px solid var(--divider);
+  margin-top: 3px;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.key-suggest-hint kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, 'Menlo', 'Consolas', monospace);
+  font-size: 9px;
 }
 
 .kv-col-type {
