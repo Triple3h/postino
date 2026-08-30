@@ -1,6 +1,210 @@
 var ApiFixPmFacade = (function(exports) {
 	Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+	//#region src/scripting/crypto-shim.ts
+	/**
+	* 脚本沙箱共用的 CryptoJS shim(单一真源)。
+	* 消费方:src/scripting/pm-facade.ts(worker/iframe 沙箱)与 src/utils/pre-request.ts(页面直执行兜底)。
+	* 覆盖签名脚本最常用的 API:SHA256 / HmacSHA256 / CryptoJS.enc.{Hex,Base64,Utf8,Latin1}。
+	* hash 结果 toString(无参或 CryptoJS.enc.Hex)= 小写 hex;其余编码器按原始字节转换。
+	* 注意:此文件在 worker / 沙箱 iframe / 页面 / Node 测试四个环境运行,只能依赖全局
+	* btoa/atob/TextDecoder(模块闭包拿到的都是宿主真身,不受沙箱参数遮蔽影响)。
+	*/
+	function createCryptoJsShim() {
+		const K = [
+			1116352408,
+			1899447441,
+			3049323471,
+			3921009573,
+			961987163,
+			1508970993,
+			2453635748,
+			2870763221,
+			3624381080,
+			310598401,
+			607225278,
+			1426881987,
+			1925078388,
+			2162078206,
+			2614888103,
+			3248222580,
+			3835390401,
+			4022224774,
+			264347078,
+			604807628,
+			770255983,
+			1249150122,
+			1555081692,
+			1996064986,
+			2554220882,
+			2821834349,
+			2952996808,
+			3210313671,
+			3336571891,
+			3584528711,
+			113926993,
+			338241895,
+			666307205,
+			773529912,
+			1294757372,
+			1396182291,
+			1695183700,
+			1986661051,
+			2177026350,
+			2456956037,
+			2730485921,
+			2820302411,
+			3259730800,
+			3345764771,
+			3516065817,
+			3600352804,
+			4094571909,
+			275423344,
+			430227734,
+			506948616,
+			659060556,
+			883997877,
+			958139571,
+			1322822218,
+			1537002063,
+			1747873779,
+			1955562222,
+			2024104815,
+			2227730452,
+			2361852424,
+			2428436474,
+			2756734187,
+			3204031479,
+			3329325298
+		];
+		const stringToBytes = (str) => {
+			const bytes = [];
+			for (let i = 0; i < str.length; i++) {
+				const code = str.charCodeAt(i);
+				if (code < 128) bytes.push(code);
+				else if (code < 2048) bytes.push(192 | code >> 6, 128 | code & 63);
+				else if (code < 55296 || code >= 57344) bytes.push(224 | code >> 12, 128 | code >> 6 & 63, 128 | code & 63);
+				else {
+					i++;
+					const cp = 65536 + ((code & 1023) << 10 | str.charCodeAt(i) & 1023);
+					bytes.push(240 | cp >> 18, 128 | cp >> 12 & 63, 128 | cp >> 6 & 63, 128 | cp & 63);
+				}
+			}
+			return bytes;
+		};
+		const sha256 = (bytes) => {
+			const padded = bytes.slice();
+			padded.push(128);
+			while (padded.length % 64 !== 56) padded.push(0);
+			const bitLen = bytes.length * 8;
+			for (let i = 56; i >= 0; i -= 8) padded.push(Math.floor(bitLen / Math.pow(2, i)) & 255);
+			let h0 = 1779033703, h1 = 3144134277, h2 = 1013904242, h3 = 2773480762;
+			let h4 = 1359893119, h5 = 2600822924, h6 = 528734635, h7 = 1541459225;
+			for (let offset = 0; offset < padded.length; offset += 64) {
+				const w = new Array(64);
+				for (let j = 0; j < 16; j++) w[j] = padded[offset + j * 4] << 24 | padded[offset + j * 4 + 1] << 16 | padded[offset + j * 4 + 2] << 8 | padded[offset + j * 4 + 3];
+				for (let j = 16; j < 64; j++) {
+					const s0 = (w[j - 15] >>> 7 | w[j - 15] << 25) ^ (w[j - 15] >>> 18 | w[j - 15] << 14) ^ w[j - 15] >>> 3;
+					const s1 = (w[j - 2] >>> 17 | w[j - 2] << 15) ^ (w[j - 2] >>> 19 | w[j - 2] << 13) ^ w[j - 2] >>> 10;
+					w[j] = w[j - 16] + s0 + w[j - 7] + s1 | 0;
+				}
+				let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
+				for (let j = 0; j < 64; j++) {
+					const S1 = (e >>> 6 | e << 26) ^ (e >>> 11 | e << 21) ^ (e >>> 25 | e << 7);
+					const ch = e & f ^ ~e & g;
+					const temp1 = h + S1 + ch + K[j] + w[j] | 0;
+					const temp2 = ((a >>> 2 | a << 30) ^ (a >>> 13 | a << 19) ^ (a >>> 22 | a << 10)) + (a & b ^ a & c ^ b & c) | 0;
+					h = g;
+					g = f;
+					f = e;
+					e = d + temp1 | 0;
+					d = c;
+					c = b;
+					b = a;
+					a = temp1 + temp2 | 0;
+				}
+				h0 = h0 + a | 0;
+				h1 = h1 + b | 0;
+				h2 = h2 + c | 0;
+				h3 = h3 + d | 0;
+				h4 = h4 + e | 0;
+				h5 = h5 + f | 0;
+				h6 = h6 + g | 0;
+				h7 = h7 + h | 0;
+			}
+			return [
+				h0,
+				h1,
+				h2,
+				h3,
+				h4,
+				h5,
+				h6,
+				h7
+			].map((item) => ("00000000" + (item >>> 0).toString(16)).slice(-8)).join("");
+		};
+		const hexToBytes = (hex) => {
+			const bytes = [];
+			for (let i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.slice(i, i + 2), 16));
+			return bytes;
+		};
+		const bytesToBase64 = (bytes) => btoa(bytes.map((b) => String.fromCharCode(b & 255)).join(""));
+		const bytesToUtf8 = (bytes) => new TextDecoder().decode(new Uint8Array(bytes));
+		const bytesToLatin1 = (bytes) => bytes.map((b) => String.fromCharCode(b & 255)).join("");
+		const toBytes = (input) => {
+			if (typeof input === "string") return stringToBytes(input);
+			if (Array.isArray(input)) return input.map((b) => Number(b) & 255);
+			return stringToBytes(String(input ?? ""));
+		};
+		const enc = {
+			Hex: {
+				stringify: (value) => String(value),
+				parse: (value) => hexToBytes(String(value))
+			},
+			Base64: {
+				stringify: (value) => bytesToBase64(hexToBytes(String(value))),
+				parse: (value) => Array.from(atob(String(value)), (ch) => ch.charCodeAt(0) & 255)
+			},
+			Utf8: {
+				stringify: (value) => bytesToUtf8(hexToBytes(String(value))),
+				parse: (value) => stringToBytes(String(value))
+			},
+			Latin1: {
+				stringify: (value) => bytesToLatin1(hexToBytes(String(value))),
+				parse: (value) => Array.from(String(value), (ch) => ch.charCodeAt(0) & 255)
+			}
+		};
+		const wrapHash = (hashHex) => ({ toString(encoder) {
+			const stringify = encoder?.stringify;
+			return typeof stringify === "function" ? stringify(hashHex) : hashHex;
+		} });
+		return {
+			enc,
+			SHA256(message) {
+				return wrapHash(sha256(toBytes(message)));
+			},
+			/** HmacSHA256(message, key):key 为字符串(按 UTF-8)或 enc.*.parse 得到的字节数组 */
+			HmacSHA256(message, key) {
+				let keyBytes = toBytes(key);
+				if (keyBytes.length > 64) keyBytes = hexToBytes(sha256(keyBytes));
+				const block = keyBytes.slice();
+				while (block.length < 64) block.push(0);
+				const ipad = block.map((b) => b ^ 54);
+				return wrapHash(sha256(block.map((b) => b ^ 92).concat(hexToBytes(sha256(ipad.concat(toBytes(message)))))));
+			}
+		};
+	}
+	//#endregion
 	//#region src/scripting/pm-facade.ts
+	/**
+	* pm.* 门面运行时(Phase 4.3 沙箱双副本收敛)
+	*
+	* 单一真源:由 Vite lib 模式构建为 IIFE 产物 `extension/pm-facade.js`(勿手改该产物),
+	* `script-worker.js` 经 importScripts 加载,`sandbox.html` 经 <script src> 加载 ——
+	* 两处消费同一产物,天然一致。
+	*
+	* 环境差异(Worker self ⇄ 沙箱 iframe window/parent)收敛为 FacadeTransport,
+	* 文件底部按 importScripts 是否存在自动装配,并防重复安装。
+	*/
 	function installPmFacade(transport) {
 		function formatLogArg(arg) {
 			if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
@@ -106,136 +310,6 @@ var ApiFixPmFacade = (function(exports) {
 					};
 				}
 			});
-		}
-		function createCryptoJsShim() {
-			const K = [
-				1116352408,
-				1899447441,
-				3049323471,
-				3921009573,
-				961987163,
-				1508970993,
-				2453635748,
-				2870763221,
-				3624381080,
-				310598401,
-				607225278,
-				1426881987,
-				1925078388,
-				2162078206,
-				2614888103,
-				3248222580,
-				3835390401,
-				4022224774,
-				264347078,
-				604807628,
-				770255983,
-				1249150122,
-				1555081692,
-				1996064986,
-				2554220882,
-				2821834349,
-				2952996808,
-				3210313671,
-				3336571891,
-				3584528711,
-				113926993,
-				338241895,
-				2730485921,
-				2820302411,
-				3259730800,
-				3345764771,
-				3516065817,
-				3600352804,
-				4094571909,
-				275423344,
-				430227734,
-				506948616,
-				659060556,
-				883997877,
-				958139571,
-				1322822218,
-				1537002063,
-				1747873779,
-				1955562222,
-				2024104815,
-				2227730452,
-				2361852424,
-				2428436474,
-				2756734187,
-				3204031479,
-				3329325298
-			];
-			const stringToBytes = (str) => {
-				const bytes = [];
-				for (let i = 0; i < str.length; i++) {
-					const code = str.charCodeAt(i);
-					if (code < 128) bytes.push(code);
-					else if (code < 2048) bytes.push(192 | code >> 6, 128 | code & 63);
-					else if (code < 55296 || code >= 57344) bytes.push(224 | code >> 12, 128 | code >> 6 & 63, 128 | code & 63);
-					else {
-						i++;
-						const cp = 65536 + ((code & 1023) << 10 | str.charCodeAt(i) & 1023);
-						bytes.push(240 | cp >> 18, 128 | cp >> 12 & 63, 128 | cp >> 6 & 63, 128 | cp & 63);
-					}
-				}
-				return bytes;
-			};
-			const sha256 = (bytes) => {
-				const padded = bytes.slice();
-				padded.push(128);
-				while (padded.length % 64 !== 56) padded.push(0);
-				const bitLen = bytes.length * 8;
-				for (let i = 56; i >= 0; i -= 8) padded.push(Math.floor(bitLen / Math.pow(2, i)) & 255);
-				let h0 = 1779033703, h1 = 3144134277, h2 = 1013904242, h3 = 2773480762;
-				let h4 = 1359893119, h5 = 2600822924, h6 = 528734635, h7 = 1541459225;
-				for (let offset = 0; offset < padded.length; offset += 64) {
-					const w = new Array(64);
-					for (let j = 0; j < 16; j++) w[j] = padded[offset + j * 4] << 24 | padded[offset + j * 4 + 1] << 16 | padded[offset + j * 4 + 2] << 8 | padded[offset + j * 4 + 3];
-					for (let j = 16; j < 64; j++) {
-						const s0 = (w[j - 15] >>> 7 | w[j - 15] << 25) ^ (w[j - 15] >>> 18 | w[j - 15] << 14) ^ w[j - 15] >>> 3;
-						const s1 = (w[j - 2] >>> 17 | w[j - 2] << 15) ^ (w[j - 2] >>> 19 | w[j - 2] << 13) ^ w[j - 2] >>> 10;
-						w[j] = w[j - 16] + s0 + w[j - 7] + s1 | 0;
-					}
-					let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
-					for (let j = 0; j < 64; j++) {
-						const S1 = (e >>> 6 | e << 26) ^ (e >>> 11 | e << 21) ^ (e >>> 25 | e << 7);
-						const ch = e & f ^ ~e & g;
-						const temp1 = h + S1 + ch + K[j] + w[j] | 0;
-						const temp2 = ((a >>> 2 | a << 30) ^ (a >>> 13 | a << 19) ^ (a >>> 22 | a << 10)) + (a & b ^ a & c ^ b & c) | 0;
-						h = g;
-						g = f;
-						f = e;
-						e = d + temp1 | 0;
-						d = c;
-						c = b;
-						b = a;
-						a = temp1 + temp2 | 0;
-					}
-					h0 = h0 + a | 0;
-					h1 = h1 + b | 0;
-					h2 = h2 + c | 0;
-					h3 = h3 + d | 0;
-					h4 = h4 + e | 0;
-					h5 = h5 + f | 0;
-					h6 = h6 + g | 0;
-					h7 = h7 + h | 0;
-				}
-				return [
-					h0,
-					h1,
-					h2,
-					h3,
-					h4,
-					h5,
-					h6,
-					h7
-				].map((item) => ("00000000" + (item >>> 0).toString(16)).slice(-8)).join("");
-			};
-			return { SHA256(message) {
-				const hashHex = sha256(typeof message === "string" ? stringToBytes(message) : Array.isArray(message) ? message : stringToBytes(String(message ?? "")));
-				return { toString: () => hashHex };
-			} };
 		}
 		function normalizeKvInput(input, value) {
 			if (Array.isArray(input)) return input.flatMap((item) => normalizeKvInput(item));
