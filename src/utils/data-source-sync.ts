@@ -479,7 +479,7 @@ export async function syncModuleDataSource(
     for (const imported of importedApis) {
       const existing = findModuleApiByMethodUrl(moduleId, imported)
       if (existing) {
-        store.updateApi(existing.id, {
+        void store.updateApiNow(existing.id, {
           name: imported.name,
           description: imported.description,
           headers: imported.headers,

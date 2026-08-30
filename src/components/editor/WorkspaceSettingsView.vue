@@ -499,7 +499,7 @@ async function applyModuleBulkEdit() {
     const { next, changed } = applyBulkEditToPairs([...(api[target] ?? [])], target)
     if (!changed) continue
     changedCount++
-    store.updateApi(api.id, { [target]: next } as Pick<ApiConfig, typeof target>)
+    void store.updateApiNow(api.id, { [target]: next } as Pick<ApiConfig, typeof target>)
   }
   if (changedCount > 0) {
     await recordModuleAudit('批量编辑请求', `${operationLabel}${targetLabel}「${key}」，影响 ${changedCount} 个接口`)
@@ -824,7 +824,7 @@ async function renameVariableAcrossModule() {
   }
 
   for (const api of refs) {
-    store.updateApi(api.id, {
+    void store.updateApiNow(api.id, {
       url: replaceTemplateRefInString(api.url, from, to),
       params: replaceTemplateRefsInPairs(api.params, from, to),
       headers: replaceTemplateRefsInPairs(api.headers, from, to),
@@ -934,7 +934,7 @@ async function syncOpenApiTextToModule() {
         skipped++
         continue
       }
-      store.updateApi(existingApi.id, {
+      void store.updateApiNow(existingApi.id, {
         name: imported.name,
         headers: imported.headers,
         params: imported.params,

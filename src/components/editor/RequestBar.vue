@@ -855,11 +855,10 @@ function openCodeGen() {
   showCodeGenPanel.value = true
 }
 
-/** FR-2.5:保存按钮 → Save 弹窗(M2 接管);M1 过渡期同时刷新 updatedAt */
+/** FR-2.5:保存按钮 → Save 弹窗(已保存请求静默落库并熄灭未保存圆点) */
 function saveCurrentApi() {
   if (!currentApi.value || isReadonlyModule.value) return
   window.dispatchEvent(new CustomEvent('apifix:save-request'))
-  store.updateApi(currentApi.value.id, { updatedAt: Date.now() })
 }
 
 function copyAsCurl() {

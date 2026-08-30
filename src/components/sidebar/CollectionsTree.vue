@@ -239,7 +239,7 @@ async function commitRename() {
     if (isFolderNode(node)) {
       await workspace.updateInterfaceNode(node.id, { name })
     } else if (node.apiId) {
-      store.updateApi(node.apiId, { name })
+      await store.updateApiNow(node.apiId, { name })
     }
   }
 }

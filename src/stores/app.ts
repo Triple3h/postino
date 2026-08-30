@@ -4,6 +4,7 @@ import type { ApiConfig, Category, CollectionExportDocument, CollectionVariable,
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 import type { ImportedPostmanTree } from '@/utils/import'
 import { db } from '@/db'
+import { useDialog } from '@/composables/useDialog'
 import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
 import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
 import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
@@ -205,6 +206,24 @@ interface TabEditorState {
   scriptTests: ScriptTestResult[]
 }
 
+/** 请求内容基线:打开标签/保存成功时拍快照,dirty = 当前内容与基线不一致 */
+interface ApiSnapshot {
+  /** 剥离 updatedAt 后的 JSON(逐键比较用) */
+  json: string
+  /** 拍快照时的完整副本(放弃修改时回滚用) */
+  baseline: ApiConfig
+}
+
+/** 快照 JSON:updatedAt 每次编辑都会刷新,归一成常量再比较 */
+function apiSnapshotJson(api: ApiConfig): string {
+  return JSON.stringify({ ...api, updatedAt: 0 })
+}
+
+function cloneApi(api: ApiConfig): ApiConfig {
+  // 必须转纯对象:reactive Proxy 无法被 IndexedDB 结构化克隆(DataCloneError)
+  return JSON.parse(JSON.stringify(api)) as ApiConfig
+}
+
 export const useAppStore = defineStore('app', () => {
   const apis = ref<Record<string, ApiConfig>>({})
   const groups = ref<Record<string, Group>>({})
@@ -219,6 +238,8 @@ export const useAppStore = defineStore('app', () => {
   const loading = ref(false)
   /** 非激活标签的编辑态暂存(运行时,不持久化) */
   const tabStates: Record<string, TabEditorState> = {}
+  /** 每个已打开标签的请求内容基线(运行时,不持久化) */
+  const apiSnapshots: Record<string, ApiSnapshot> = {}
   const environments = ref<Environment[]>([])
   const currentEnvId = ref<string | null>(null)
   const history = ref<HistoryEntry[]>([])
@@ -292,6 +313,7 @@ export const useAppStore = defineStore('app', () => {
       const savedActive = settingsList.find(s => s.key === ACTIVE_TAB_SETTINGS_KEY)?.value
       if (Array.isArray(savedTabs)) {
         openTabs.value = savedTabs.filter(id => typeof id === 'string' && Boolean(apis.value[id]))
+        for (const id of openTabs.value) markApiSnapshot(id)
         const active = typeof savedActive === 'string' && openTabs.value.includes(savedActive)
           ? savedActive
           : openTabs.value[0] ?? null
@@ -357,10 +379,13 @@ export const useAppStore = defineStore('app', () => {
     void persistTabs()
   }
 
-  /** 在标签页中打开请求(已打开则仅激活) */
+  /** 在标签页中打开请求(已打开则仅激活);新开标签拍内容基线 */
   function openApiInTab(apiId: string, options: { activate?: boolean } = {}): void {
     if (!apis.value[apiId]) return
-    if (!openTabs.value.includes(apiId)) openTabs.value.push(apiId)
+    if (!openTabs.value.includes(apiId)) {
+      openTabs.value.push(apiId)
+      markApiSnapshot(apiId)
+    }
     if (options.activate === false) {
       void persistTabs()
       return
@@ -368,12 +393,13 @@ export const useAppStore = defineStore('app', () => {
     activateTab(apiId)
   }
 
-  /** 关闭标签(不删除请求本身);激活标签被关时自动移到相邻标签 */
-  function closeTab(apiId: string): void {
+  /** 关闭标签的底层动作(无确认);激活标签被关时自动移到相邻标签 */
+  function closeTabNow(apiId: string): void {
     const idx = openTabs.value.indexOf(apiId)
     if (idx === -1) return
     openTabs.value.splice(idx, 1)
     delete tabStates[apiId]
+    delete apiSnapshots[apiId]
     if (currentApiId.value === apiId) {
       const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)] ?? null
       currentApiId.value = next
@@ -386,34 +412,99 @@ export const useAppStore = defineStore('app', () => {
     void persistTabs()
   }
 
-  function closeOtherTabs(apiId: string): void {
-    openTabs.value = openTabs.value.includes(apiId) ? [apiId] : []
-    if (!openTabs.value.includes(currentApiId.value ?? '')) {
-      activateTab(apiId)
+  /**
+   * 关闭前对存在未保存修改的标签统一确认(保存并关闭 / 不保存 / 取消)。
+   * 返回实际允许关闭的 id 列表;取消返回 null。
+   * 新建未保存(不在集合树)的请求无法静默保存:选「保存并关闭」时保留标签并弹出命名保存。
+   */
+  async function confirmCloseTargets(targets: string[]): Promise<string[] | null> {
+    const dirtyTargets = targets.filter(id => isApiDirty(id))
+    if (dirtyTargets.length === 0) return targets
+
+    const dialog = useDialog()
+    if (targets.length === 1) {
+      const id = targets[0]
+      const name = apis.value[id]?.name ?? '未命名请求'
+      if (!isApiUnsaved(id)) {
+        const choice = await dialog.confirmTertiary({
+          title: '未保存的修改',
+          message: `「${name}」有未保存的修改，关闭前要保存吗？`,
+          confirmText: '保存并关闭',
+          tertiaryText: '不保存',
+          cancelText: '取消',
+        })
+        if (choice === 'cancel') return null
+        if (choice === 'confirm') await saveApi(id)
+        else await discardApiChanges(id)
+        return targets
+      }
+      // 新建未保存请求:保存需要命名 + 选落点,弹出保存弹窗且不自动关闭
+      const choice = await dialog.confirmTertiary({
+        title: '未保存的请求',
+        message: `「${name}」尚未保存进集合树，关闭将放弃本次编辑的内容。`,
+        confirmText: '去保存',
+        tertiaryText: '放弃并关闭',
+        cancelText: '取消',
+        danger: true,
+      })
+      if (choice === 'cancel') return null
+      if (choice === 'confirm') {
+        activateTab(id)
+        window.dispatchEvent(new CustomEvent('apifix:save-request'))
+        return null
+      }
+      await discardApiChanges(id)
+      return targets
     }
-    void persistTabs()
+
+    const choice = await dialog.confirmTertiary({
+      title: '未保存的修改',
+      message: `${dirtyTargets.length} 个标签存在未保存的修改，关闭前要保存吗？`,
+      confirmText: '保存并关闭',
+      tertiaryText: '不保存',
+      cancelText: '取消',
+    })
+    if (choice === 'cancel') return null
+    if (choice === 'tertiary') {
+      for (const id of dirtyTargets) await discardApiChanges(id)
+      return targets
+    }
+    const keepOpen = new Set<string>()
+    for (const id of dirtyTargets) {
+      if (isApiUnsaved(id)) {
+        keepOpen.add(id)
+        continue
+      }
+      await saveApi(id)
+    }
+    return targets.filter(id => !keepOpen.has(id))
   }
 
-  function closeTabsToTheRight(apiId: string): void {
+  /** 关闭标签;有未保存修改时先确认 */
+  async function closeTab(apiId: string): Promise<void> {
+    const allowed = await confirmCloseTargets([apiId])
+    if (!allowed) return
+    closeTabNow(apiId)
+  }
+
+  async function closeOtherTabs(apiId: string): Promise<void> {
+    const allowed = await confirmCloseTargets(openTabs.value.filter(id => id !== apiId))
+    if (!allowed) return
+    for (const id of allowed) closeTabNow(id)
+  }
+
+  async function closeTabsToTheRight(apiId: string): Promise<void> {
     const idx = openTabs.value.indexOf(apiId)
     if (idx === -1) return
-    for (const id of openTabs.value.slice(idx + 1)) delete tabStates[id]
-    openTabs.value = openTabs.value.slice(0, idx + 1)
-    if (currentApiId.value && !openTabs.value.includes(currentApiId.value)) {
-      activateTab(apiId)
-    }
-    void persistTabs()
+    const allowed = await confirmCloseTargets(openTabs.value.slice(idx + 1))
+    if (!allowed) return
+    for (const id of allowed) closeTabNow(id)
   }
 
-  function closeAllTabs(): void {
-    openTabs.value = []
-    for (const id of Object.keys(tabStates)) delete tabStates[id]
-    currentApiId.value = null
-    response.value = null
-    scriptLogs.value = []
-    scriptVisualizations.value = []
-    scriptTests.value = []
-    void persistTabs()
+  async function closeAllTabs(): Promise<void> {
+    const allowed = await confirmCloseTargets([...openTabs.value])
+    if (!allowed) return
+    for (const id of allowed) closeTabNow(id)
   }
 
   /**
@@ -446,6 +537,7 @@ export const useAppStore = defineStore('app', () => {
     } catch (e) {
       console.error('Failed to add API to IndexedDB:', e)
     }
+    markApiSnapshot(api.id)
     pendingSaveTarget.value = target ?? null
     if (currentApiId.value) {
       tabStates[currentApiId.value] = {
@@ -471,15 +563,89 @@ export const useAppStore = defineStore('app', () => {
     return !useWorkspaceStore().interfaces.some(item => item.apiId === apiId && (item.nodeType ?? 'request') === 'request')
   }
 
+  /** 编辑器改动:只写内存(标签圆点亮起),显式保存(saveApi / Cmd+S)才落库 */
   function updateApi(id: string, updates: Partial<ApiConfig>) {
     const api = apis.value[id]
     if (api) {
       const merged = { ...updates, updatedAt: Date.now() }
       if (updates.auth) merged.auth = normalizeAuthConfig(updates.auth)
       Object.assign(api, merged)
-      db.apis.update(id, merged).catch(e => console.error('Failed to update API in IndexedDB:', e))
-      useWorkspaceStore().syncInterfaceFromApi(api).catch(e => console.error('Failed to sync interface in IndexedDB:', e))
     }
+  }
+
+  /** 拍/重置请求的内容基线(新开标签、保存成功后调用),未保存圆点随之熄灭 */
+  function markApiSnapshot(apiId: string): void {
+    const api = apis.value[apiId]
+    if (!api) return
+    apiSnapshots[apiId] = { json: apiSnapshotJson(api), baseline: cloneApi(api) }
+  }
+
+  /** 请求是否有未保存修改(仅对已打开标签有意义) */
+  function isApiDirty(apiId: string | null): boolean {
+    if (!apiId || !openTabs.value.includes(apiId)) return false
+    const snap = apiSnapshots[apiId]
+    const api = apis.value[apiId]
+    if (!snap || !api) return false
+    return apiSnapshotJson(api) !== snap.json
+  }
+
+  /** 显式保存:内存内容写入 IndexedDB 并同步集合树,随后熄灭未保存圆点 */
+  async function saveApi(id: string): Promise<void> {
+    const api = apis.value[id]
+    if (!api) return
+    api.updatedAt = Date.now()
+    try {
+      await db.apis.put(cloneApi(api))
+      await useWorkspaceStore().syncInterfaceFromApi(api)
+    } catch (e) {
+      console.error('Failed to save API to IndexedDB:', e)
+      return
+    }
+    markApiSnapshot(id)
+  }
+
+  /** 更新并立即持久化(侧栏重命名、模块批量设置、导入合并等树级操作;编辑器编辑请走 updateApi) */
+  async function updateApiNow(id: string, updates: Partial<ApiConfig>): Promise<void> {
+    updateApi(id, updates)
+    await saveApi(id)
+  }
+
+  /** 放弃未保存修改:回滚到上次基线 */
+  async function discardApiChanges(id: string): Promise<void> {
+    const snap = apiSnapshots[id]
+    if (snap && apis.value[id]) {
+      apis.value[id] = cloneApi(snap.baseline)
+    }
+    markApiSnapshot(id)
+  }
+
+  /** 页面卸载/转入后台前的兜底:把未落库的编辑写入 IndexedDB 防丢(不改变圆点状态) */
+  async function flushDirtyApis(): Promise<void> {
+    const dirtyIds = openTabs.value.filter(id => isApiDirty(id))
+    if (!dirtyIds.length) return
+    try {
+      await db.apis.bulkPut(dirtyIds.map(id => apis.value[id]).filter((api): api is ApiConfig => Boolean(api)).map(cloneApi))
+    } catch (e) {
+      console.error('Failed to flush dirty APIs:', e)
+    }
+  }
+
+  /**
+   * 跨视图同步(CrossViewSyncBridge)用:用 db 内容刷新内存。
+   * 编辑只进内存后,直接整体替换会冲掉未落库修改 —— 这里对已打开且 dirty 的请求保留本地版本,
+   * db 里没有的本地请求(如新建未保存标签)也保留。
+   */
+  function mergeApisFromDb(list: ApiConfig[]): void {
+    const next: Record<string, ApiConfig> = {}
+    for (const api of list) {
+      api.auth = normalizeAuthConfig(api.auth)
+      const local = apis.value[api.id]
+      next[api.id] = local && isApiDirty(api.id) ? local : api
+    }
+    for (const [id, api] of Object.entries(apis.value)) {
+      if (!next[id]) next[id] = api
+    }
+    apis.value = next
   }
 
   async function addApi(api: ApiConfig, moduleId?: string | null, parentId: string | null = null): Promise<void> {
@@ -491,6 +657,7 @@ export const useAppStore = defineStore('app', () => {
     } catch (e) {
       console.error('Failed to add API to IndexedDB:', e)
     }
+    markApiSnapshot(api.id)
   }
 
   /** Phase 4.4:Postman v2.1 树形导入 —— 建集合 + 文件夹树 + 请求,集合/文件夹级 auth/变量/脚本落位 */
@@ -572,7 +739,8 @@ export const useAppStore = defineStore('app', () => {
 
   function deleteApi(id: string) {
     delete apis.value[id]
-    if (openTabs.value.includes(id)) closeTab(id)
+    delete apiSnapshots[id]
+    if (openTabs.value.includes(id)) closeTabNow(id)
     if (currentApiId.value === id) {
       currentApiId.value = null
     }
@@ -766,7 +934,8 @@ export const useAppStore = defineStore('app', () => {
     response, loading, environments, currentEnvId,
     history, settings, expandedFolders, scriptLogs, scriptVisualizations, scriptTests, autoCarryCookies,
     requestAbortController,
-    init, getCurrentApi, updateApi, addApi, deleteApi,
+    init, getCurrentApi, updateApi, updateApiNow, saveApi, discardApiChanges, isApiDirty, flushDirtyApis, mergeApisFromDb,
+    addApi, deleteApi,
     openApiInTab, activateTab, closeTab, closeOtherTabs, closeTabsToTheRight, closeAllTabs,
     newRequestTab, isApiUnsaved, persistTabs,
     addHistory, toggleStar, deleteHistoryEntry, clearHistory,

@@ -62,7 +62,7 @@ const pickerTree = computed<PickerCollection[]>(() =>
         .map(folder => ({ id: folder.id, name: folder.name, isFolder: true })),
     })))
 
-function open() {
+async function open() {
   const api = currentApi.value
   if (!api) return
 
@@ -72,7 +72,7 @@ function open() {
       toast.info('只读集合中的请求不可修改,已跳过保存')
       return
     }
-    store.updateApi(api.id, { updatedAt: Date.now() })
+    await store.saveApi(api.id)
     toast.success(`已保存「${api.name}」`)
     return
   }
@@ -115,7 +115,7 @@ async function save() {
 
   if (currentApi.value && currentNode.value) {
     // 已存在于树中:重命名 + 必要时移动
-    store.updateApi(currentApi.value.id, { name })
+    await store.updateApiNow(currentApi.value.id, { name })
     if (currentNode.value.parentId !== parentId || currentNode.value.moduleId !== moduleId) {
       await workspace.moveInterfaceNode(currentNode.value.id, moduleId, parentId)
     }
@@ -123,7 +123,7 @@ async function save() {
   } else if (currentApi.value) {
     // 新建标签的首次保存:沿用当前请求(命名 + 落树),不新建,避免留下孤儿标签
     const api = currentApi.value
-    store.updateApi(api.id, { name })
+    await store.updateApiNow(api.id, { name })
     await workspace.addInterfaceForApi(api, moduleId, parentId)
     const node = workspace.interfaces.find(item => item.apiId === api.id)
     workspace.selectInterface(node?.id ?? api.id)

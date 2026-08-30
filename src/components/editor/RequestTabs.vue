@@ -6,7 +6,8 @@ import { useAppStore } from '@/stores/app'
 
 /**
  * 请求多标签栏(Postman 式):
- * - 点击切换、中键/× 关闭;未保存进集合树的请求显示待保存圆点
+ * - 点击切换、中键/× 关闭;圆点 = 未保存(未进集合树,或编辑后未 Cmd+S)
+ * - 关闭有未保存修改的标签会先弹确认(保存并关闭 / 不保存 / 取消)
  * - 「+」直接开新标签(不先弹命名框),首次保存时才命名 + 选落点
  * - 「…」菜单:关闭其他 / 关闭右侧 / 全部关闭
  */
@@ -16,7 +17,10 @@ interface TabItem {
   id: string
   name: string
   method: string
+  /** 未保存进集合树(新建请求) */
   unsaved: boolean
+  /** 有未保存修改(编辑后未 Cmd+S) */
+  dirty: boolean
 }
 
 const tabs = computed<TabItem[]>(() => store.openTabs
@@ -27,6 +31,7 @@ const tabs = computed<TabItem[]>(() => store.openTabs
     name: api.name,
     method: api.method,
     unsaved: store.isApiUnsaved(api.id),
+    dirty: store.isApiDirty(api.id),
   })))
 
 function methodColor(method: string): string {
@@ -57,15 +62,19 @@ function closeIfMiddleButton(event: MouseEvent, apiId: string) {
         :key="tab.id"
         class="request-tab"
         :class="{ active: tab.id === store.currentApiId }"
-        :title="`${tab.method} ${tab.name}${tab.unsaved ? '(未保存)' : ''}`"
+        :title="`${tab.method} ${tab.name}${tab.unsaved ? '(未保存)' : tab.dirty ? '(未保存修改)' : ''}`"
         @click="store.activateTab(tab.id)"
         @auxclick="closeIfMiddleButton($event, tab.id)"
       >
         <span class="tab-method" :style="{ color: methodColor(tab.method) }">{{ tab.method }}</span>
         <span class="tab-name">{{ tab.name }}</span>
-        <!-- 未保存:显示待保存圆点,悬停时换回关闭按钮 -->
-        <span v-if="tab.unsaved" class="tab-unsaved-dot" title="未保存到集合树(Cmd+S 保存)"></span>
-        <button class="tab-close" :title="tab.unsaved ? '关闭(放弃未保存请求)' : '关闭'" @click.stop="store.closeTab(tab.id)">
+        <!-- 未保存/有未保存修改:显示待保存圆点,悬停时换回关闭按钮 -->
+        <span
+          v-if="tab.unsaved || tab.dirty"
+          class="tab-unsaved-dot"
+          :title="tab.unsaved ? '未保存到集合树(Cmd+S 保存)' : '有未保存的修改(Cmd+S 保存)'"
+        ></span>
+        <button class="tab-close" :title="tab.unsaved || tab.dirty ? '关闭(将确认未保存修改)' : '关闭'" @click.stop="store.closeTab(tab.id)">
           <X :size="12" />
         </button>
       </div>
