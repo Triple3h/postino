@@ -248,8 +248,8 @@ export interface AppSettings {
   expandNavigation: boolean
   /** 侧栏位于主区左侧(默认 true;false = 右侧) */
   sidebarOnLeft: boolean
-  /** 编辑区/响应区排布:上下(默认)或左右 */
-  editorLayout: 'vertical' | 'horizontal'
+  /** 编辑区/响应区排布:上下(默认)/ 左右 / 不分栏(编辑区占满) */
+  editorLayout: 'vertical' | 'horizontal' | 'none'
   maxHistory: number
   autoSave: boolean
   fontSize: number

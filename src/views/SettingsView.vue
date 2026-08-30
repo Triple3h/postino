@@ -262,6 +262,7 @@ async function clearAllData() {
           <div class="segment">
             <button :class="{ active: settings.editorLayout === 'vertical' }" @click="store.settings.editorLayout = 'vertical'; persist()">上下分栏</button>
             <button :class="{ active: settings.editorLayout === 'horizontal' }" @click="store.settings.editorLayout = 'horizontal'; persist()">左右分栏</button>
+            <button :class="{ active: settings.editorLayout === 'none' }" @click="store.settings.editorLayout = 'none'; persist()">不分栏</button>
           </div>
         </div>
       </div>
