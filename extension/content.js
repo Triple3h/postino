@@ -1,5 +1,5 @@
 /**
- * ApiFix Bin content bridge.
+ * Postino content bridge.
  * Collects page/selection context without touching app Vue components.
  */
 
@@ -76,12 +76,12 @@ document.addEventListener('drop', event => {
   setTimeout(() => {
     if (!pendingInterfaceDrop || pendingInterfaceDrop.dropToken !== token) return;
     if (acceptedDropToken === token) {
-      showDropToast('ApiFix 请求已由页面自定义协议接收');
+      showDropToast('Postino 请求已由页面自定义协议接收');
       clearPendingInterfaceDrop();
       return;
     }
     const inserted = insertTextIntoEditable(target, fallbackText);
-    showDropToast(inserted ? 'ApiFix 请求已插入当前输入区域' : 'ApiFix 请求已投递到页面事件 apifix:request-drop');
+    showDropToast(inserted ? 'Postino 请求已插入当前输入区域' : 'Postino 请求已投递到页面事件 apifix:request-drop');
     clearPendingInterfaceDrop();
   }, 0);
 }, true);
@@ -234,7 +234,7 @@ function clearPendingInterfaceDrop() {
 function ensureDropOverlay() {
   if (dropOverlay) return dropOverlay;
   dropOverlay = document.createElement('div');
-  dropOverlay.textContent = '拖放 ApiFix 接口：可插入输入框，或由页面监听 apifix:request-drop 并 postMessage 接收';
+  dropOverlay.textContent = '拖放 Postino 接口：可插入输入框，或由页面监听 apifix:request-drop 并 postMessage 接收';
   dropOverlay.style.cssText = [
     'position:fixed',
     'z-index:2147483647',
@@ -405,7 +405,7 @@ function showDropToast(message) {
 function showJsonFormatter(text) {
   const parsed = parseMaybeJson(text || getSelectionText() || visibleJsonText());
   if (!parsed.ok) {
-    showDropToast('ApiFix：选中内容不是有效 JSON');
+    showDropToast('Postino：选中内容不是有效 JSON');
     return { success: false, error: 'Invalid JSON' };
   }
   const pretty = JSON.stringify(parsed.value, null, 2);
@@ -430,12 +430,12 @@ function showJsonFormatter(text) {
   const header = document.createElement('div');
   header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;';
   const title = document.createElement('strong');
-  title.textContent = `ApiFix JSON 格式化 · ${pretty.length.toLocaleString()} 字符`;
+  title.textContent = `Postino JSON 格式化 · ${pretty.length.toLocaleString()} 字符`;
   title.style.cssText = 'font-size:14px;color:#fff;';
   const actions = document.createElement('div');
   actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
   const copyButton = createFormatterButton('复制');
-  const sendButton = createFormatterButton('发送到 ApiFix');
+  const sendButton = createFormatterButton('发送到 Postino');
   const closeButton = createFormatterButton('关闭');
   actions.append(copyButton, sendButton, closeButton);
   header.append(title, actions);
@@ -458,7 +458,7 @@ function showJsonFormatter(text) {
 
   copyButton.addEventListener('click', async () => {
     await navigator.clipboard?.writeText(pretty).catch(() => null);
-    showDropToast('ApiFix：已复制格式化 JSON');
+    showDropToast('Postino：已复制格式化 JSON');
   });
   sendButton.addEventListener('click', () => {
     chrome.runtime.sendMessage({
@@ -482,7 +482,7 @@ function showJsonFormatter(text) {
       },
     }, () => {
       chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }, () => {
-        showDropToast('ApiFix：已打开侧边栏并粘贴到 Body');
+        showDropToast('Postino：已打开侧边栏并粘贴到 Body');
       });
     });
   });

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * ApiFix Bin - 统一打包脚本
- * 同时构建 Chrome 扩展版和 Electron 桌面版
+ * Postino - Unified build script
+ * Builds both the Chrome extension and Electron desktop app
  *
  * 用法:
  *   node build.js              # 构建扩展版 + 桌面版(当前平台)
@@ -224,7 +224,7 @@ function cpDir(src, dest) {
 function main() {
   console.log('\x1b[1;34m')
   console.log('╔══════════════════════════════════╗')
-  console.log('║     ApiFix Bin 统一打包脚本      ║')
+  console.log('║        Postino Build Script     ║')
   console.log('╚══════════════════════════════════╝')
   console.log('\x1b[0m')
 

@@ -42,7 +42,7 @@ store.init().then(async () => {
   }
   app.mount('#app')
 }).catch(err => {
-  console.error('[ApiFix] init failed:', err)
+  console.error('[Postino] init failed:', err)
   document.body.innerHTML = `<div style="padding:16px;color:red;font-size:13px;">
       <h3>初始化失败</h3>
       <pre>${err?.message || err}</pre>

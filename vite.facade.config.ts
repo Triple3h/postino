@@ -12,7 +12,7 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, 'src/scripting/pm-facade.ts'),
       formats: ['iife'],
-      name: 'ApiFixPmFacade',
+      name: 'PostinoPmFacade',
       fileName: () => 'pm-facade.js',
     },
     target: 'es2020',

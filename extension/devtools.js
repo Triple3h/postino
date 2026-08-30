@@ -1,5 +1,5 @@
 chrome.devtools.panels.create(
-  'ApiFix',
+  'Postino',
   'icons/icon16.png',
   'devtools-panel.html'
 );

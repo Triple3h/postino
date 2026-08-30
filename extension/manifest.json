@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ApiFix Bin",
-  "version": "1.0.0",
-  "description": "轻量级接口调试工具 — 无需登录，支持cURL/Postman导入，本地存储",
+  "name": "Postino",
+  "version": "1.1.1",
+  "description": "Lightweight API debugging workspace — no login required, supports cURL/Postman import, local-first storage",
   "permissions": [
     "storage",
     "activeTab",
@@ -53,21 +53,21 @@
         "default": "Ctrl+Shift+A",
         "mac": "Command+Shift+A"
       },
-      "description": "打开 ApiFix Bin 浮窗"
+      "description": "Open Postino popup"
     },
     "open-side-panel": {
       "suggested_key": {
         "default": "Ctrl+Shift+S",
         "mac": "Command+Shift+S"
       },
-      "description": "打开 ApiFix Bin 侧边栏"
+      "description": "Open Postino side panel"
     },
     "open-full-page": {
       "suggested_key": {
         "default": "Ctrl+Shift+F",
         "mac": "Command+Shift+F"
       },
-      "description": "打开 ApiFix Bin 全屏页"
+      "description": "Open Postino full page"
     }
   },
   "web_accessible_resources": [

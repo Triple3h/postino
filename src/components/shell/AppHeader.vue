@@ -83,7 +83,7 @@ function goToSettings() {
       <span class="grid h-7 w-7 place-items-center rounded-md bg-accent text-accentContrast">
         <Zap :size="16" :stroke-width="2.4" />
       </span>
-      <span class="text-[13px] font-bold tracking-tight">ApiFix Bin</span>
+      <span class="text-[13px] font-bold tracking-tight">Postino</span>
     </div>
 
     <!-- 中:Spotlight 搜索条 -->

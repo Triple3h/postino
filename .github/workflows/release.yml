@@ -1,12 +1,16 @@
-name: Build & Release
+name: Release
 
 on:
   push:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # ── 桌面端:Win + Mac ──
+  # ── Desktop: Windows + macOS ──
   release:
     strategy:
       fail-fast: false
@@ -14,11 +18,11 @@ jobs:
         include:
           - os: windows-latest
             build_cmd: npm run build
-            artifact_name: win-build
+            artifact_name: postino-win
             artifact_path: desktop/dist/*.exe
           - os: macos-latest
             build_cmd: npm run build:mac
-            artifact_name: mac-build
+            artifact_name: postino-mac
             artifact_path: desktop/dist/*.dmg
 
     runs-on: ${{ matrix.os }}
@@ -32,15 +36,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - name: 安装依赖
+      - name: Install dependencies
         working-directory: desktop
         run: npm install --force
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
-      - name: 构建
+      - name: Build
         working-directory: desktop
         run: ${{ matrix.build_cmd }}
         env:
@@ -48,13 +53,13 @@ jobs:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
           ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
 
-      - name: 上传构建产物
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
 
-  # ── 浏览器插件版(Chrome 扩展) ──
+  # ── Browser extension (Chrome / Edge) ──
   extension:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -67,26 +72,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - name: 安装依赖
-        run: npm install --force
+      - name: Install dependencies
+        run: npm ci
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
 
-      - name: 构建浏览器插件版
+      - name: Build extension
         run: node build.js --ext-only --no-typecheck
 
-      - name: 打包扩展为 zip
+      - name: Package extension as zip
         run: |
           cd dist-extension
-          zip -r ../apifix-bin-extension-v${GITHUB_REF_NAME#v}.zip . -x "*.DS_Store"
+          zip -r ../postino-extension-${GITHUB_REF_NAME#v}.zip . -x "*.DS_Store"
 
-      - name: 上传扩展产物
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: extension-build
-          path: apifix-bin-extension-*.zip
+          name: postino-extension
+          path: postino-extension-*.zip
 
+  # ── Publish GitHub Release ──
   publish:
     needs: [release, extension]
     runs-on: ubuntu-latest
@@ -94,25 +101,25 @@ jobs:
       contents: write
 
     steps:
-      - name: 下载 Windows 产物
+      - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: win-build
+          name: postino-win
           path: ./assets
 
-      - name: 下载 macOS 产物
+      - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
-          name: mac-build
+          name: postino-mac
           path: ./assets
 
-      - name: 下载浏览器插件产物
+      - name: Download extension artifact
         uses: actions/download-artifact@v4
         with:
-          name: extension-build
+          name: postino-extension
           path: ./assets
 
-      - name: 发布到 GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: ./assets/*

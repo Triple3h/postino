@@ -353,14 +353,14 @@ async function openSidePanelWithFallbacks(): Promise<void> {
     showToast('已打开侧边栏并携带当前上下文')
     return
   } catch (err: any) {
-    console.warn('[ApiFix] 直接打开侧边栏失败,转经后台重试:', err?.message || err)
+    console.warn('[Postino] 直接打开侧边栏失败,转经后台重试:', err?.message || err)
   }
   const runtime = (typeof chrome !== 'undefined' ? (chrome.runtime as any) : null)
   if (runtime?.sendMessage) {
     const ok = await new Promise<boolean>(resolve => {
       runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }, (response: any) => {
         const failure = runtime.lastError?.message || (response && response.success === false ? response.error : null)
-        if (failure) console.warn('[ApiFix] 后台打开侧边栏失败:', failure)
+        if (failure) console.warn('[Postino] 后台打开侧边栏失败:', failure)
         resolve(!runtime.lastError && Boolean(response?.success))
       })
     })

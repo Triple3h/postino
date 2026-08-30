@@ -1,4 +1,4 @@
-# ApiFix Bin · Hoppscotch 风格 UI/UX 重建需求文档
+# Postino · Hoppscotch 风格 UI/UX 重建需求文档
 
 > 蓝本:Hoppscotch `hoppscotch-app v3.0.1`(源码快照 `~/Downloads/hoppscotch-main`)。
 > UI 全部事实(布局结构、组件拆分、设计 token 取值、快捷键表)来自对该仓库 `packages/hoppscotch-common` 的实地调研,文中标注了参考文件路径。

@@ -97,7 +97,7 @@ async function confirmImport() {
         await workspace.updateModule(module.id, {
           exportConfig: { ...(module.exportConfig ?? {}), ...exportConfig },
           type: exportConfig.teamRole === 'viewer' ? 'readonly' : module.type,
-          description: module.description || `由 ApiFix 分享链接导入，权限角色：${exportConfig.teamRole}`,
+          description: module.description || `由 Postino 分享链接导入，权限角色：${exportConfig.teamRole}`,
         })
       }
 
@@ -322,7 +322,7 @@ function decodeSharePayload(value: string): unknown | null {
     const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))
     return JSON.parse(new TextDecoder().decode(bytes))
   } catch (err) {
-    console.warn('Failed to decode ApiFix share payload:', err)
+    console.warn('Failed to decode Postino share payload:', err)
     return null
   }
 }
@@ -469,7 +469,7 @@ async function consumeSharePayload(payload: unknown): Promise<void> {
     moduleName,
     moduleId: module.id,
     source: 'share',
-    sourceLabel: 'ApiFix 分享链接',
+    sourceLabel: 'Postino 分享链接',
     exportConfig,
     payload,
     pendingImport: null,

@@ -129,7 +129,7 @@ async function doSyncModule(moduleId: string, moduleName: string, syncAction: Mo
   try {
     const result = await syncModuleDataSource(moduleId, {
       syncAction,
-      onLog: line => console.info(`[ApiFix][DataSource:${moduleName}] ${line}`),
+      onLog: line => console.info(`[Postino][DataSource:${moduleName}] ${line}`),
     })
 
     setSyncStatus(moduleId, 'success', moduleName)
@@ -216,7 +216,7 @@ async function syncModuleByWebhook(moduleId?: string, secret?: string): Promise<
   for (const module of targets) {
     if (!module.dataSource?.url || inFlight.has(module.id)) continue
     if (!canTriggerWebhook(module, secret)) {
-      console.warn(`[ApiFix][Webhook:${module.name}] 触发密钥不匹配，已拒绝同步。`)
+      console.warn(`[Postino][Webhook:${module.name}] 触发密钥不匹配，已拒绝同步。`)
       continue
     }
     if (!claimLock(module.id)) continue

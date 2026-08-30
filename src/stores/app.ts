@@ -133,7 +133,7 @@ async function seedStarterWorkspace(): Promise<void> {
       method: 'POST',
       url: '{{jsonplaceholderBaseUrl}}/posts',
       headers: [{ key: 'Content-Type', value: 'application/json', enabled: true }],
-      body: defaultBody(JSON.stringify({ title: 'ApiFix Bin', body: 'Hello from starter project', userId: 1 }, null, 2), 'application/json'),
+      body: defaultBody(JSON.stringify({ title: 'Postino', body: 'Hello from starter project', userId: 1 }, null, 2), 'application/json'),
       postRequestScript: 'pm.test("创建成功", () => pm.expect(pm.response.code).to.be.within(200, 201));',
     }, now),
     starterApi({

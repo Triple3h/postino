@@ -1,7 +1,7 @@
 {
-  "name": "apifix-bin",
-  "version": "1.1.0",
-  "description": "轻量级接口调试工具 — 无需登录，支持cURL/Postman导入，本地存储",
+  "name": "postino",
+  "version": "1.1.1",
+  "description": "Lightweight API debugging workspace — no login required, supports cURL/Postman import, local-first storage",
   "main": "main.js",
   "scripts": {
     "start": "node copy-html.js && electron .",
@@ -10,19 +10,19 @@
     "build:all": "node copy-html.js && electron-builder --win --mac --publish never",
     "build:portable": "node copy-html.js && electron-builder --win portable --publish never"
   },
-  "author": "ApiFix Bin",
+  "author": "Bin-Hu-Ling",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Bin-Hu-Ling/apifix-bin-pro.git"
+    "url": "https://github.com/Bin-Hu-Ling/postino.git"
   },
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.1.0"
   },
   "build": {
-    "appId": "com.apifix.bin",
-    "productName": "ApiFix Bin",
+    "appId": "com.postino.app",
+    "productName": "Postino",
     "directories": {
       "output": "dist"
     },
@@ -35,7 +35,7 @@
     "publish": {
       "provider": "github",
       "owner": "Bin-Hu-Ling",
-      "repo": "apifix-bin-pro",
+      "repo": "postino",
       "releaseType": "draft"
     },
     "win": {
@@ -52,7 +52,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ApiFix Bin"
+      "shortcutName": "Postino"
     },
     "mac": {
       "target": [

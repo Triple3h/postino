@@ -1,4 +1,4 @@
-var ApiFixPmFacade = (function(exports) {
+var PostinoPmFacade = (function(exports) {
 	Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 	//#region src/scripting/crypto-shim.ts
 	/**

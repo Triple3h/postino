@@ -1,5 +1,5 @@
 /**
- * ApiFix Bin - Background Service Worker
+ * Postino - Background Service Worker
  * 通过 chrome.runtime.sendMessage 处理来自popup的跨域请求，并协调浏览器原生入口。
  */
 
@@ -203,7 +203,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     openSidePanelForSender(sender)
       .then(() => sendResponse({ success: true }))
       .catch(err => {
-        console.error('[ApiFix] OPEN_SIDE_PANEL failed:', err?.message || err);
+        console.error('[Postino] OPEN_SIDE_PANEL failed:', err?.message || err);
         sendResponse({ success: false, error: err.message });
       });
     return true;
@@ -374,7 +374,7 @@ function createContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: CONTEXT_MENU_IDS.sendSelectionToSidePanel,
-      title: '发送选中文本到 ApiFix 侧边栏',
+      title: '发送选中文本到 Postino 侧边栏',
       contexts: ['selection'],
     });
     chrome.contextMenus.create({
@@ -384,17 +384,17 @@ function createContextMenus() {
     });
     chrome.contextMenus.create({
       id: CONTEXT_MENU_IDS.sendPageToSidePanel,
-      title: '发送当前页面上下文到 ApiFix',
+      title: '发送当前页面上下文到 Postino',
       contexts: ['page'],
     });
     chrome.contextMenus.create({
       id: CONTEXT_MENU_IDS.openSidePanel,
-      title: '打开 ApiFix 侧边栏',
+      title: '打开 Postino 侧边栏',
       contexts: ['action', 'page'],
     });
     chrome.contextMenus.create({
       id: CONTEXT_MENU_IDS.openFullPage,
-      title: '打开 ApiFix 全屏页',
+      title: '打开 Postino 全屏页',
       contexts: ['action', 'page'],
     });
   });

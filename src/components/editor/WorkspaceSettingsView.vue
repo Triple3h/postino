@@ -1276,7 +1276,7 @@ async function backupModule(successMessage?: string) {
           'Authorization': `Bearer ${exportBackupToken.value.trim()}`,
         },
         body: JSON.stringify({
-          description: `ApiFix Bin backup: ${module.name}`,
+          description: `Postino backup: ${module.name}`,
           public: false,
           files: { [filename]: { content } },
         }),

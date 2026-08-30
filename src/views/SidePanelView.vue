@@ -232,7 +232,7 @@ onUnmounted(() => {
   <div ref="layoutEl" class="sidepanel-layout" :class="[{ collapsed: navCollapsed }, panelSizeClass]">
     <div class="sidepanel-topbar">
       <button class="icon-btn" title="折叠导航" @click="navCollapsed = !navCollapsed"><Menu :size="16" /></button>
-      <strong>ApiFix Side Panel</strong>
+      <strong>Postino Side Panel</strong>
       <label v-if="panelSizeClass === 'sidepanel-sm' && compactInterfaceOptions.length > 0" class="compact-interface-picker" title="窄侧栏接口选择">
         <span>接口</span>
         <select :value="store.currentApiId || ''" @change="selectCompactInterface">

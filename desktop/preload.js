@@ -1,5 +1,5 @@
 /**
- * ApiFix Bin - Electron Preload Script
+ * Postino - Electron Preload Script
  */
 
 const { contextBridge } = require('electron');

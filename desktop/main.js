@@ -1,6 +1,7 @@
 /**
- * ApiFix Bin - Electron Main Process
- * 加载 index.html 并绕过 CORS 限制，让 API 调试工具可以自由请求任何 URL
+ * Postino - Electron Main Process
+ * Loads index.html with CORS restrictions disabled so the API debugging
+ * tool can freely request any URL.
  */
 
 const { app, BrowserWindow, session } = require('electron');
@@ -14,7 +15,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'ApiFix Bin',
+    title: 'Postino',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

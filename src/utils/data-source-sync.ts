@@ -124,7 +124,7 @@ export async function writeModuleSyncLog(log: Omit<ModuleSyncLog, 'id'>): Promis
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     await db.moduleSyncLogs.put({ ...log, id })
   } catch (err) {
-    console.warn('[ApiFix][SyncLog] 写入同步日志失败:', err)
+    console.warn('[Postino][SyncLog] 写入同步日志失败:', err)
   }
 }
 
@@ -145,7 +145,7 @@ export async function clearModuleSyncLogs(moduleId: string): Promise<void> {
   try {
     await db.moduleSyncLogs.where('moduleId').equals(moduleId).delete()
   } catch (err) {
-    console.warn('[ApiFix][SyncLog] 清除同步日志失败:', err)
+    console.warn('[Postino][SyncLog] 清除同步日志失败:', err)
   }
 }
 

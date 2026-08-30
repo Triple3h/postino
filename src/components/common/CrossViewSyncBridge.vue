@@ -446,7 +446,7 @@ function handleSyncMessage(message: SyncMessage): void {
         setSyncStatus('connected', '已同步', 3000)
       })
       .catch(err => {
-        console.warn('[ApiFix] 跨视图同步失败:', err)
+        console.warn('[Postino] 跨视图同步失败:', err)
         setSyncStatus('error', '同步失败', 5000)
       })
   }
