@@ -198,7 +198,32 @@ function buildDesktop() {
 
   // 直接运行 electron-builder (跳过 copy-html.js，已手动复制)
   logStep(`运行 electron-builder (${buildAll ? '全平台' : buildWin ? 'Windows' : buildMac ? 'macOS' : '当前平台'})`)
-  run(`npx electron-builder ${builderTarget} --publish never`, desktopDir)
+
+  // macOS: hdiutil detach 在 CI runner 上容易失败,加重试
+  const isMac = builderTarget.includes('--mac')
+  if (isMac) {
+    const cmd = `npx electron-builder ${builderTarget} --publish never`
+    let lastErr
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        run(cmd, desktopDir)
+        lastErr = null
+        break
+      } catch (e) {
+        lastErr = e
+        logError(`electron-builder 第 ${attempt} 次失败,清理 DMG 卷后重试...`)
+        // 强制卸载所有 Postino DMG 卷
+        try {
+          execSync('hdiutil info | grep "/Volumes/Postino" | awk \'{print $1}\' | xargs -I{} hdiutil detach {} -force 2>/dev/null || true', { stdio: 'inherit' })
+        } catch (_) {}
+        // 杀掉可能残留的 hdiutil 进程
+        try { execSync('pkill -f hdiutil 2>/dev/null || true', { stdio: 'inherit' }) } catch (_) {}
+      }
+    }
+    if (lastErr) throw lastErr
+  } else {
+    run(`npx electron-builder ${builderTarget} --publish never`, desktopDir)
+  }
 
   logSuccess('Electron 桌面版构建完成')
 }

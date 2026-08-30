@@ -51,12 +51,6 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
-      - name: Clean up leftover DMG volumes (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          hdiutil detach "/Volumes/Postino 1.0.0" -quiet -force 2>/dev/null || true
-          hdiutil detach "/Volumes/Postino 1.0.1" -quiet -force 2>/dev/null || true
-
       - name: Build
         run: ${{ matrix.build_cmd }}
         env:
