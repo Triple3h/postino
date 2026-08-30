@@ -246,6 +246,7 @@ function sendStreamingRequestViaExtension(data: {
           size: payload.size ?? new Blob([finalBody]).size,
           chunks: parser ? [...parser.chunks] : response.chunks,
           mergedText: currentStreamMergedText(parser) ?? response.mergedText,
+          mergedReasoning: currentStreamMergedReasoning(parser) ?? response.mergedReasoning,
           finalBody,
           isStreaming: false,
           streamCompleted: Boolean(parser),
@@ -824,6 +825,10 @@ function currentStreamMergedText(state: StreamParserState | null): string | unde
   return state?.merger ? state.merger.state.merged : undefined
 }
 
+function currentStreamMergedReasoning(state: StreamParserState | null): string | undefined {
+  return state?.merger ? (state.merger.state.reasoning || undefined) : undefined
+}
+
 function headersArrayToRecord(headers: Array<{ key: string; value: string }> | undefined): Record<string, string> {
   const result: Record<string, string> = {}
   for (const h of headers ?? []) {
@@ -1149,6 +1154,7 @@ async function processResponse(
         size,
         chunks: [...parser.chunks],
         mergedText: currentStreamMergedText(parser),
+        mergedReasoning: currentStreamMergedReasoning(parser),
         finalBody: respBody,
         isStreaming: true,
         streamCompleted: false,
@@ -1168,6 +1174,7 @@ async function processResponse(
       size,
       chunks: [...parser.chunks],
       mergedText: currentStreamMergedText(parser),
+      mergedReasoning: currentStreamMergedReasoning(parser),
       finalBody: respBody,
       isStreaming: false,
       streamCompleted: true,

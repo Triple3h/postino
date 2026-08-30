@@ -804,6 +804,7 @@ async function send() {
           requestType: 'sse' as const,
           streamMerge: api.streamMerge,
           mergedText: response.mergedText || undefined,
+          mergedReasoning: response.mergedReasoning || undefined,
           rawPreview: response.body.slice(0, 64 * 1024),
         }
       : {}

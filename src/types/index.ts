@@ -146,6 +146,8 @@ export interface HistoryEntry {
   streamMerge?: StreamMergeConfig
   /** 流式合并结果全文 */
   mergedText?: string
+  /** 流式合并提取的思考过程(reasoning_content / reasoning) */
+  mergedReasoning?: string
   /** 原始流式响应前 N KB 快照 */
   rawPreview?: string
 }
@@ -177,6 +179,8 @@ export interface ResponseData {
   chunks?: ResponseStreamChunk[]
   /** 流式合并结果(Phase 3:按 streamMerge 配置逐 chunk 提取拼接) */
   mergedText?: string
+  /** 流式合并提取的思考过程(reasoning_content / reasoning),与正文分开 */
+  mergedReasoning?: string
   finalBody?: string
   streamCompleted?: boolean
   cancelled?: boolean
