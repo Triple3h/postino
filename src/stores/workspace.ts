@@ -657,7 +657,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function syncInterfaceFromApi(api: ApiConfig): Promise<void> {
     const matches = interfaces.value.filter(item => item.apiId === api.id && (item.nodeType ?? 'request') === 'request')
     if (matches.length === 0) {
-      await addInterfaceForApi(api)
+      // 尚未保存进集合树的请求(多标签「未命名请求」)不自动建节点:
+      // 落点等首次显式保存(SaveRequestModal)时才确定
       return
     }
 

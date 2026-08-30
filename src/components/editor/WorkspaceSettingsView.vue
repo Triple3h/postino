@@ -909,7 +909,7 @@ function openModuleCodeGen() {
     return
   }
   workspace.selectInterface(firstInterface.id)
-  store.currentApiId = firstInterface.apiId
+  store.openApiInTab(firstInterface.apiId)
   window.dispatchEvent(new CustomEvent('apifix:open-codegen'))
 }
 
@@ -1362,7 +1362,7 @@ async function backupModule(successMessage?: string) {
 function openInterface(apiId: string) {
   const interfaceNode = workspace.interfaces.find(item => item.apiId === apiId)
   workspace.selectInterface(interfaceNode?.id ?? apiId)
-  store.currentApiId = apiId
+  store.openApiInTab(apiId)
 }
 
 function getModuleRequestPrefix(moduleId: string, envId: string): string {

@@ -190,7 +190,7 @@ async function restoreOpenContext() {
 function selectCompactInterface(event: Event) {
   const apiId = (event.target as HTMLSelectElement).value
   if (apiId) {
-    store.currentApiId = apiId
+    store.openApiInTab(apiId)
     workspace.selectInterface(apiId)
   }
 }

@@ -193,14 +193,32 @@ async function seedStarterWorkspace(): Promise<void> {
   })
 }
 
+/** 打开标签页的持久化 settings 键(不走 AppSettings,避免污染设置对象) */
+const OPEN_TABS_SETTINGS_KEY = 'openTabIds'
+const ACTIVE_TAB_SETTINGS_KEY = 'activeTabId'
+
+/** 每个标签页私有的编辑态(切换标签时暂存/恢复) */
+interface TabEditorState {
+  response: ResponseData | null
+  scriptLogs: ScriptLog[]
+  scriptVisualizations: ScriptVisualization[]
+  scriptTests: ScriptTestResult[]
+}
+
 export const useAppStore = defineStore('app', () => {
   const apis = ref<Record<string, ApiConfig>>({})
   const groups = ref<Record<string, Group>>({})
   const groupOrder = ref<string[]>([])
   const currentApiId = ref<string | null>(null)
+  /** 已打开的请求标签(apiId 顺序即标签顺序);currentApiId 即当前激活标签 */
+  const openTabs = ref<string[]>([])
+  /** 新建未保存请求的预期落点(SaveRequestModal 预选用) */
+  const pendingSaveTarget = ref<{ moduleId?: string; parentId?: string | null } | null>(null)
   const activeTab = ref<string>('params')
   const response = ref<ResponseData | null>(null)
   const loading = ref(false)
+  /** 非激活标签的编辑态暂存(运行时,不持久化) */
+  const tabStates: Record<string, TabEditorState> = {}
   const environments = ref<Environment[]>([])
   const currentEnvId = ref<string | null>(null)
   const history = ref<HistoryEntry[]>([])
@@ -263,9 +281,22 @@ export const useAppStore = defineStore('app', () => {
 
       const loadedSettings: Partial<AppSettings> = {}
       for (const s of settingsList) {
+        // 标签页状态单独恢复,不进 AppSettings
+        if (s.key === OPEN_TABS_SETTINGS_KEY || s.key === ACTIVE_TAB_SETTINGS_KEY) continue
         loadedSettings[s.key as keyof AppSettings] = s.value
       }
       settings.value = { ...defaultSettings, ...loadedSettings }
+
+      // 恢复上次的打开标签(仅保留仍存在的请求)
+      const savedTabs = settingsList.find(s => s.key === OPEN_TABS_SETTINGS_KEY)?.value
+      const savedActive = settingsList.find(s => s.key === ACTIVE_TAB_SETTINGS_KEY)?.value
+      if (Array.isArray(savedTabs)) {
+        openTabs.value = savedTabs.filter(id => typeof id === 'string' && Boolean(apis.value[id]))
+        const active = typeof savedActive === 'string' && openTabs.value.includes(savedActive)
+          ? savedActive
+          : openTabs.value[0] ?? null
+        if (active) currentApiId.value = active
+      }
 
       const go = settingsList.find(s => s.key === 'groupOrder')
       if (go) {
@@ -289,6 +320,155 @@ export const useAppStore = defineStore('app', () => {
   function getCurrentApi(): ApiConfig | null {
     if (!currentApiId.value) return null
     return apis.value[currentApiId.value] ?? null
+  }
+
+  // ─── 多标签管理(currentApiId 即当前激活标签)───
+
+  async function persistTabs(): Promise<void> {
+    try {
+      await db.settings.bulkPut([
+        { key: OPEN_TABS_SETTINGS_KEY, value: [...openTabs.value] },
+        { key: ACTIVE_TAB_SETTINGS_KEY, value: currentApiId.value },
+      ])
+    } catch (e) {
+      console.error('Failed to persist open tabs:', e)
+    }
+  }
+
+  /** 切换激活标签,并按标签暂存/恢复各自的响应与脚本产物 */
+  function activateTab(apiId: string): void {
+    if (currentApiId.value === apiId) return
+    const previousId = currentApiId.value
+    if (previousId) {
+      tabStates[previousId] = {
+        response: response.value,
+        scriptLogs: scriptLogs.value,
+        scriptVisualizations: scriptVisualizations.value,
+        scriptTests: scriptTests.value,
+      }
+    }
+    currentApiId.value = apiId
+    const next = tabStates[apiId]
+    response.value = next?.response ?? null
+    scriptLogs.value = next?.scriptLogs ?? []
+    scriptVisualizations.value = next?.scriptVisualizations ?? []
+    scriptTests.value = next?.scriptTests ?? []
+    delete tabStates[apiId]
+    void persistTabs()
+  }
+
+  /** 在标签页中打开请求(已打开则仅激活) */
+  function openApiInTab(apiId: string, options: { activate?: boolean } = {}): void {
+    if (!apis.value[apiId]) return
+    if (!openTabs.value.includes(apiId)) openTabs.value.push(apiId)
+    if (options.activate === false) {
+      void persistTabs()
+      return
+    }
+    activateTab(apiId)
+  }
+
+  /** 关闭标签(不删除请求本身);激活标签被关时自动移到相邻标签 */
+  function closeTab(apiId: string): void {
+    const idx = openTabs.value.indexOf(apiId)
+    if (idx === -1) return
+    openTabs.value.splice(idx, 1)
+    delete tabStates[apiId]
+    if (currentApiId.value === apiId) {
+      const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)] ?? null
+      currentApiId.value = next
+      response.value = null
+      scriptLogs.value = []
+      scriptVisualizations.value = []
+      scriptTests.value = []
+      if (next) activateTab(next)
+    }
+    void persistTabs()
+  }
+
+  function closeOtherTabs(apiId: string): void {
+    openTabs.value = openTabs.value.includes(apiId) ? [apiId] : []
+    if (!openTabs.value.includes(currentApiId.value ?? '')) {
+      activateTab(apiId)
+    }
+    void persistTabs()
+  }
+
+  function closeTabsToTheRight(apiId: string): void {
+    const idx = openTabs.value.indexOf(apiId)
+    if (idx === -1) return
+    for (const id of openTabs.value.slice(idx + 1)) delete tabStates[id]
+    openTabs.value = openTabs.value.slice(0, idx + 1)
+    if (currentApiId.value && !openTabs.value.includes(currentApiId.value)) {
+      activateTab(apiId)
+    }
+    void persistTabs()
+  }
+
+  function closeAllTabs(): void {
+    openTabs.value = []
+    for (const id of Object.keys(tabStates)) delete tabStates[id]
+    currentApiId.value = null
+    response.value = null
+    scriptLogs.value = []
+    scriptVisualizations.value = []
+    scriptTests.value = []
+    void persistTabs()
+  }
+
+  /**
+   * 新建请求 = 直接开一个新标签(不再先弹命名框):
+   * 请求先只写 apis 表、不进集合树(标签上显示待保存圆点),
+   * 首次 Cmd+S 保存时才命名 + 选落点。
+   */
+  async function newRequestTab(target?: { moduleId?: string; parentId?: string | null }): Promise<ApiConfig> {
+    const now = Date.now()
+    const api: ApiConfig = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      name: '未命名请求',
+      method: 'GET',
+      url: '',
+      headers: [],
+      params: [],
+      cookies: [],
+      body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
+      auth: normalizeAuthConfig(undefined),
+      requestVariables: [],
+      preRequestScript: '',
+      postRequestScript: '',
+      folder: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    apis.value[api.id] = api
+    try {
+      await db.apis.put(api)
+    } catch (e) {
+      console.error('Failed to add API to IndexedDB:', e)
+    }
+    pendingSaveTarget.value = target ?? null
+    if (currentApiId.value) {
+      tabStates[currentApiId.value] = {
+        response: response.value,
+        scriptLogs: scriptLogs.value,
+        scriptVisualizations: scriptVisualizations.value,
+        scriptTests: scriptTests.value,
+      }
+    }
+    currentApiId.value = api.id
+    response.value = null
+    scriptLogs.value = []
+    scriptVisualizations.value = []
+    scriptTests.value = []
+    openTabs.value.push(api.id)
+    void persistTabs()
+    return api
+  }
+
+  /** 请求是否尚未保存进集合树(标签待保存圆点依据) */
+  function isApiUnsaved(apiId: string | null): boolean {
+    if (!apiId || !apis.value[apiId]) return false
+    return !useWorkspaceStore().interfaces.some(item => item.apiId === apiId && (item.nodeType ?? 'request') === 'request')
   }
 
   function updateApi(id: string, updates: Partial<ApiConfig>) {
@@ -392,6 +572,7 @@ export const useAppStore = defineStore('app', () => {
 
   function deleteApi(id: string) {
     delete apis.value[id]
+    if (openTabs.value.includes(id)) closeTab(id)
     if (currentApiId.value === id) {
       currentApiId.value = null
     }
@@ -581,10 +762,13 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     apis, groups, groupOrder, currentApiId, activeTab,
+    openTabs, pendingSaveTarget,
     response, loading, environments, currentEnvId,
     history, settings, expandedFolders, scriptLogs, scriptVisualizations, scriptTests, autoCarryCookies,
     requestAbortController,
     init, getCurrentApi, updateApi, addApi, deleteApi,
+    openApiInTab, activateTab, closeTab, closeOtherTabs, closeTabsToTheRight, closeAllTabs,
+    newRequestTab, isApiUnsaved, persistTabs,
     addHistory, toggleStar, deleteHistoryEntry, clearHistory,
     upsertEnvironment, deleteEnvironment,
     addCollectionEnvironment, selectCollectionEnvironment, isGlobalEnv,

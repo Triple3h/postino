@@ -604,7 +604,7 @@ function historyStatusColor(status: number): string {
 function loadHistoryEntry(entry: HistoryEntry) {
   const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
   workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
-  store.currentApiId = entry.apiId
+  store.openApiInTab(entry.apiId)
 }
 
 function resendHistoryEntry(entry: HistoryEntry, event: MouseEvent) {

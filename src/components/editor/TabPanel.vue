@@ -33,6 +33,22 @@ const tabs = [
   { key: 'variables', label: '变量' },
 ]
 
+/** 常用请求头预设(Headers tab 一键插入;同名 key 忽略大小写覆盖) */
+const commonHeaders = [
+  { key: 'Content-Type', value: 'application/json' },
+  { key: 'Accept', value: 'application/json' },
+  { key: 'Authorization', label: 'Bearer <token>' },
+  { key: 'User-Agent', label: '自定义 UA' },
+  { key: 'X-Requested-With', value: 'XMLHttpRequest' },
+  { key: 'Accept-Language', value: 'zh-CN,zh;q=0.9' },
+  { key: 'Cache-Control', value: 'no-cache' },
+  { key: 'Origin', label: '跨域来源' },
+  { key: 'Referer', label: '引用页' },
+  { key: 'Cookie', label: '会话 Cookie' },
+  { key: 'X-Request-Id', label: '链路追踪 ID' },
+  { key: 'If-None-Match', label: 'ETag 缓存校验' },
+]
+
 function updateParams(params: KvPair[]) {
   if (isReadonlyModule.value) return
   if (currentApi.value) store.updateApi(currentApi.value.id, { params })
@@ -288,6 +304,8 @@ function formatLogTime(ts: number): string {
             value-placeholder="值"
             show-description
             :readonly="isReadonlyModule"
+            :presets="commonHeaders"
+            presets-title="常用请求头"
           />
         </div>
         <details class="cookies-section">

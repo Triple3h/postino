@@ -109,7 +109,7 @@ async function confirmImport() {
       const firstApi = checkedItems[0].api
       const interfaceNode = workspace.interfaces.find(i => i.apiId === firstApi.id)
       workspace.selectInterface(interfaceNode?.id ?? firstApi.id)
-      store.currentApiId = firstApi.id
+      store.openApiInTab(firstApi.id)
     } else {
       // Browser capture / context capture flow
       const api = checkedItems[0].api
@@ -119,7 +119,7 @@ async function confirmImport() {
 
       const interfaceNode = workspace.interfaces.find(i => i.apiId === api.id)
       workspace.selectInterface(interfaceNode?.id ?? api.id)
-      store.currentApiId = api.id
+      store.openApiInTab(api.id)
 
       if (pendingImport) {
         await clearPendingImport()

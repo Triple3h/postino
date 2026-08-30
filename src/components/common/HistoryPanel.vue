@@ -155,7 +155,7 @@ function displayUrl(entry: HistoryEntry): string {
 function restoreEntry(entry: HistoryEntry) {
   const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
   workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
-  store.currentApiId = entry.apiId
+  store.openApiInTab(entry.apiId)
 }
 
 function entryMenu(event: MouseEvent, entry: HistoryEntry) {

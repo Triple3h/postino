@@ -12,6 +12,10 @@ const props = defineProps<{
   showDescription?: boolean
   readonly?: boolean
   allowFileUpload?: boolean
+  /** 常用键值对预设(如常用请求头):以下拉形式一键插入/覆盖 */
+  presets?: Array<{ key: string; value?: string; label?: string }>
+  /** 预设下拉按钮文案(默认「常用模板」) */
+  presetsTitle?: string
 }>()
 
 const emit = defineEmits<{
@@ -30,11 +34,18 @@ const showImportDialog = ref(false)
 const importText = ref('')
 const showActionsMenu = ref(false)
 
+// --- Presets dropdown ---
+const showPresetsMenu = ref(false)
+
 // --- Drag and drop ---
 const dragIndex = ref<number | null>(null)
 const dropIndex = ref<number | null>(null)
 
 watch(() => props.modelValue, (val) => {
+  // 回声抑制:update() emit 的数组(经父组件写回)包含的仍是 rows 里的同一批对象引用,
+  // 此时不能用它覆盖 rows,否则"添加参数"的空 key 行会被 filter 掉导致行瞬间消失、无法输入。
+  const known = new Set(rows.value)
+  if (val.length > 0 && val.every(item => known.has(item))) return
   rows.value = [...val]
 }, { deep: true })
 
@@ -44,6 +55,20 @@ function update() {
 
 function addRow() {
   rows.value.push({ key: '', value: '', enabled: true, description: '', type: 'text' })
+  update()
+}
+
+/** 插入常用预设:同名 key(忽略大小写)存在则覆盖值并启用,否则追加一行 */
+function applyPreset(preset: { key: string; value?: string }) {
+  showPresetsMenu.value = false
+  if (props.readonly || bulkMode.value) return
+  const existing = rows.value.find(row => row.key.toLowerCase() === preset.key.toLowerCase())
+  if (existing) {
+    if (preset.value !== undefined) existing.value = preset.value
+    existing.enabled = true
+  } else {
+    rows.value.push({ key: preset.key, value: preset.value ?? '', enabled: true, description: '', type: 'text' })
+  }
   update()
 }
 
@@ -362,6 +387,23 @@ const duplicateKeyIndices = computed(() => {
     <div class="kv-toolbar">
       <div class="kv-toolbar-left">
         <button class="toolbar-btn add-inline-btn" @click="addRow" :disabled="readonly || bulkMode">+ 添加参数</button>
+        <div v-if="presets?.length" class="kv-toolbar-menu" @click.stop>
+          <button
+            class="toolbar-btn"
+            :class="{ active: showPresetsMenu }"
+            :disabled="readonly || bulkMode"
+            title="从常用模板插入"
+            @click="showPresetsMenu = !showPresetsMenu"
+          >
+            {{ presetsTitle || '常用模板' }} <ChevronDown :size="14" />
+          </button>
+          <div v-if="showPresetsMenu" class="kv-action-dropdown presets-dropdown">
+            <button v-for="preset in presets" :key="preset.key" class="kv-action-item preset-item" @click="applyPreset(preset)">
+              <span class="preset-key">{{ preset.key }}</span>
+              <span class="preset-value">{{ preset.value || preset.label || '—' }}</span>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="kv-toolbar-menu" @click.stop>
         <button class="toolbar-btn" :class="{ active: bulkMode || showActionsMenu }" @click="showActionsMenu = !showActionsMenu" :disabled="readonly" title="更多表格操作">
@@ -630,6 +672,38 @@ const duplicateKeyIndices = computed(() => {
 .kv-action-item:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.presets-dropdown {
+  left: 0;
+  right: auto;
+  min-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.preset-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.preset-key {
+  font-family: var(--font-mono, 'Menlo', 'Consolas', monospace);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.preset-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 10px;
 }
 
 /* ========== Table Header ========== */

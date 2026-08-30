@@ -25,6 +25,24 @@ const expanded = ref<Set<string>>(new Set())
 const currentApi = computed<ApiConfig | null>(() => store.getCurrentApi())
 const currentNode = computed<InterfaceNode | null>(() =>
   currentApi.value ? workspace.interfaces.find(item => item.apiId === currentApi.value!.id) ?? null : null)
+const isCurrentReadonly = computed(() => {
+  const node = currentNode.value
+  if (!node) return false
+  return workspace.modules.find(item => item.id === (node.collectionId ?? node.moduleId))?.type === 'readonly'
+})
+
+/** 未命名请求保存时,从 URL 末段推导一个可读的默认名(可改) */
+function deriveNameFromUrl(url: string): string {
+  const cleaned = url.replace(/\{\{[^}]+\}\}/g, 'var')
+  try {
+    const parsed = new URL(cleaned.includes('://') ? cleaned : `https://${cleaned}`)
+    const segment = parsed.pathname.split('/').filter(Boolean).pop()
+    const name = segment ? decodeURIComponent(segment) : parsed.hostname
+    return name.replace(/[-_]+/g, ' ').trim()
+  } catch {
+    return ''
+  }
+}
 
 interface PickerCollection {
   id: string
@@ -45,13 +63,30 @@ const pickerTree = computed<PickerCollection[]>(() =>
     })))
 
 function open() {
-  requestName.value = currentApi.value?.name ?? ''
-  selectedTarget.value = currentNode.value
-    ? (currentNode.value.parentId ?? currentNode.value.collectionId ?? currentNode.value.moduleId)
-    : (workspace.collections[0]?.id ?? null)
-  // 展开当前落点路径
-  if (currentNode.value?.parentId) expanded.value.add(currentNode.value.parentId)
-  if (currentNode.value) expanded.value.add(currentNode.value.collectionId ?? currentNode.value.moduleId)
+  const api = currentApi.value
+  if (!api) return
+
+  // 已保存在集合树中的请求:Cmd+S / 保存按钮 = 直接静默保存,不再弹窗重选位置
+  if (currentNode.value) {
+    if (isCurrentReadonly.value) {
+      toast.info('只读集合中的请求不可修改,已跳过保存')
+      return
+    }
+    store.updateApi(api.id, { updatedAt: Date.now() })
+    toast.success(`已保存「${api.name}」`)
+    return
+  }
+
+  // 未保存的新请求:弹窗命名 + 选落点(唯一一次需要选择位置)
+  requestName.value = api.name === '未命名请求'
+    ? deriveNameFromUrl(api.url) || api.name
+    : api.name
+  const pending = store.pendingSaveTarget
+  selectedTarget.value = pending?.parentId ?? pending?.moduleId
+    ?? (workspace.collections[0]?.id ?? null)
+  // 展开落点路径
+  if (pending?.parentId) expanded.value.add(pending.parentId)
+  if (pending?.moduleId) expanded.value.add(pending.moduleId)
   visible.value = true
 }
 
@@ -85,6 +120,15 @@ async function save() {
       await workspace.moveInterfaceNode(currentNode.value.id, moduleId, parentId)
     }
     toast.success(`已保存「${name}」到 ${targetLabel(selectedTarget.value)}`)
+  } else if (currentApi.value) {
+    // 新建标签的首次保存:沿用当前请求(命名 + 落树),不新建,避免留下孤儿标签
+    const api = currentApi.value
+    store.updateApi(api.id, { name })
+    await workspace.addInterfaceForApi(api, moduleId, parentId)
+    const node = workspace.interfaces.find(item => item.apiId === api.id)
+    workspace.selectInterface(node?.id ?? api.id)
+    store.pendingSaveTarget = null
+    toast.success(`已保存「${name}」到 ${targetLabel(selectedTarget.value)}`)
   } else {
     // 新建请求
     const now = Date.now()
@@ -107,7 +151,8 @@ async function save() {
     await store.addApi(api, moduleId, parentId)
     const node = workspace.interfaces.find(item => item.apiId === api.id)
     workspace.selectInterface(node?.id ?? api.id)
-    store.currentApiId = api.id
+    store.openApiInTab(api.id)
+    store.pendingSaveTarget = null
     store.response = null
     toast.success(`已创建「${name}」到 ${targetLabel(selectedTarget.value)}`)
   }

@@ -64,7 +64,7 @@ export function useFileImport() {
       const first = apis[0]
       const node = workspace.interfaces.find(item => item.apiId === first.id)
       workspace.selectInterface(node?.id ?? first.id)
-      store.currentApiId = first.id
+      store.openApiInTab(first.id)
       store.response = null
     }
   }
@@ -100,7 +100,7 @@ export function useFileImport() {
             if (first) {
               const node = workspace.interfaces.find(item => item.apiId === first.id)
               workspace.selectInterface(node?.id ?? first.id)
-              store.currentApiId = first.id
+              store.openApiInTab(first.id)
             }
             continue
           }
