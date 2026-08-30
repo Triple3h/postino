@@ -6,6 +6,7 @@ on:
       - 'v*'
 
 jobs:
+  # ── 桌面端:Win + Mac ──
   release:
     strategy:
       fail-fast: false
@@ -19,12 +20,12 @@ jobs:
             build_cmd: npm run build:mac
             artifact_name: mac-build
             artifact_path: desktop/dist/*.dmg
-    
+
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions:
       contents: write
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -53,8 +54,41 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
 
+  # ── 浏览器插件版(Chrome 扩展) ──
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装依赖
+        run: npm install --force
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
+
+      - name: 构建浏览器插件版
+        run: node build.js --ext-only --no-typecheck
+
+      - name: 打包扩展为 zip
+        run: |
+          cd dist-extension
+          zip -r ../apifix-bin-extension-v${GITHUB_REF_NAME#v}.zip . -x "*.DS_Store"
+
+      - name: 上传扩展产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-build
+          path: apifix-bin-extension-*.zip
+
   publish:
-    needs: release
+    needs: [release, extension]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -70,6 +104,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: mac-build
+          path: ./assets
+
+      - name: 下载浏览器插件产物
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-build
           path: ./assets
 
       - name: 发布到 GitHub Release
