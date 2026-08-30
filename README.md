@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="./src/assets/logo/postino-logo.png" alt="Postino" width="400" />
+  <img src="./src/assets/logo/postino-logo.png" alt="Postino" width="180" />
 
   <h3><b>Postino</b></h3>
   <b>A lightweight, local-first API debugging workspace</b>
