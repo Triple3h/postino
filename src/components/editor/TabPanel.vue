@@ -458,6 +458,13 @@ function formatLogTime(ts: number): string {
   gap: 10px;
 }
 
+/* KvEditor 根元素的 height:100% 在 auto 高度的父容器里会被循环解析,
+   导致「+ 添加参数」按钮溢出压到 Cookies 折叠条上;这两处改为内容自适应 */
+.headers-inner > .headers-section > :deep(.kv-editor),
+.request-vars-tab.request-vars-tab > :deep(.kv-editor) {
+  height: auto;
+}
+
 .section-label {
   font-size: var(--font-size-tiny);
   font-weight: 700;

@@ -804,6 +804,10 @@ const duplicateKeyIndices = computed(() => {
 }
 
 .toolbar-btn {
+  /* inline-flex:Talwind preflight 把 svg 置为 display:block,普通 button 里图标会掉到第二行 */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   height: 24px;
   padding: 0 8px;
   border: 1px solid var(--border);
@@ -1094,7 +1098,8 @@ const duplicateKeyIndices = computed(() => {
 }
 
 .kv-col-action {
-  width: 28px;
+  /* 28px 按钮 + 左右 padding,避免 btn-icon 溢出撑出横向滚动条 */
+  width: 36px;
   flex-shrink: 0;
   text-align: center;
 }
