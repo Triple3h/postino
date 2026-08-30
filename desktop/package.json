@@ -1,6 +1,6 @@
 {
   "name": "postino",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Lightweight API debugging workspace — no login required, supports cURL/Postman import, local-first storage",
   "main": "main.js",
   "scripts": {

@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            build_cmd: npm run build
+            build_cmd: npm run build:desktop:win
             artifact_name: postino-win
             artifact_path: desktop/dist/*.exe
           - os: macos-latest
@@ -51,7 +51,6 @@ jobs:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
       - name: Build
-        working-directory: desktop
         run: ${{ matrix.build_cmd }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
