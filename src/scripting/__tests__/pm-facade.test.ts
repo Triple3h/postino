@@ -125,4 +125,13 @@ describe('pm 门面(沙箱/worker 共享运行时)', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(transport.posted).toHaveLength(0)
   })
+
+  it('CryptoJS 签名脚本:SHA256 + enc.Hex + toUpperCase(用户场景)', async () => {
+    const posted = await runScript(`
+      const signature = CryptoJS.SHA256('abc').toString(CryptoJS.enc.Hex).toUpperCase()
+      pm.request.headers.add('x-tif-signature', signature)
+    `)
+    expect(posted.success).toBe(true)
+    expect(posted.result.headers['x-tif-signature']).toBe('BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD')
+  })
 })

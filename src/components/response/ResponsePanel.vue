@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { ArrowDown, ChevronDown, Clock3, Copy, Download, FileText, Play, TriangleAlert, Wifi, Zap } from '@lucide/vue'
+import { ArrowDown, Brain, ChevronDown, Clock3, Copy, Download, FileText, Play, TriangleAlert, Wifi, Zap } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
@@ -25,7 +25,8 @@ import {
   requestBodySnapshotOf,
   requestUrlOf,
 } from '@/utils/request-snapshot'
-import { defaultStreamMergeConfig, mergeChunks } from '@/utils/stream-merge'
+import { defaultStreamMergeConfig, mergeChunkState } from '@/utils/stream-merge'
+import type { StreamMergeState } from '@/utils/stream-merge'
 import type { HistoryEntry, ResponseData, StreamMergeConfig as StreamMergeConfigData } from '@/types'
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 
@@ -46,8 +47,10 @@ const streamTypeLabel = computed(() => {
 })
 const recentHistory = computed(() => store.history.slice(0, 5))
 
-// ── Phase 3.4:流式合并结果 + 事件流视图 ──
+// ── 时间线单 tab:分层展示 / 自动合并 双模式(Apifox 式)──
 const hasStreamChunks = computed(() => (store.response?.chunks?.length ?? 0) > 0)
+const isStreamResponse = computed(() => Boolean(store.response?.streamType) || hasStreamChunks.value)
+const timelineMode = ref<'split' | 'merged'>('split')
 const autoScrollMerged = ref(true)
 const mergedContainer = ref<HTMLElement | null>(null)
 
@@ -62,21 +65,36 @@ const isReadonlyModule = computed(() => {
 const streamMergeActive = computed(() => (currentApi.value?.streamMerge?.mode ?? defaultStreamMergeConfig().mode) !== 'off')
 const showMergePanel = ref(false)
 
-/** 合并结果即时重算:配置在响应卡片里改动后对已有 chunks 回放(StreamMerger 引擎与发送管道一致) */
-const liveMergedText = computed<string | undefined>(() => {
-  const response = store.response
-  const chunks = response?.chunks
-  if (!chunks?.length) return response?.mergedText
+/** 合并状态即时重算:配置在响应卡片里改动后对已有 chunks 回放(StreamMerger 引擎与发送管道一致) */
+const liveMergedState = computed<StreamMergeState | undefined>(() => {
+  const chunks = store.response?.chunks
+  if (!chunks?.length) return undefined
   const config: Partial<StreamMergeConfigData> | undefined = currentApi.value?.streamMerge
   if (!config || config.mode === 'off') return undefined
   try {
-    return mergeChunks(chunks, config)
+    return mergeChunkState(chunks, config)
   } catch {
-    return response?.mergedText
+    return undefined
   }
 })
 
-const mergedText = computed(() => liveMergedText.value ?? store.response?.mergedText ?? '')
+const mergedText = computed(() => liveMergedState.value?.merged ?? store.response?.mergedText ?? '')
+const mergedReasoning = computed(() => liveMergedState.value?.reasoning ?? store.response?.mergedReasoning ?? '')
+
+const showReasoning = ref(true)
+
+const mergedEmptyHint = computed(() => {
+  if (streamMergeActive.value) return '已开启合并,暂未匹配到内容:等待更多数据,或在「合并」中调整取值路径。'
+  return isReadonlyModule.value
+    ? '该模块为只读,且本次发送未开启流式合并。'
+    : '开启后按 OpenAI 等常见格式自动探测字段,把 SSE/NDJSON 逐块拼接为完整回答,并单独提取思考过程。'
+})
+
+function enableAutoMerge() {
+  const api = currentApi.value
+  if (!api || isReadonlyModule.value) return
+  store.updateApi(api.id, { streamMerge: { ...defaultStreamMergeConfig(), mode: 'auto' } })
+}
 
 // ── FR-3:事件流时间线双栏 ──
 interface EventRow {
@@ -138,7 +156,7 @@ const selectedEvent = computed<EventRow | null>(() => {
 })
 
 watch(() => streamEvents.value.length, async () => {
-  if (activeLens.value !== 'events') return
+  if (activeLens.value !== 'timeline' || timelineMode.value !== 'split') return
   if (followLatest.value) {
     await nextTick()
     scrollToLatestEvent()
@@ -250,7 +268,7 @@ async function copyRequestCode() {
 }
 
 watch(() => store.response?.mergedText, async () => {
-  if (activeLens.value !== 'merged' || !autoScrollMerged.value) return
+  if (activeLens.value !== 'timeline' || timelineMode.value !== 'merged' || !autoScrollMerged.value) return
   await nextTick()
   const el = mergedContainer.value
   if (el) el.scrollTop = el.scrollHeight
@@ -258,6 +276,10 @@ watch(() => store.response?.mergedText, async () => {
 
 async function copyMergedText() {
   await navigator.clipboard.writeText(mergedText.value)
+}
+
+async function copyReasoning() {
+  await navigator.clipboard.writeText(mergedReasoning.value)
 }
 
 function cancelRequest() {
@@ -372,7 +394,7 @@ const testSummary = computed(() => {
 })
 
 // ── Lens 体系(FR-1.4):按 Content-Type 动态 + 固定追加 ──
-type LensKey = 'json' | 'xml' | 'html' | 'image' | 'raw' | 'headers' | 'request' | 'events' | 'merged' | 'console' | 'tests' | 'visualize' | 'diff'
+type LensKey = 'json' | 'xml' | 'html' | 'image' | 'raw' | 'headers' | 'request' | 'timeline' | 'console' | 'tests' | 'visualize' | 'diff'
 
 const contentType = computed(() => store.response ? responseContentType(store.response) : '')
 const lowerCt = computed(() => contentType.value.toLowerCase())
@@ -396,9 +418,8 @@ const fixedLenses = computed<Array<{ key: LensKey; label: string; badge?: number
     { key: 'headers', label: 'Headers', badge: headerEntries.value.length },
     { key: 'request', label: '实际请求', badge: requestHeaderEntries.value.length || undefined },
   ]
-  if (hasStreamChunks.value) {
-    lenses.push({ key: 'events', label: '事件流', badge: chunkCount.value })
-    lenses.push({ key: 'merged', label: '合并结果' })
+  if (isStreamResponse.value) {
+    lenses.push({ key: 'timeline', label: '时间线', badge: chunkCount.value })
   }
   lenses.push({ key: 'console', label: '控制台', badge: consoleLogs.value.length || undefined })
   if (scriptTests.value.length) lenses.push({ key: 'tests', label: '测试报告', badge: scriptTests.value.length })
@@ -412,8 +433,11 @@ const availableLensKeys = computed(() => new Set<string>([...bodyLenses.value, .
 watch(() => store.response, (next, prev) => {
   if (prev && prev !== next) previousResponse.value = prev
   if (next) {
-    // 默认 lens:按内容类型选第一个 body lens
-    if (!availableLensKeys.value.has(activeLens.value) || activeLens.value === 'raw') {
+    // 默认 lens:流式响应在新一次发送后直接进时间线;其余按内容类型选第一个 body lens
+    const freshStreamSend = Boolean(next.streamType) && (!prev || prev.timestamp !== next.timestamp)
+    if (freshStreamSend && (activeLens.value === 'raw' || !availableLensKeys.value.has(activeLens.value))) {
+      activeLens.value = 'timeline'
+    } else if (!availableLensKeys.value.has(activeLens.value) || activeLens.value === 'raw') {
       const first = bodyLenses.value[0]
       if (first) activeLens.value = first.key
     }
@@ -604,7 +628,7 @@ function historyStatusColor(status: number): string {
 function loadHistoryEntry(entry: HistoryEntry) {
   const interfaceNode = workspace.interfaces.find(item => item.id === entry.interfaceId || item.apiId === entry.apiId)
   workspace.selectInterface(interfaceNode?.id ?? entry.apiId)
-  store.currentApiId = entry.apiId
+  store.openApiInTab(entry.apiId)
 }
 
 function resendHistoryEntry(entry: HistoryEntry, event: MouseEvent) {
@@ -1094,26 +1118,36 @@ function retrySend() {
           </div>
         </template>
 
-        <!-- 事件流 lens(FR-3):左列表 + 右详情双栏 -->
-        <template v-else-if="activeLens === 'events'">
-          <div class="events-layout">
-            <div class="events-pane">
-              <div class="events-toolbar">
-                <div v-if="!isReadonlyModule" class="merge-picker">
-                  <button
-                    type="button"
-                    class="merge-btn"
-                    :class="{ active: streamMergeActive }"
-                    title="流式合并:逐块提取 SSE/NDJSON 载荷字段并拼接"
-                    @click="showMergePanel = !showMergePanel"
-                  >合并<span v-if="streamMergeActive" class="sm-dot"></span></button>
-                  <StreamMergeConfig v-if="showMergePanel" />
-                </div>
-                <div class="search-bar">
-                  <input v-model="eventSearch" type="text" placeholder="搜索事件内容…" />
-                  <span v-if="eventSearch.trim()" class="search-count">{{ filteredEvents.length }}/{{ streamEvents.length }} 匹配</span>
-                </div>
+        <!-- 时间线 lens:分层展示 / 自动合并 双模式单 tab(Apifox 式) -->
+        <template v-else-if="activeLens === 'timeline'">
+          <div class="sub-toolbar timeline-toolbar">
+            <div class="seg-group">
+              <button :class="['sub-btn', { active: timelineMode === 'split' }]" @click="timelineMode = 'split'">分层展示</button>
+              <button :class="['sub-btn', { active: timelineMode === 'merged' }]" @click="timelineMode = 'merged'">自动合并</button>
+            </div>
+            <div v-if="timelineMode === 'split'" class="search-bar timeline-search">
+              <input v-model="eventSearch" type="text" placeholder="搜索事件内容…" />
+              <span v-if="eventSearch.trim()" class="search-count">{{ filteredEvents.length }}/{{ streamEvents.length }} 匹配</span>
+            </div>
+            <div v-else class="merged-bar-actions">
+              <label class="auto-scroll"><input v-model="autoScrollMerged" type="checkbox" /> 自动滚动</label>
+              <div v-if="!isReadonlyModule" class="merge-picker">
+                <button
+                  type="button"
+                  class="merge-btn"
+                  :class="{ active: streamMergeActive }"
+                  title="流式合并:逐块提取 SSE/NDJSON 载荷字段并拼接,思考过程单独提取"
+                  @click="showMergePanel = !showMergePanel"
+                >合并<span v-if="streamMergeActive" class="sm-dot"></span></button>
+                <StreamMergeConfig v-if="showMergePanel" class="align-right" />
               </div>
+              <button class="meta-action" @click="copyMergedText"><Copy :size="12" /> 复制</button>
+            </div>
+          </div>
+
+          <!-- 分层展示:左列表 + 右详情双栏 -->
+          <div v-if="timelineMode === 'split'" class="events-layout">
+            <div class="events-pane">
               <div ref="eventsListEl" class="events-rows" @scroll="onEventsScroll">
                 <button
                   v-for="ev in filteredEvents"
@@ -1151,28 +1185,30 @@ function retrySend() {
               <div v-else class="lens-empty">暂无事件</div>
             </div>
           </div>
-        </template>
 
-        <!-- 合并结果 lens -->
-        <template v-else-if="activeLens === 'merged'">
-          <div class="merged-wrap">
-            <div class="merged-bar">
-              <label class="auto-scroll"><input v-model="autoScrollMerged" type="checkbox" /> 自动滚动</label>
-              <div class="merged-bar-actions">
-                <div v-if="!isReadonlyModule" class="merge-picker">
-                  <button
-                    type="button"
-                    class="merge-btn"
-                    :class="{ active: streamMergeActive }"
-                    title="流式合并:逐块提取 SSE/NDJSON 载荷字段并拼接"
-                    @click="showMergePanel = !showMergePanel"
-                  >合并<span v-if="streamMergeActive" class="sm-dot"></span></button>
-                  <StreamMergeConfig v-if="showMergePanel" class="align-right" />
+          <!-- 自动合并:思考过程 + 正文 -->
+          <div v-else class="merged-wrap">
+            <template v-if="mergedText || mergedReasoning">
+              <div v-if="mergedReasoning" class="reasoning-block">
+                <div class="reasoning-head">
+                  <button class="reasoning-toggle" @click="showReasoning = !showReasoning">
+                    <ChevronDown :size="12" :class="['toggle-icon', { open: showReasoning }]" />
+                    <Brain :size="12" />
+                    <span>思考过程</span>
+                    <span class="reasoning-len">{{ mergedReasoning.length }} 字</span>
+                  </button>
+                  <button class="meta-action" title="复制思考过程" @click="copyReasoning"><Copy :size="11" /> 复制</button>
                 </div>
-                <button class="meta-action" @click="copyMergedText"><Copy :size="12" /> 复制</button>
+                <pre v-show="showReasoning" class="reasoning-text">{{ mergedReasoning }}</pre>
               </div>
+              <pre ref="mergedContainer" class="merged-text">{{ mergedText || '正文暂无内容:等待更多数据,或在「合并」中调整取值路径。' }}</pre>
+            </template>
+            <div v-else class="merged-empty">
+              <Brain :size="26" />
+              <h3>{{ streamMergeActive ? '暂未合并出内容' : '尚未开启流式合并' }}</h3>
+              <p>{{ mergedEmptyHint }}</p>
+              <button v-if="!streamMergeActive && !isReadonlyModule" class="placeholder-action" @click="enableAutoMerge">开启自动合并</button>
             </div>
-            <pre ref="mergedContainer" class="merged-text">{{ mergedText || '尚未合并出内容:请在「合并」中开启流式合并,或等待更多数据。' }}</pre>
           </div>
         </template>
 
@@ -1861,21 +1897,36 @@ function retrySend() {
   border-right: 1px solid var(--divider-color);
 }
 
-.events-toolbar {
-  display: flex;
+/* 时间线单 tab 工具栏:分段切换 + 右侧动作 */
+.timeline-toolbar {
+  gap: 6px;
+}
+
+.seg-group {
+  display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--divider-color);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-light-color);
   flex-shrink: 0;
 }
 
-.events-toolbar .search-bar {
-  flex: 1;
-  margin-left: 0;
+.seg-group .sub-btn.active {
+  background: var(--primary-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-color) 55%, transparent);
 }
 
-.events-toolbar .search-bar input {
+.timeline-search {
+  flex: 1;
+  min-width: 0;
+  margin-left: 4px;
+}
+
+.timeline-search input {
   width: 100%;
+  max-width: 260px;
 }
 
 .events-rows {
@@ -1966,19 +2017,95 @@ function retrySend() {
   flex-direction: column;
   min-height: 0;
   padding: 6px 10px;
-  gap: 4px;
-}
-
-.merged-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  gap: 6px;
 }
 
 .merged-bar-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
+}
+
+/* 思考过程:独立于正文的折叠块 */
+.reasoning-block {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 1;
+  min-height: 0;
+  max-height: 50%;
+  border: 1px dashed color-mix(in srgb, var(--accent-color) 35%, var(--divider-dark-color));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-color) 4%, transparent);
+  overflow: hidden;
+}
+
+.reasoning-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 4px 2px 5px;
+  flex-shrink: 0;
+}
+
+.reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 600;
+}
+
+.reasoning-toggle:hover {
+  background: var(--primary-dark-color);
+  color: var(--secondary-dark-color);
+}
+
+.reasoning-len {
+  color: var(--secondary-light-color);
+  font-weight: 400;
+  font-family: var(--font-code);
+}
+
+.reasoning-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 10px 8px;
+  overflow: auto;
+  border-top: 1px dashed color-mix(in srgb, var(--accent-color) 20%, transparent);
+  font-family: var(--font-code);
+  font-size: var(--font-size-tiny);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--secondary-color);
+}
+
+.merged-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--secondary-color);
+  text-align: center;
+}
+
+.merged-empty h3 {
+  color: var(--secondary-dark-color);
+  font-size: 14px;
+}
+
+.merged-empty p {
+  font-size: var(--font-size-body);
+  max-width: 420px;
 }
 
 /* FR-5:流式合并配置入口(ApiFox 式,位于响应卡片工具栏) */

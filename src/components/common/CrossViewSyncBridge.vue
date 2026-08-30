@@ -376,7 +376,8 @@ async function reloadSharedState(scope: SyncMessage['scope']): Promise<void> {
   }
   if (scope === 'api') {
     const apiList = await db.apis.toArray()
-    store.apis = Object.fromEntries(apiList.map(api => [api.id, api]))
+    // 编辑只进内存:用合并而非整体替换,避免把未落库修改冲掉
+    store.mergeApisFromDb(apiList)
     return
   }
   const [categoryList, moduleList, interfaceList] = await Promise.all([

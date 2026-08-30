@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { StreamMerger, extractByPath, mergeChunks, STREAM_MERGE_PRESETS } from '@/utils/stream-merge'
+import { StreamMerger, extractByPath, mergeChunkState, mergeChunks, REASONING_DATA_PATHS, STREAM_MERGE_PRESETS } from '@/utils/stream-merge'
 import type { ResponseStreamChunk } from '@/types'
 
 function sseChunk(data: string, event?: string): ResponseStreamChunk {
@@ -86,6 +86,72 @@ describe('mergeChunks', () => {
       sseChunk(JSON.stringify({ data: { content: 'y' } })),
     ]
     expect(mergeChunks(chunks, { mode: 'custom', dataPath: 'data.content' })).toBe('xy')
+  })
+})
+
+describe('思考过程(reasoning)提取', () => {
+  const openaiReasoningChunk = (reasoning?: string, content?: string) => {
+    const delta: Record<string, string> = {}
+    if (reasoning !== undefined) delta.reasoning_content = reasoning
+    if (content !== undefined) delta.content = content
+    return sseChunk(JSON.stringify({ choices: [{ delta }] }))
+  }
+
+  it('auto 模式:reasoning_content 与正文分开累积', () => {
+    const state = mergeChunkState([
+      openaiReasoningChunk('让我想想'),
+      openaiReasoningChunk(',先分析'),
+      openaiReasoningChunk(undefined, '答案是'),
+      openaiReasoningChunk(undefined, ' 42'),
+    ], { mode: 'auto', dataPath: '' })
+    expect(state.reasoning).toBe('让我想想,先分析')
+    expect(state.merged).toBe('答案是 42')
+  })
+
+  it('custom 模式同样并行提取 reasoning', () => {
+    const state = mergeChunkState([
+      openaiReasoningChunk('思考中'),
+      openaiReasoningChunk(undefined, '正文'),
+    ], { mode: 'custom', dataPath: 'choices[0].delta.content' })
+    expect(state.reasoning).toBe('思考中')
+    expect(state.merged).toBe('正文')
+  })
+
+  it('OpenRouter 风格 delta.reasoning 也可命中', () => {
+    const state = mergeChunkState([
+      sseChunk(JSON.stringify({ choices: [{ delta: { reasoning: 'think', content: 'ans' } }] })),
+    ], { mode: 'auto', dataPath: '' })
+    expect(state.reasoning).toBe('think')
+    expect(state.merged).toBe('ans')
+  })
+
+  it('普通 OpenAI 流(无 reasoning 字段)reasoning 保持为空', () => {
+    const state = mergeChunkState([
+      openaiReasoningChunk(undefined, 'hi'),
+      sseChunk('[DONE]'),
+    ], { mode: 'auto', dataPath: '' })
+    expect(state.reasoning).toBe('')
+    expect(state.merged).toBe('hi')
+    expect(state.stopped).toBe(true)
+  })
+
+  it('mode=off 不提取 reasoning', () => {
+    const merger = new StreamMerger({ mode: 'off', dataPath: 'text' })
+    merger.push(openaiReasoningChunk('think'))
+    expect(merger.state.reasoning).toBe('')
+  })
+
+  it('内置 reasoning 路径均可被 extractByPath 解析命中', () => {
+    const samples: unknown[] = [
+      { choices: [{ delta: { reasoning_content: 'a' } }] },
+      { choices: [{ delta: { reasoning: 'b' } }] },
+      { choices: [{ message: { reasoning_content: 'c' } }] },
+      { delta: { reasoning_content: 'd' } },
+      { delta: { reasoning: 'e' } },
+    ]
+    samples.forEach((sample, index) => {
+      expect(extractByPath(sample, REASONING_DATA_PATHS[index])).not.toBeNull()
+    })
   })
 })
 

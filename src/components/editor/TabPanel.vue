@@ -8,6 +8,7 @@ import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 import { createDefaultAuthConfig } from '@/utils/auth'
+import { COMMON_HEADER_NAMES } from '@/utils/common-headers'
 import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem } from '@/types'
 
 const store = useAppStore()
@@ -31,6 +32,22 @@ const tabs = [
   { key: 'pre-script', label: '前置脚本' },
   { key: 'post-script', label: '后置脚本' },
   { key: 'variables', label: '变量' },
+]
+
+/** 常用请求头预设(Headers tab 一键插入;同名 key 忽略大小写覆盖) */
+const commonHeaders = [
+  { key: 'Content-Type', value: 'application/json' },
+  { key: 'Accept', value: 'application/json' },
+  { key: 'Authorization', label: 'Bearer <token>' },
+  { key: 'User-Agent', label: '自定义 UA' },
+  { key: 'X-Requested-With', value: 'XMLHttpRequest' },
+  { key: 'Accept-Language', value: 'zh-CN,zh;q=0.9' },
+  { key: 'Cache-Control', value: 'no-cache' },
+  { key: 'Origin', label: '跨域来源' },
+  { key: 'Referer', label: '引用页' },
+  { key: 'Cookie', label: '会话 Cookie' },
+  { key: 'X-Request-Id', label: '链路追踪 ID' },
+  { key: 'If-None-Match', label: 'ETag 缓存校验' },
 ]
 
 function updateParams(params: KvPair[]) {
@@ -288,6 +305,9 @@ function formatLogTime(ts: number): string {
             value-placeholder="值"
             show-description
             :readonly="isReadonlyModule"
+            :presets="commonHeaders"
+            presets-title="常用请求头"
+            :key-suggestions="COMMON_HEADER_NAMES"
           />
         </div>
         <details class="cookies-section">
@@ -436,6 +456,13 @@ function formatLogTime(ts: number): string {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* KvEditor 根元素的 height:100% 在 auto 高度的父容器里会被循环解析,
+   导致「+ 添加参数」按钮溢出压到 Cookies 折叠条上;这两处改为内容自适应 */
+.headers-inner > .headers-section > :deep(.kv-editor),
+.request-vars-tab.request-vars-tab > :deep(.kv-editor) {
+  height: auto;
 }
 
 .section-label {

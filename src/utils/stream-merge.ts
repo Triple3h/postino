@@ -21,6 +21,18 @@ export const STREAM_MERGE_PRESETS: StreamMergePreset[] = [
   { id: 'text', label: 'text', dataPath: 'text' },
 ]
 
+/**
+ * 思考过程(reasoning)的常见载荷路径:DeepSeek/Qwen 系用 reasoning_content,
+ * OpenRouter 等用 reasoning。与正文 dataPath 独立,命中即并行累积。
+ */
+export const REASONING_DATA_PATHS = [
+  'choices[0].delta.reasoning_content',
+  'choices[0].delta.reasoning',
+  'choices[0].message.reasoning_content',
+  'delta.reasoning_content',
+  'delta.reasoning',
+] as const
+
 export function defaultStreamMergeConfig(): StreamMergeConfig {
   return { mode: 'off', dataPath: 'data.content', separator: '', stopMarker: '[DONE]' }
 }
@@ -78,6 +90,8 @@ export function detectAutoPath(json: unknown): string | null {
 
 export interface StreamMergeState {
   merged: string
+  /** 思考过程(reasoning_content / reasoning)拼接结果,与正文分开累积 */
+  reasoning: string
   /** 已处理的 chunk 总数 */
   chunkCount: number
   /** 实际并入结果的 chunk 数 */
@@ -101,7 +115,8 @@ function chunkJson(chunk: ResponseStreamChunk): unknown {
 export class StreamMerger {
   private config: StreamMergeConfig
   private fragments: string[] = []
-  readonly state: StreamMergeState = { merged: '', chunkCount: 0, mergedCount: 0, stopped: false }
+  private reasoningFragments: string[] = []
+  readonly state: StreamMergeState = { merged: '', reasoning: '', chunkCount: 0, mergedCount: 0, stopped: false }
 
   constructor(config?: Partial<StreamMergeConfig> | null) {
     this.config = { ...defaultStreamMergeConfig(), ...(config ?? {}) }
@@ -127,6 +142,7 @@ export class StreamMerger {
       const json = chunkJson(chunk)
       if (json === undefined) return this.state.merged
       extracted = extractByPath(json, this.config.dataPath)
+      this.extractReasoning(json)
     } else {
       // auto:每个 chunk 独立探测(不同 chunk 结构可能不同)
       const json = chunkJson(chunk)
@@ -136,6 +152,7 @@ export class StreamMerger {
       } else {
         const path = detectAutoPath(json)
         extracted = path ? extractByPath(json, path) : null
+        this.extractReasoning(json)
       }
     }
 
@@ -146,11 +163,28 @@ export class StreamMerger {
     }
     return this.state.merged
   }
+
+  /** 尝试从 chunk JSON 提取思考过程片段,命中则并行累积(不影响正文合并) */
+  private extractReasoning(json: unknown): void {
+    for (const path of REASONING_DATA_PATHS) {
+      const value = extractByPath(json, path)
+      if (value != null) {
+        this.reasoningFragments.push(value)
+        this.state.reasoning = this.reasoningFragments.join(this.config.separator ?? '')
+        return
+      }
+    }
+  }
 }
 
-/** 一次性对完整 chunk 数组求合并结果(历史回放/重算用) */
-export function mergeChunks(chunks: ResponseStreamChunk[], config?: Partial<StreamMergeConfig> | null): string {
+/** 一次性对完整 chunk 数组求合并状态(历史回放/重算用):正文 + 思考过程 */
+export function mergeChunkState(chunks: ResponseStreamChunk[], config?: Partial<StreamMergeConfig> | null): StreamMergeState {
   const merger = new StreamMerger(config)
   for (const chunk of chunks) merger.push(chunk)
-  return merger.state.merged
+  return merger.state
+}
+
+/** 一次性对完整 chunk 数组求合并正文(历史回放/重算用) */
+export function mergeChunks(chunks: ResponseStreamChunk[], config?: Partial<StreamMergeConfig> | null): string {
+  return mergeChunkState(chunks, config).merged
 }

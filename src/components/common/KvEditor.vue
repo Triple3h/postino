@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
-import { ChevronDown, Trash2, X } from '@lucide/vue'
+import { ref, watch, computed, nextTick, toRaw, onMounted, onUnmounted } from 'vue'
+import { ChevronDown, Ellipsis, Plus, SquarePen, Trash2, X } from '@lucide/vue'
+import { useDialog } from '@/composables/useDialog'
 import type { KvPair } from '@/types'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
@@ -12,11 +13,19 @@ const props = defineProps<{
   showDescription?: boolean
   readonly?: boolean
   allowFileUpload?: boolean
+  /** 常用键值对预设(如常用请求头):以下拉形式一键插入/覆盖 */
+  presets?: Array<{ key: string; value?: string; label?: string }>
+  /** 预设下拉按钮文案(默认「常用模板」) */
+  presetsTitle?: string
+  /** key 输入自动补全数据源(如常见请求头名,Hoppscotch 式输入即过滤) */
+  keySuggestions?: string[]
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: KvPair[]]
 }>()
+
+const dialog = useDialog()
 
 const rows = ref<KvPair[]>([...props.modelValue])
 const fileInputRefs = ref<Map<number, HTMLInputElement>>(new Map())
@@ -30,20 +39,175 @@ const showImportDialog = ref(false)
 const importText = ref('')
 const showActionsMenu = ref(false)
 
+// --- Presets dropdown ---
+const showPresetsMenu = ref(false)
+
+// --- Key 输入自动补全(Hoppscotch EnvInput 式:输入即过滤,↑↓ 选择,Enter 确认,Esc 关闭) ---
+const keySuggestRow = ref<number | null>(null)
+const showKeySuggest = ref(false)
+const keySuggestIndex = ref(-1)
+const keyInputRefs = ref<Map<number, HTMLInputElement>>(new Map())
+const keySuggestDropdownRef = ref<HTMLElement | null>(null)
+/** 面板用 fixed 定位(Teleport 到 body),避免被 .kv-rows 的 overflow 裁剪 */
+const keySuggestPos = ref({ top: 0, left: 0, width: 260 })
+
+const keySuggestList = computed<string[]>(() => {
+  const source = props.keySuggestions
+  if (!source || source.length === 0 || keySuggestRow.value == null) return []
+  const value = rows.value[keySuggestRow.value]?.key ?? ''
+  if (value.trim()) {
+    const query = value.trim().toLowerCase()
+    return source.filter(item => item.toLowerCase().includes(query))
+  }
+  return []
+})
+
+function updateKeySuggestPos() {
+  if (keySuggestRow.value == null) return
+  const input = keyInputRefs.value.get(keySuggestRow.value)
+  if (!input) return
+  const rect = input.getBoundingClientRect()
+  keySuggestPos.value = {
+    top: rect.bottom + 4,
+    left: rect.left,
+    width: Math.max(rect.width, 260),
+  }
+}
+
+function openKeySuggest(rowIndex: number) {
+  if (!props.keySuggestions?.length || props.readonly || bulkMode.value) return
+  keySuggestRow.value = rowIndex
+  keySuggestIndex.value = -1
+  updateKeySuggestPos()
+  showKeySuggest.value = true
+}
+
+function closeKeySuggest() {
+  showKeySuggest.value = false
+  keySuggestIndex.value = -1
+}
+
+function moveKeySuggest(delta: 1 | -1) {
+  if (!showKeySuggest.value) {
+    showKeySuggest.value = true
+    return
+  }
+  const list = keySuggestList.value
+  if (!list.length) return
+  keySuggestIndex.value = Math.min(Math.max(keySuggestIndex.value + delta, 0), list.length - 1)
+}
+
+function onKeySuggestKeydown(rowIndex: number, event: KeyboardEvent) {
+  if (!showKeySuggest.value || keySuggestRow.value !== rowIndex) return
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    moveKeySuggest(1)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    moveKeySuggest(-1)
+  } else if (event.key === 'Enter') {
+    const list = keySuggestList.value
+    if (keySuggestIndex.value > -1 && list[keySuggestIndex.value]) {
+      event.preventDefault()
+      applyKeySuggestion(list[keySuggestIndex.value], rowIndex)
+    } else {
+      event.preventDefault()
+      closeKeySuggest()
+    }
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    closeKeySuggest()
+  }
+}
+
+function applyKeySuggestion(suggestion: string, rowIndex: number) {
+  const row = rows.value[rowIndex]
+  if (row) row.key = suggestion
+  closeKeySuggest()
+  update()
+  const input = keyInputRefs.value.get(rowIndex)
+  if (input) {
+    input.focus()
+    const end = input.value.length
+    input.setSelectionRange(end, end)
+  }
+}
+
+watch(keySuggestIndex, (idx) => {
+  if (idx < 0) return
+  nextTick(() => {
+    keySuggestDropdownRef.value?.querySelector('.key-suggest-item.active')?.scrollIntoView({ block: 'nearest' })
+  })
+})
+
+function onWindowScrollCapture() {
+  if (showKeySuggest.value) updateKeySuggestPos()
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', onWindowScrollCapture, true)
+  window.addEventListener('resize', updateKeySuggestPos)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', onWindowScrollCapture, true)
+  window.removeEventListener('resize', updateKeySuggestPos)
+})
+
 // --- Drag and drop ---
 const dragIndex = ref<number | null>(null)
 const dropIndex = ref<number | null>(null)
 
+// 最近一次 emit 给父组件的数组引用:update() 会把 rows 过滤后的数组发给父组件,
+// 父组件写回 modelValue 后会被 reactive 代理包裹,须用 toRaw 解包才能比对上同一数组。
+// 若不识别这个回声,deep watch 会用过滤结果覆盖 rows,
+// 把刚添加、还没填 key 的空行瞬间删掉(History:Headers/参数表格无法编辑的根因)。
+let lastEmitted: KvPair[] | null = null
+
 watch(() => props.modelValue, (val) => {
+  if (val === lastEmitted || toRaw(val) === lastEmitted) return
+  lastEmitted = null
   rows.value = [...val]
+  // 切换请求/外部重置时收起补全面板(自身 emit 的回声不触发)
+  closeKeySuggest()
 }, { deep: true })
 
 function update() {
-  emit('update:modelValue', rows.value.filter(r => r.key.trim()))
+  lastEmitted = rows.value.filter(r => r.key.trim())
+  emit('update:modelValue', lastEmitted)
 }
 
 function addRow() {
   rows.value.push({ key: '', value: '', enabled: true, description: '', type: 'text' })
+  update()
+}
+
+const hasContent = computed(() => rows.value.some(row => row.key.trim() || row.value.trim()))
+
+/** 清空全部行(Hoppscotch 式 🗑):有内容时二次确认 */
+async function clearAllRows() {
+  if (!hasContent.value) return
+  const ok = await dialog.confirm({
+    title: '清空全部',
+    message: `将清空当前 ${rows.value.length} 行内容,不可撤销。`,
+    confirmText: '清空',
+  })
+  if (!ok) return
+  rows.value = []
+  update()
+}
+
+/** 插入常用预设:同名 key(忽略大小写)存在则覆盖值并启用,否则追加一行 */
+function applyPreset(preset: { key: string; value?: string }) {
+  showPresetsMenu.value = false
+  if (props.readonly || bulkMode.value) return
+  const existing = rows.value.find(row => row.key.toLowerCase() === preset.key.toLowerCase())
+  if (existing) {
+    if (preset.value !== undefined) existing.value = preset.value
+    existing.enabled = true
+  } else {
+    rows.value.push({ key: preset.key, value: preset.value ?? '', enabled: true, description: '', type: 'text' })
+  }
   update()
 }
 
@@ -358,19 +522,59 @@ const duplicateKeyIndices = computed(() => {
 
 <template>
   <div class="kv-editor">
-    <!-- Header row with action buttons -->
+    <!-- Header row with action buttons(Hoppscotch 式:右侧 🗑 清空 / ✏️ 批量编辑 / ＋ 新增 图标钮) -->
     <div class="kv-toolbar">
       <div class="kv-toolbar-left">
-        <button class="toolbar-btn add-inline-btn" @click="addRow" :disabled="readonly || bulkMode">+ 添加参数</button>
+        <div v-if="presets?.length" class="kv-toolbar-menu" @click.stop>
+          <button
+            class="toolbar-btn"
+            :class="{ active: showPresetsMenu }"
+            :disabled="readonly || bulkMode"
+            title="从常用模板插入"
+            @click="showPresetsMenu = !showPresetsMenu"
+          >
+            {{ presetsTitle || '常用模板' }} <ChevronDown :size="14" />
+          </button>
+          <div v-if="showPresetsMenu" class="kv-action-dropdown presets-dropdown">
+            <button v-for="preset in presets" :key="preset.key" class="kv-action-item preset-item" @click="applyPreset(preset)">
+              <span class="preset-key">{{ preset.key }}</span>
+              <span class="preset-value">{{ preset.value || preset.label || '—' }}</span>
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="kv-toolbar-menu" @click.stop>
-        <button class="toolbar-btn" :class="{ active: bulkMode || showActionsMenu }" @click="showActionsMenu = !showActionsMenu" :disabled="readonly" title="更多表格操作">
-          批量编辑 <ChevronDown :size="14" />
-        </button>
-        <div v-if="showActionsMenu" class="kv-action-dropdown">
-          <button class="kv-action-item" @click="toggleBulkMode">{{ bulkMode ? '完成批量编辑' : '批量编辑' }}</button>
-          <button class="kv-action-item" @click="sortRows" :disabled="bulkMode">按键名排序</button>
-          <button class="kv-action-item" @click="openImportDialog" :disabled="bulkMode">从文本导入</button>
+      <div class="kv-toolbar-right" @click.stop>
+        <button
+          class="toolbar-icon danger"
+          :disabled="readonly || !hasContent"
+          title="清空全部"
+          @click="clearAllRows"
+        ><Trash2 :size="14" /></button>
+        <button
+          class="toolbar-icon"
+          :class="{ active: bulkMode }"
+          :disabled="readonly && !bulkMode"
+          :title="bulkMode ? '完成批量编辑' : '批量编辑'"
+          @click="toggleBulkMode"
+        ><SquarePen :size="14" /></button>
+        <button
+          class="toolbar-icon"
+          :disabled="readonly || bulkMode"
+          title="新增一行"
+          @click="addRow"
+        ><Plus :size="14" /></button>
+        <div class="kv-toolbar-menu">
+          <button
+            class="toolbar-icon"
+            :class="{ active: showActionsMenu }"
+            :disabled="readonly || bulkMode"
+            title="按键名排序 / 从文本导入"
+            @click="showActionsMenu = !showActionsMenu"
+          ><Ellipsis :size="14" /></button>
+          <div v-if="showActionsMenu" class="kv-action-dropdown">
+            <button class="kv-action-item" @click="sortRows">按键名排序</button>
+            <button class="kv-action-item" @click="openImportDialog">从文本导入</button>
+          </div>
         </div>
       </div>
     </div>
@@ -409,11 +613,14 @@ const duplicateKeyIndices = computed(() => {
         </div>
         <div class="kv-col kv-col-key" :class="{ 'has-duplicate': duplicateKeyIndices.has(i) }">
           <input
+            :ref="(el) => { if (el) keyInputRefs.set(i, el as HTMLInputElement) }"
             type="text"
             v-model="row.key"
             :placeholder="keyPlaceholder || 'Key'"
             :disabled="readonly || !row.enabled"
-            @input="update"
+            @input="update(); openKeySuggest(i)"
+            @keydown="onKeySuggestKeydown(i, $event)"
+            @blur="closeKeySuggest"
           />
           <span
             v-if="duplicateKeyIndices.has(i)"
@@ -526,6 +733,32 @@ const duplicateKeyIndices = computed(() => {
     </Teleport>
   </div>
 
+  <!-- key 补全面板(参考 Hoppscotch):Teleport + fixed 定位,避免被表格滚动容器裁剪;
+       mousedown.prevent 避免点击项时输入框先失焦 -->
+  <Teleport to="body">
+    <div
+      v-if="showKeySuggest && keySuggestRow != null && keySuggestList.length"
+      ref="keySuggestDropdownRef"
+      class="key-suggest-dropdown"
+      :style="{ top: keySuggestPos.top + 'px', left: keySuggestPos.left + 'px', width: keySuggestPos.width + 'px' }"
+    >
+      <div class="key-suggest-list">
+        <button
+          v-for="(suggestion, si) in keySuggestList"
+          :key="suggestion"
+          type="button"
+          class="key-suggest-item"
+          :class="{ active: si === keySuggestIndex }"
+          :title="suggestion"
+          @mousedown.prevent
+          @mouseenter="keySuggestIndex = si"
+          @click="keySuggestRow != null && applyKeySuggestion(suggestion, keySuggestRow)"
+        >{{ suggestion }}</button>
+      </div>
+      <div class="key-suggest-hint"><kbd>↑↓</kbd> 选择 <kbd>Enter</kbd> 选中 <kbd>Esc</kbd> 关闭</div>
+    </div>
+  </Teleport>
+
   <VariableAutocomplete
     :visible="valueAutocomplete.showAutocomplete.value"
     :position="valueAutocomplete.autocompletePosition.value"
@@ -563,7 +796,18 @@ const duplicateKeyIndices = computed(() => {
   position: relative;
 }
 
+.kv-toolbar-right {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .toolbar-btn {
+  /* inline-flex:Talwind preflight 把 svg 置为 display:block,普通 button 里图标会掉到第二行 */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   height: 24px;
   padding: 0 8px;
   border: 1px solid var(--border);
@@ -575,6 +819,40 @@ const duplicateKeyIndices = computed(() => {
   font-weight: 500;
   white-space: nowrap;
   transition: all 0.15s;
+}
+
+.toolbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbar-icon:hover:not(:disabled) {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.toolbar-icon.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.toolbar-icon.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-critical-error-color, #ef4444) 12%, transparent);
+  color: var(--status-critical-error-color, #ef4444);
+}
+
+.toolbar-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .toolbar-btn:hover:not(:disabled) {
@@ -591,11 +869,6 @@ const duplicateKeyIndices = computed(() => {
 .toolbar-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.add-inline-btn {
-  border-style: dashed;
-  color: var(--primary);
 }
 
 .kv-action-dropdown {
@@ -630,6 +903,38 @@ const duplicateKeyIndices = computed(() => {
 .kv-action-item:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.presets-dropdown {
+  left: 0;
+  right: auto;
+  min-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.preset-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.preset-key {
+  font-family: var(--font-mono, 'Menlo', 'Consolas', monospace);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.preset-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 10px;
 }
 
 /* ========== Table Header ========== */
@@ -713,6 +1018,69 @@ const duplicateKeyIndices = computed(() => {
   padding-right: 26px;
 }
 
+/* ========== Key 补全面板(Hoppscotch 式) ========== */
+
+.key-suggest-dropdown {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-elevated, var(--bg-panel));
+  box-shadow: var(--shadow-lg);
+}
+
+.key-suggest-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.key-suggest-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono, 'Menlo', 'Consolas', monospace);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-suggest-item.active,
+.key-suggest-item:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.key-suggest-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 10px 3px;
+  border-top: 1px solid var(--divider);
+  margin-top: 3px;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.key-suggest-hint kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, 'Menlo', 'Consolas', monospace);
+  font-size: 9px;
+}
+
 .kv-col-type {
   width: 60px;
   flex-shrink: 0;
@@ -730,7 +1098,8 @@ const duplicateKeyIndices = computed(() => {
 }
 
 .kv-col-action {
-  width: 28px;
+  /* 28px 按钮 + 左右 padding,避免 btn-icon 溢出撑出横向滚动条 */
+  width: 36px;
   flex-shrink: 0;
   text-align: center;
 }

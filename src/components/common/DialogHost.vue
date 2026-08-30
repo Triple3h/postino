@@ -38,6 +38,9 @@ watch(() => dialogState.visible, async visible => {
             />
           </div>
           <div class="dialog-actions">
+            <button v-if="dialogState.tertiaryText" class="btn" @click="resolveDialog('tertiary')">
+              {{ dialogState.tertiaryText }}
+            </button>
             <button class="btn" @click="resolveDialog(false)">{{ dialogState.cancelText }}</button>
             <button :class="['btn', dialogState.danger ? 'btn-danger' : 'btn-primary']" @click="resolveDialog(true)">
               {{ dialogState.confirmText }}

@@ -9,12 +9,30 @@ import SaveRequestModal from '@/components/sidebar/SaveRequestModal.vue'
 import ShortcutsPrompt from '@/components/common/ShortcutsPrompt.vue'
 import { useFileImport } from '@/composables/useFileImport'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
+import { useAppStore } from '@/stores/app'
 
 const { dragImportDepth, bindWindowDragImport, unbindWindowDragImport } = useFileImport()
 useKeyboardShortcuts()
+const store = useAppStore()
 
-onMounted(bindWindowDragImport)
-onUnmounted(unbindWindowDragImport)
+/** 卸载/转入后台前把未落库的编辑写入 IndexedDB,防止关窗/崩溃丢数据(不熄灭未保存圆点) */
+function flushDirtyOnExit() {
+  void store.flushDirtyApis()
+}
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') flushDirtyOnExit()
+}
+
+onMounted(() => {
+  bindWindowDragImport()
+  window.addEventListener('pagehide', flushDirtyOnExit)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+onUnmounted(() => {
+  unbindWindowDragImport()
+  window.removeEventListener('pagehide', flushDirtyOnExit)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 </script>
 
 <template>

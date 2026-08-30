@@ -24,9 +24,8 @@ import { openContextMenu } from '@/composables/useContextMenu'
 import { resolveInheritedProperties } from '@/utils/inheritance'
 import { isWebSocketUrl } from '@/utils/http'
 import { generateCurl, generatePostmanCollection, generatePostmanCollectionTree, generatePostmanEnvironmentFiles } from '@/utils/export'
-import { createDefaultAuthConfig } from '@/utils/auth'
 import { toast } from 'vue-sonner'
-import type { ApiConfig, Collection, CollectionNode, HttpMethod, InterfaceNode } from '@/types'
+import type { ApiConfig, Collection, CollectionNode, InterfaceNode } from '@/types'
 
 const props = defineProps<{
   filter: string
@@ -143,7 +142,7 @@ function methodColor(method: string): string {
   return colors[method?.toUpperCase()] || 'var(--method-default-color)'
 }
 
-const isRequestOpen = (node: InterfaceNode): boolean => Boolean(node.apiId && store.currentApiId === node.apiId)
+const isRequestOpen = (node: InterfaceNode): boolean => Boolean(node.apiId && store.openTabs.includes(node.apiId))
 
 // FR-4:类型图标只认 ws/wss scheme(声明式 requestType 不再作为分支依据);SSE 无法从 URL 判定,不显示
 function requestTypeOf(node: InterfaceNode): 'rest' | 'sse' | 'ws' {
@@ -182,7 +181,7 @@ function nodeHasOverrides(node: InterfaceNode): boolean {
 function selectApi(apiId: string) {
   const node = workspace.interfaces.find(item => item.apiId === apiId)
   workspace.selectInterface(node?.id ?? apiId)
-  store.currentApiId = apiId
+  store.openApiInTab(apiId)
 }
 
 function openNode(node: InterfaceNode) {
@@ -194,32 +193,11 @@ function openNode(node: InterfaceNode) {
 }
 
 // ── 新建 ──
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-}
-
 async function createRequest(parentId: string | null, moduleId: string) {
-  const name = await dialog.prompt({ title: '新建请求', message: '请求名称', placeholder: '例如:获取用户信息', confirmText: '创建' })
-  if (!name?.trim()) return
-  const now = Date.now()
-  const api: ApiConfig = {
-    id: generateId(),
-    name: name.trim(),
-    method: 'GET' as HttpMethod,
-    url: '',
-    headers: [],
-    params: [],
-    cookies: [],
-    body: { type: 'none', raw: '', formData: [], urlEncoded: [], binaryFile: null, contentType: '' },
-    auth: createDefaultAuthConfig(),
-    preRequestScript: '',
-    postRequestScript: '',
-    folder: null,
-    createdAt: now,
-    updatedAt: now,
-  }
-  await store.addApi(api, moduleId, parentId)
-  selectApi(api.id)
+  // 新建请求直接开新标签(不再先输名称);落点记到 pendingSaveTarget,首次 Cmd+S 时预选
+  const api = await store.newRequestTab({ moduleId, parentId })
+  if (parentId && !isExpanded(nodeKey(parentId))) toggleExpanded(nodeKey(parentId))
+  return api
 }
 
 async function createFolder(parentId: string | null, moduleId: string) {
@@ -261,7 +239,7 @@ async function commitRename() {
     if (isFolderNode(node)) {
       await workspace.updateInterfaceNode(node.id, { name })
     } else if (node.apiId) {
-      store.updateApi(node.apiId, { name })
+      await store.updateApiNow(node.apiId, { name })
     }
   }
 }

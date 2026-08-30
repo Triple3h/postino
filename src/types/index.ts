@@ -146,6 +146,8 @@ export interface HistoryEntry {
   streamMerge?: StreamMergeConfig
   /** 流式合并结果全文 */
   mergedText?: string
+  /** 流式合并提取的思考过程(reasoning_content / reasoning) */
+  mergedReasoning?: string
   /** 原始流式响应前 N KB 快照 */
   rawPreview?: string
 }
@@ -177,6 +179,8 @@ export interface ResponseData {
   chunks?: ResponseStreamChunk[]
   /** 流式合并结果(Phase 3:按 streamMerge 配置逐 chunk 提取拼接) */
   mergedText?: string
+  /** 流式合并提取的思考过程(reasoning_content / reasoning),与正文分开 */
+  mergedReasoning?: string
   finalBody?: string
   streamCompleted?: boolean
   cancelled?: boolean
@@ -244,8 +248,8 @@ export interface AppSettings {
   expandNavigation: boolean
   /** 侧栏位于主区左侧(默认 true;false = 右侧) */
   sidebarOnLeft: boolean
-  /** 编辑区/响应区排布:上下(默认)或左右 */
-  editorLayout: 'vertical' | 'horizontal'
+  /** 编辑区/响应区排布:上下(默认)/ 左右 / 不分栏(编辑区占满) */
+  editorLayout: 'vertical' | 'horizontal' | 'none'
   maxHistory: number
   autoSave: boolean
   fontSize: number

@@ -109,7 +109,7 @@ export function clearViewOpenContext(): void {
 
 export function applyViewOpenContext(
   context: ViewOpenContext | null,
-  store: { apis: Record<string, ApiConfig>; currentApiId: string | null; response: unknown | null },
+  store: { apis: Record<string, ApiConfig>; currentApiId: string | null; response: unknown | null; openApiInTab?: (apiId: string) => void },
   workspace: {
     categories: Array<{ id: string }>
     modules: Array<{ id: string; categoryId: string }>
@@ -123,7 +123,8 @@ export function applyViewOpenContext(
   if (context.apiId && store.apis[context.apiId]) {
     const node = workspace.interfaces.find(item => item.apiId === context.apiId)
     workspace.selectInterface(node?.id ?? context.apiId)
-    store.currentApiId = context.apiId
+    if (typeof store.openApiInTab === 'function') store.openApiInTab(context.apiId)
+    else store.currentApiId = context.apiId
     store.response = null
     return true
   }

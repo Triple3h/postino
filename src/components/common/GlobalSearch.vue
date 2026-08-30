@@ -385,7 +385,7 @@ function selectResult(result: SearchResult) {
   if (result.type === '接口' || result.type === '历史' || result.type === '请求变量') {
     const interfaceNode = workspace.interfaces.find(item => item.apiId === result.id)
     workspace.selectInterface(interfaceNode?.id ?? result.id)
-    store.currentApiId = result.id
+    store.openApiInTab(result.id)
     // 打开并展开祖先
     if (interfaceNode) {
       const collapsedCollectionKey = `collapsed:module:${interfaceNode.collectionId ?? interfaceNode.moduleId}`
