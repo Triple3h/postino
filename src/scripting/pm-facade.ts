@@ -182,7 +182,7 @@ export function installPmFacade(transport: FacadeTransport): void {
   }
 
   function getCookieJarKey(url: any): string {
-    try { return new URL(url || 'http://apifix.local').origin } catch (_err) { return url || '__default__' }
+    try { return new URL(url || 'http://postino.local').origin } catch (_err) { return url || '__default__' }
   }
 
   function createCookieFacade(cookieStore: any, currentUrl = ''): any {
@@ -872,8 +872,8 @@ export function installPmFacade(transport: FacadeTransport): void {
 const globalScope = globalThis as any
 const hasWorkerEnv = typeof globalScope.importScripts === 'function'
 const hasWindowEnv = typeof globalScope.window !== 'undefined'
-if ((hasWorkerEnv || hasWindowEnv) && !globalScope.__apifixPmFacadeInstalled) {
-  globalScope.__apifixPmFacadeInstalled = true
+if ((hasWorkerEnv || hasWindowEnv) && !globalScope.__postinoPmFacadeInstalled) {
+  globalScope.__postinoPmFacadeInstalled = true
   if (hasWorkerEnv) {
     installPmFacade({
       addMessageListener: listener => self.addEventListener('message', listener as EventListener),

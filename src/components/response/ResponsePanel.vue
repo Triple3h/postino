@@ -635,7 +635,7 @@ function resendHistoryEntry(entry: HistoryEntry, event: MouseEvent) {
   event.stopPropagation()
   loadHistoryEntry(entry)
   window.setTimeout(() => {
-    window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+    window.dispatchEvent(new CustomEvent('postino:send-current-request'))
   }, 0)
 }
 
@@ -814,18 +814,18 @@ function onGlobalPointerDown(event: MouseEvent) {
 }
 
 onMounted(() => {
-  window.addEventListener('apifix:download-response', onDownloadEvent)
-  window.addEventListener('apifix:copy-response', onCopyEvent)
+  window.addEventListener('postino:download-response', onDownloadEvent)
+  window.addEventListener('postino:copy-response', onCopyEvent)
   document.addEventListener('click', onGlobalPointerDown, true)
 })
 onUnmounted(() => {
-  window.removeEventListener('apifix:download-response', onDownloadEvent)
-  window.removeEventListener('apifix:copy-response', onCopyEvent)
+  window.removeEventListener('postino:download-response', onDownloadEvent)
+  window.removeEventListener('postino:copy-response', onCopyEvent)
   document.removeEventListener('click', onGlobalPointerDown, true)
 })
 
 function retrySend() {
-  window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+  window.dispatchEvent(new CustomEvent('postino:send-current-request'))
 }
 </script>
 

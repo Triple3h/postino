@@ -858,7 +858,7 @@ function openCodeGen() {
 /** FR-2.5:保存按钮 → Save 弹窗(已保存请求静默落库并熄灭未保存圆点) */
 function saveCurrentApi() {
   if (!currentApi.value || isReadonlyModule.value) return
-  window.dispatchEvent(new CustomEvent('apifix:save-request'))
+  window.dispatchEvent(new CustomEvent('postino:save-request'))
 }
 
 function copyAsCurl() {
@@ -909,16 +909,16 @@ function handleGlobalOpenCodeGen() {
 }
 
 onMounted(() => {
-  window.addEventListener('apifix:send-current-request', handleGlobalSend)
-  window.addEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
-  window.addEventListener('apifix:cycle-method', onCycleMethodEvent)
-  window.addEventListener('apifix:reset-request', resetRequest)
+  window.addEventListener('postino:send-current-request', handleGlobalSend)
+  window.addEventListener('postino:open-codegen', handleGlobalOpenCodeGen)
+  window.addEventListener('postino:cycle-method', onCycleMethodEvent)
+  window.addEventListener('postino:reset-request', resetRequest)
 })
 onUnmounted(() => {
-  window.removeEventListener('apifix:send-current-request', handleGlobalSend)
-  window.removeEventListener('apifix:open-codegen', handleGlobalOpenCodeGen)
-  window.removeEventListener('apifix:cycle-method', onCycleMethodEvent)
-  window.removeEventListener('apifix:reset-request', resetRequest)
+  window.removeEventListener('postino:send-current-request', handleGlobalSend)
+  window.removeEventListener('postino:open-codegen', handleGlobalOpenCodeGen)
+  window.removeEventListener('postino:cycle-method', onCycleMethodEvent)
+  window.removeEventListener('postino:reset-request', resetRequest)
 })
 </script>
 

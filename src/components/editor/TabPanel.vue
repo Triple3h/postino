@@ -219,7 +219,7 @@ function currentCursorDetail(): EditorCursorDetail | undefined {
 
 function publishEditorActivity(includeCursor = true) {
   if (!currentApi.value) return
-  window.dispatchEvent(new CustomEvent('apifix-editor-activity', {
+  window.dispatchEvent(new CustomEvent('postino-editor-activity', {
     detail: {
       apiId: currentApi.value.id,
       apiName: currentApi.value.name,
@@ -251,7 +251,7 @@ function appendPostSnippet(code: string) {
 }
 
 function runCurrentScriptFlow() {
-  window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+  window.dispatchEvent(new CustomEvent('postino:send-current-request'))
 }
 
 function formatLogTime(ts: number): string {

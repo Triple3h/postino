@@ -408,7 +408,7 @@ var PostinoPmFacade = (function(exports) {
 		}
 		function getCookieJarKey(url) {
 			try {
-				return new URL(url || "http://apifix.local").origin;
+				return new URL(url || "http://postino.local").origin;
 			} catch (_err) {
 				return url || "__default__";
 			}
@@ -1572,8 +1572,8 @@ var PostinoPmFacade = (function(exports) {
 	var globalScope = globalThis;
 	var hasWorkerEnv = typeof globalScope.importScripts === "function";
 	var hasWindowEnv = typeof globalScope.window !== "undefined";
-	if ((hasWorkerEnv || hasWindowEnv) && !globalScope.__apifixPmFacadeInstalled) {
-		globalScope.__apifixPmFacadeInstalled = true;
+	if ((hasWorkerEnv || hasWindowEnv) && !globalScope.__postinoPmFacadeInstalled) {
+		globalScope.__postinoPmFacadeInstalled = true;
 		if (hasWorkerEnv) installPmFacade({
 			addMessageListener: (listener) => self.addEventListener("message", listener),
 			removeMessageListener: (listener) => self.removeEventListener("message", listener),

@@ -22,7 +22,7 @@ const inputRef = ref<HTMLInputElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
 
 // --- Recent searches ---
-const RECENT_KEY = 'apifix_recent_searches'
+const RECENT_KEY = 'postino_recent_searches'
 const recentSearches = ref<string[]>([])
 
 function loadRecentSearches() {
@@ -162,7 +162,7 @@ const navEntries: Array<{ keywords: string; label: string; icon: SearchResult['i
   { keywords: '新建请求 new request', label: '新建请求', icon: 'nav', run: () => void createNewRequestAction() },
   { keywords: '设置 settings preferences', label: '打开设置页', icon: 'settings', run: () => void router.push('/settings') },
   { keywords: '主题 theme 亮色 暗色 纯黑', label: '切换主题', icon: 'nav', run: () => cycleThemeAction() },
-  { keywords: '快捷键 shortcuts 键盘', label: '快捷键总览', icon: 'nav', run: () => window.dispatchEvent(new CustomEvent('apifix:show-shortcuts')) },
+  { keywords: '快捷键 shortcuts 键盘', label: '快捷键总览', icon: 'nav', run: () => window.dispatchEvent(new CustomEvent('postino:show-shortcuts')) },
 ]
 
 const settingEntries: Array<{ keywords: string; label: string; section: string }> = [
@@ -440,14 +440,14 @@ function handleKeydown(e: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown, true)
-  window.addEventListener('apifix:open-spotlight', openSearch)
-  window.addEventListener('apifix:open-global-search', openSearch)
+  window.addEventListener('postino:open-spotlight', openSearch)
+  window.addEventListener('postino:open-global-search', openSearch)
   loadRecentSearches()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown, true)
-  window.removeEventListener('apifix:open-spotlight', openSearch)
-  window.removeEventListener('apifix:open-global-search', openSearch)
+  window.removeEventListener('postino:open-spotlight', openSearch)
+  window.removeEventListener('postino:open-global-search', openSearch)
 })
 </script>
 

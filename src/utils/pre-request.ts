@@ -228,7 +228,7 @@ export async function executeScriptInWorkerSandbox(
   }
 
   const requestId = generateRequestId()
-  const worker = new Worker(getWorkerSandboxUrl(), { name: `apifix-script-${requestId}` })
+  const worker = new Worker(getWorkerSandboxUrl(), { name: `postino-script-${requestId}` })
   const timeoutMs = options.timeoutMs ?? 30000
   const maxMemoryBytes = options.maxMemoryBytes ?? 128 * 1024 * 1024
   const baselineHeap = getApproximateJsHeapUsed()
@@ -573,7 +573,7 @@ function applyBodyInput(bodyFacade: { _raw: string; _fields: KvPair[]; _formdata
 
 function getCookieJarKey(url: string): string {
   try {
-    const parsed = new URL(url || 'http://apifix.local')
+    const parsed = new URL(url || 'http://postino.local')
     return parsed.origin
   } catch {
     return url || '__default__'

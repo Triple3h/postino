@@ -11,7 +11,7 @@ import type { ApiConfig, HttpMethod, InterfaceNode } from '@/types'
 /**
  * Save 弹窗(FR-2.5,参考 Hoppscotch SaveRequest.vue):
  * 请求名输入 + 复用整棵集合树作单选 picker(选中集合/文件夹作为落点)。
- * 由 RequestBar 保存按钮派发的 apifix:save-request 事件唤起。
+ * 由 RequestBar 保存按钮派发的 postino:save-request 事件唤起。
  */
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -176,11 +176,11 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  window.addEventListener('apifix:save-request', open)
+  window.addEventListener('postino:save-request', open)
   document.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
-  window.removeEventListener('apifix:save-request', open)
+  window.removeEventListener('postino:save-request', open)
   document.removeEventListener('keydown', onKeydown)
 })
 </script>

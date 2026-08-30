@@ -7,7 +7,7 @@ import type { AppShortcutAction } from '@/types'
 
 /**
  * 快捷键总览弹窗(FR-8.2,参考 Hoppscotch ShortcutsPrompt.vue):
- * 数据即声明式注册表,展示自定义生效后的组合;`?` 或 apifix:show-shortcuts 唤起。
+ * 数据即声明式注册表,展示自定义生效后的组合;`?` 或 postino:show-shortcuts 唤起。
  */
 const store = useAppStore()
 const visible = ref(false)
@@ -41,11 +41,11 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  window.addEventListener('apifix:show-shortcuts', open)
+  window.addEventListener('postino:show-shortcuts', open)
   document.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
-  window.removeEventListener('apifix:show-shortcuts', open)
+  window.removeEventListener('postino:show-shortcuts', open)
   document.removeEventListener('keydown', onKeydown)
 })
 </script>

@@ -11,7 +11,7 @@ const store = useAppStore()
 const workspace = useWorkspaceStore()
 const toast = ref('')
 const processedIds = new Set<string>()
-const SHARE_HASH_PREFIX = 'apifix-share='
+const SHARE_HASH_PREFIX = 'postino-share='
 
 // --- Import preview state ---
 interface ImportPreviewItem {
@@ -439,7 +439,7 @@ async function clearPendingImport(): Promise<void> {
 
 async function consumeSharePayload(payload: unknown): Promise<void> {
   const spec = payload as any
-  const shareMeta = spec?.['x-apifix-share']
+  const shareMeta = spec?.['x-postino-share']
   const expiresAt = shareMeta?.expiresAt ? Date.parse(String(shareMeta.expiresAt)) : Number.NaN
   if (Number.isFinite(expiresAt) && expiresAt < Date.now()) {
     toast.value = '分享链接已过期，请重新生成'

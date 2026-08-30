@@ -128,7 +128,7 @@ function exportBackup() {
     environments: [...store.environments],
     apis: { ...store.apis },
   })
-  downloadFile(`apifix-backup-${new Date().toISOString().slice(0, 10)}.json`, doc, 'application/json;charset=utf-8')
+  downloadFile(`postino-backup-${new Date().toISOString().slice(0, 10)}.json`, doc, 'application/json;charset=utf-8')
   toast.success('备份已导出(secret 值已剥离)')
 }
 

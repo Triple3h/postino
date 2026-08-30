@@ -910,7 +910,7 @@ function openModuleCodeGen() {
   }
   workspace.selectInterface(firstInterface.id)
   store.openApiInTab(firstInterface.apiId)
-  window.dispatchEvent(new CustomEvent('apifix:open-codegen'))
+  window.dispatchEvent(new CustomEvent('postino:open-codegen'))
 }
 
 async function syncOpenApiTextToModule() {
@@ -992,7 +992,7 @@ function buildModuleOpenApiShareSpec() {
   const name = module?.name ?? 'module'
   const exportedAt = new Date()
   const spec = JSON.parse(generateOpenApiSpec(apis, name))
-  spec['x-apifix-share'] = {
+  spec['x-postino-share'] = {
     moduleId: module?.id ?? '',
     moduleName: name,
     exportedAt: exportedAt.toISOString(),
@@ -1032,7 +1032,7 @@ async function copyModuleShareLink() {
     return
   }
   const base = `${window.location.origin}${window.location.pathname}`
-  const link = `${base}#apifix-share=${encodeSharePayload(share.spec)}`
+  const link = `${base}#postino-share=${encodeSharePayload(share.spec)}`
   try {
     await navigator.clipboard.writeText(link)
     showSaved('已复制权限分享链接')
@@ -1058,7 +1058,7 @@ function buildModuleBackupPayload() {
       strategy: exportConflictStrategy.value,
       teamRole: exportTeamRole.value,
     },
-    version: 'apifix-backup-v1',
+    version: 'postino-backup-v1',
   }
 }
 
@@ -1173,7 +1173,7 @@ function mergeBackupPayloadByFields(remoteBackup: any, localBackup: any, remoteF
 function parseBackupContent(text: string): any | null {
   try {
     const parsed = JSON.parse(text)
-    return parsed?.version === 'apifix-backup-v1' ? parsed : null
+    return parsed?.version === 'postino-backup-v1' ? parsed : null
   } catch {
     return null
   }
@@ -1713,7 +1713,7 @@ async function saveCategoryModulePrefixes() {
             </label>
             <label v-if="dataSourceSyncStrategy === 'webhook' && activeModule" class="field-row">
               <span>Webhook 地址</span>
-              <input :value="`apifix://webhook/${activeModule.id}`" readonly />
+              <input :value="`postino://webhook/${activeModule.id}`" readonly />
             </label>
             <p v-if="dataSourceSyncStrategy === 'webhook'" class="help-text">外部系统可通过上述标识触发本模块同步；实际集成需对接扩展消息或桌面端接口。点击“测试 Webhook”可本地模拟一次触发。</p>
             <label class="field-row field-row-top">

@@ -43,39 +43,39 @@ export function useKeyboardShortcuts() {
       return
     }
     if (action === 'sendCurrentRequest') {
-      dispatch('apifix:send-current-request')
+      dispatch('postino:send-current-request')
       return
     }
     if (action === 'saveCurrentRequest') {
-      dispatch('apifix:save-request')
+      dispatch('postino:save-request')
       return
     }
     if (action === 'openGlobalSearch') {
-      dispatch('apifix:open-spotlight')
+      dispatch('postino:open-spotlight')
       return
     }
     if (action === 'showShortcutsHelp') {
-      dispatch('apifix:show-shortcuts')
+      dispatch('postino:show-shortcuts')
       return
     }
     if (action === 'resetRequest') {
-      dispatch('apifix:reset-request')
+      dispatch('postino:reset-request')
       return
     }
     if (action === 'cycleMethodNext' || action === 'cycleMethodPrev') {
-      dispatch('apifix:cycle-method', { direction: action === 'cycleMethodNext' ? 1 : -1 })
+      dispatch('postino:cycle-method', { direction: action === 'cycleMethodNext' ? 1 : -1 })
       return
     }
     if (action === 'downloadResponse') {
-      dispatch('apifix:download-response')
+      dispatch('postino:download-response')
       return
     }
     if (action === 'copyResponse') {
-      dispatch('apifix:copy-response')
+      dispatch('postino:copy-response')
       return
     }
     if (action === 'formatJsonBody') {
-      dispatch('apifix:format-json-body')
+      dispatch('postino:format-json-body')
       return
     }
     if (action === 'copyCurrentCurl') {
@@ -95,12 +95,12 @@ export function useKeyboardShortcuts() {
     }
     if (action === 'gotoEnvironments') {
       void router.push('/')
-      dispatch('apifix:goto-sidebar-tab', { tab: 'environments' })
+      dispatch('postino:goto-sidebar-tab', { tab: 'environments' })
       return
     }
     if (action === 'gotoHistory') {
       void router.push('/')
-      dispatch('apifix:goto-sidebar-tab', { tab: 'history' })
+      dispatch('postino:goto-sidebar-tab', { tab: 'history' })
       return
     }
     if (action === 'gotoSettings') {

@@ -12,12 +12,12 @@ let jsonFormatOverlay = null;
 let acceptedDropToken = '';
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === 'APIFIX_COLLECT_PAGE_CONTEXT') {
+  if (message?.type === 'POSTINO_COLLECT_PAGE_CONTEXT') {
     sendResponse({ success: true, data: collectContext(message) });
     return false;
   }
 
-  if (message?.type === 'APIFIX_SEND_SELECTION') {
+  if (message?.type === 'POSTINO_SEND_SELECTION') {
     const context = collectContext({ mode: 'selection', selectionText: getSelectionText() });
     chrome.runtime.sendMessage({
       type: 'STORE_PENDING_IMPORT',
@@ -26,13 +26,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === 'APIFIX_PREPARE_INTERFACE_DROP') {
+  if (message?.type === 'POSTINO_PREPARE_INTERFACE_DROP') {
     prepareInterfaceDrop(message.payload || {});
     sendResponse({ success: true });
     return false;
   }
 
-  if (message?.type === 'APIFIX_FORMAT_SELECTION') {
+  if (message?.type === 'POSTINO_FORMAT_SELECTION') {
     const result = showJsonFormatter(message.selectionText || getSelectionText());
     sendResponse(result);
     return false;
@@ -56,7 +56,7 @@ document.addEventListener('drop', event => {
   pendingInterfaceDrop.dropToken = token;
   const target = resolveDeepElementFromPoint(event.clientX, event.clientY) || event.composedPath?.()[0] || event.target;
   const fallbackText = payload.curl || event.dataTransfer?.getData('text/plain') || '';
-  const dropEvent = new CustomEvent('apifix:request-drop', {
+  const dropEvent = new CustomEvent('postino:request-drop', {
     bubbles: true,
     composed: true,
     detail: {
@@ -64,15 +64,15 @@ document.addEventListener('drop', event => {
       token,
       accepted: false,
       target: describeDropTarget(target),
-      formats: ['application/x-apifix-interface', 'text/x-curl', 'text/plain'],
+      formats: ['application/x-postino-interface', 'text/x-curl', 'text/plain'],
       droppedAt: Date.now(),
       pageUrl: location.href,
       pageTitle: document.title,
-      acceptVia: 'window.postMessage({ source: "apifix-page", type: "APIFIX_ACCEPT_REQUEST_DROP", token })',
+      acceptVia: 'window.postMessage({ source: "postino-page", type: "POSTINO_ACCEPT_REQUEST_DROP", token })',
     },
   });
   window.dispatchEvent(dropEvent);
-  if (target?.dispatchEvent) target.dispatchEvent(new CustomEvent('apifix:request-drop', { bubbles: true, composed: true, detail: dropEvent.detail }));
+  if (target?.dispatchEvent) target.dispatchEvent(new CustomEvent('postino:request-drop', { bubbles: true, composed: true, detail: dropEvent.detail }));
   setTimeout(() => {
     if (!pendingInterfaceDrop || pendingInterfaceDrop.dropToken !== token) return;
     if (acceptedDropToken === token) {
@@ -81,7 +81,7 @@ document.addEventListener('drop', event => {
       return;
     }
     const inserted = insertTextIntoEditable(target, fallbackText);
-    showDropToast(inserted ? 'Postino 请求已插入当前输入区域' : 'Postino 请求已投递到页面事件 apifix:request-drop');
+    showDropToast(inserted ? 'Postino 请求已插入当前输入区域' : 'Postino 请求已投递到页面事件 postino:request-drop');
     clearPendingInterfaceDrop();
   }, 0);
 }, true);
@@ -89,7 +89,7 @@ document.addEventListener('drop', event => {
 window.addEventListener('message', event => {
   if (event.source !== window) return;
   const message = event.data;
-  if (!message || message.source !== 'apifix-page' || message.type !== 'APIFIX_SEND_CONTEXT') return;
+  if (!message || message.source !== 'postino-page' || message.type !== 'POSTINO_SEND_CONTEXT') return;
 
   const context = collectContext({
     mode: message.mode || 'page',
@@ -108,7 +108,7 @@ window.addEventListener('message', event => {
 window.addEventListener('message', event => {
   if (event.source !== window) return;
   const message = event.data;
-  if (!message || message.source !== 'apifix-page' || message.type !== 'APIFIX_ACCEPT_REQUEST_DROP') return;
+  if (!message || message.source !== 'postino-page' || message.type !== 'POSTINO_ACCEPT_REQUEST_DROP') return;
   const token = String(message.token || '');
   if (!token || !pendingInterfaceDrop || pendingInterfaceDrop.dropToken !== token) return;
   acceptedDropToken = token;
@@ -209,7 +209,7 @@ function prepareInterfaceDrop(payload) {
   if (pendingDropTimer) clearTimeout(pendingDropTimer);
   pendingDropTimer = setTimeout(clearPendingInterfaceDrop, 30000);
   ensureDropOverlay();
-  window.dispatchEvent(new CustomEvent('apifix:request-drop-ready', {
+  window.dispatchEvent(new CustomEvent('postino:request-drop-ready', {
     detail: {
       ...pendingInterfaceDrop,
       token: pendingInterfaceDrop.dropToken,
@@ -234,7 +234,7 @@ function clearPendingInterfaceDrop() {
 function ensureDropOverlay() {
   if (dropOverlay) return dropOverlay;
   dropOverlay = document.createElement('div');
-  dropOverlay.textContent = '拖放 Postino 接口：可插入输入框，或由页面监听 apifix:request-drop 并 postMessage 接收';
+  dropOverlay.textContent = '拖放 Postino 接口：可插入输入框，或由页面监听 postino:request-drop 并 postMessage 接收';
   dropOverlay.style.cssText = [
     'position:fixed',
     'z-index:2147483647',

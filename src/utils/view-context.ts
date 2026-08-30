@@ -9,7 +9,7 @@ export interface ViewOpenContext {
   timestamp: number
 }
 
-const VIEW_CONTEXT_KEY = 'apifix_view_open_context'
+const VIEW_CONTEXT_KEY = 'postino_view_open_context'
 const CONTEXT_TTL = 2 * 60 * 1000
 
 function chromeStorage(): any {

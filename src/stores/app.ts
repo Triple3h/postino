@@ -450,7 +450,7 @@ export const useAppStore = defineStore('app', () => {
       if (choice === 'cancel') return null
       if (choice === 'confirm') {
         activateTab(id)
-        window.dispatchEvent(new CustomEvent('apifix:save-request'))
+        window.dispatchEvent(new CustomEvent('postino:save-request'))
         return null
       }
       await discardApiChanges(id)

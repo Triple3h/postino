@@ -25,7 +25,7 @@ const PLEASANT_COLORS = [
 
 function loadOrCreateIdentity(): UserIdentity {
   try {
-    const raw = localStorage.getItem('apifix_user_identity')
+    const raw = localStorage.getItem('postino_user_identity')
     if (raw) {
       const parsed = JSON.parse(raw)
       if (parsed?.id && parsed?.name && parsed?.color) return parsed
@@ -36,7 +36,7 @@ function loadOrCreateIdentity(): UserIdentity {
   const name = `用户-${suffix}`
   const color = PLEASANT_COLORS[Math.floor(Math.random() * PLEASANT_COLORS.length)]
   const identity: UserIdentity = { id, name, color }
-  try { localStorage.setItem('apifix_user_identity', JSON.stringify(identity)) } catch { /* ignore */ }
+  try { localStorage.setItem('postino_user_identity', JSON.stringify(identity)) } catch { /* ignore */ }
   return identity
 }
 
@@ -62,7 +62,7 @@ const DEFAULT_SCOPE_PREFS: SyncScopePrefs = {
 
 function loadScopePrefs(): SyncScopePrefs {
   try {
-    const raw = localStorage.getItem('apifix_sync_scope_prefs')
+    const raw = localStorage.getItem('postino_sync_scope_prefs')
     if (raw) {
       const parsed = JSON.parse(raw)
       return { ...DEFAULT_SCOPE_PREFS, ...parsed }
@@ -72,7 +72,7 @@ function loadScopePrefs(): SyncScopePrefs {
 }
 
 function saveScopePrefs(prefs: SyncScopePrefs): void {
-  try { localStorage.setItem('apifix_sync_scope_prefs', JSON.stringify(prefs)) } catch { /* ignore */ }
+  try { localStorage.setItem('postino_sync_scope_prefs', JSON.stringify(prefs)) } catch { /* ignore */ }
 }
 
 const scopePrefs = ref<SyncScopePrefs>(loadScopePrefs())
@@ -84,7 +84,7 @@ watch(scopePrefs, (val) => saveScopePrefs(val), { deep: true })
 // ---------------------------------------------------------------------------
 
 const senderId = userIdentity.id
-const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('apifix-state-sync') : null
+const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('postino-state-sync') : null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let activityDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let suppressUntil = 0
@@ -299,7 +299,7 @@ function dismissConflict(): void {
 // ---------------------------------------------------------------------------
 
 interface SyncMessage {
-  type: 'APIFIX_STATE_CHANGED'
+  type: 'POSTINO_STATE_CHANGED'
   senderId: string
   scope: 'environment' | 'workspace' | 'settings' | 'api'
   timestamp: number
@@ -316,7 +316,7 @@ interface EditorCursorDetail {
 }
 
 interface EditorActivityMessage {
-  type: 'APIFIX_EDITOR_ACTIVITY'
+  type: 'POSTINO_EDITOR_ACTIVITY'
   senderId: string
   apiId?: string
   apiName?: string
@@ -395,7 +395,7 @@ async function reloadSharedState(scope: SyncMessage['scope']): Promise<void> {
 }
 
 function handleSyncMessage(message: SyncMessage): void {
-  if (!message || message.type !== 'APIFIX_STATE_CHANGED' || message.senderId === senderId) return
+  if (!message || message.type !== 'POSTINO_STATE_CHANGED' || message.senderId === senderId) return
   // Check if this scope is enabled for listening
   if (!scopePrefs.value[message.scope]) return
 
@@ -469,7 +469,7 @@ function pruneRemoteActivities(): void {
 }
 
 function handleEditorActivity(message: EditorActivityMessage): void {
-  if (!message || message.type !== 'APIFIX_EDITOR_ACTIVITY' || message.senderId === senderId) return
+  if (!message || message.type !== 'POSTINO_EDITOR_ACTIVITY' || message.senderId === senderId) return
   const target = message.apiName || message.apiId || '当前接口'
   const tab = message.tab ? ` / ${message.tab}` : ''
   remoteActivities.value = {
@@ -481,9 +481,9 @@ function handleEditorActivity(message: EditorActivityMessage): void {
 }
 
 function handleBridgeMessage(message: BridgeMessage): void {
-  if (message?.type === 'APIFIX_STATE_CHANGED') {
+  if (message?.type === 'POSTINO_STATE_CHANGED') {
     handleSyncMessage(message)
-  } else if (message?.type === 'APIFIX_EDITOR_ACTIVITY') {
+  } else if (message?.type === 'POSTINO_EDITOR_ACTIVITY') {
     handleEditorActivity(message)
   }
 }
@@ -495,7 +495,7 @@ function publish(scope: SyncMessage['scope']): void {
   lastLocalChangeAt[scope] = Date.now()
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
-    const message: SyncMessage = { type: 'APIFIX_STATE_CHANGED', senderId, scope, timestamp: Date.now(), identity: userIdentity }
+    const message: SyncMessage = { type: 'POSTINO_STATE_CHANGED', senderId, scope, timestamp: Date.now(), identity: userIdentity }
     channel?.postMessage(message)
     const runtime = chromeRuntime()
     if (runtime?.sendMessage) {
@@ -510,7 +510,7 @@ function publish(scope: SyncMessage['scope']): void {
 function publishEditorActivity(detail: Omit<EditorActivityMessage, 'type' | 'senderId' | 'timestamp' | 'identity'>): void {
   if (activityDebounceTimer) clearTimeout(activityDebounceTimer)
   activityDebounceTimer = setTimeout(() => {
-    const message: EditorActivityMessage = { type: 'APIFIX_EDITOR_ACTIVITY', senderId, timestamp: Date.now(), identity: userIdentity, ...detail }
+    const message: EditorActivityMessage = { type: 'POSTINO_EDITOR_ACTIVITY', senderId, timestamp: Date.now(), identity: userIdentity, ...detail }
     channel?.postMessage(message)
     const runtime = chromeRuntime()
     if (runtime?.sendMessage) {
@@ -561,7 +561,7 @@ function toggleScope(key: keyof SyncScopePrefs): void {
 onMounted(() => {
   channel?.addEventListener('message', event => handleBridgeMessage(event.data))
   chromeRuntime()?.onMessage?.addListener(onRuntimeMessage)
-  window.addEventListener('apifix-editor-activity', onEditorActivityEvent)
+  window.addEventListener('postino-editor-activity', onEditorActivityEvent)
   presenceTimer = setInterval(pruneRemoteActivities, 2500)
   setSyncStatus('connected', '已连接')
 })
@@ -578,7 +578,7 @@ onUnmounted(() => {
   stopApiWatch()
   channel?.close()
   chromeRuntime()?.onMessage?.removeListener(onRuntimeMessage)
-  window.removeEventListener('apifix-editor-activity', onEditorActivityEvent)
+  window.removeEventListener('postino-editor-activity', onEditorActivityEvent)
 })
 </script>
 

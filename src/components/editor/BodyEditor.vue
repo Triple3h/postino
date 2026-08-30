@@ -106,8 +106,8 @@ function handleFormatJsonShortcut() {
   }
 }
 
-onMounted(() => window.addEventListener('apifix:format-json-body', handleFormatJsonShortcut))
-onUnmounted(() => window.removeEventListener('apifix:format-json-body', handleFormatJsonShortcut))
+onMounted(() => window.addEventListener('postino:format-json-body', handleFormatJsonShortcut))
+onUnmounted(() => window.removeEventListener('postino:format-json-body', handleFormatJsonShortcut))
 
 
 function insertDynamicToken(token: string) {

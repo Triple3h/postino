@@ -93,7 +93,7 @@ function chromeRuntime(): any {
 }
 
 function lockKey(moduleId: string): string {
-  return `apifix_datasource_sync_lock:${moduleId}`
+  return `postino_datasource_sync_lock:${moduleId}`
 }
 
 function claimLock(moduleId: string): boolean {
@@ -226,7 +226,7 @@ async function syncModuleByWebhook(moduleId?: string, secret?: string): Promise<
 }
 
 function handleRuntimeMessage(message: any) {
-  if (message?.type === 'APIFIX_TRIGGER_DATASOURCE_SYNC') {
+  if (message?.type === 'POSTINO_TRIGGER_DATASOURCE_SYNC') {
     void syncModuleByWebhook(message.moduleId, message.secret)
   }
 }

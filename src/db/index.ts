@@ -49,7 +49,7 @@ function installPlainWriteHooks(database: Dexie) {
   }
 }
 
-export class ApiFixDB extends Dexie {
+export class PostinoDB extends Dexie {
   apis!: Table<ApiConfig, string>
   environments!: Table<Environment, string>
   history!: Table<HistoryEntry, string>
@@ -64,7 +64,7 @@ export class ApiFixDB extends Dexie {
   moduleSyncLogs!: Table<ModuleSyncLog, string>
 
   constructor() {
-    super('ApiFixDB')
+    super('PostinoDB')
     this.version(1).stores({
       apis: 'id, name, method, folder, updatedAt',
       environments: 'id, name',
@@ -195,5 +195,5 @@ export class ApiFixDB extends Dexie {
   }
 }
 
-export const db = new ApiFixDB()
+export const db = new PostinoDB()
 installPlainWriteHooks(db)

@@ -40,7 +40,7 @@ const themeLabel = computed(() => {
 })
 
 function openSearch() {
-  window.dispatchEvent(new CustomEvent('apifix:open-spotlight'))
+  window.dispatchEvent(new CustomEvent('postino:open-spotlight'))
 }
 
 function pickImportFile() {
@@ -65,7 +65,7 @@ function exportBackup() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `apifix-backup-${new Date().toISOString().slice(0, 10)}.json`
+  a.download = `postino-backup-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
   toast.success('备份已导出')

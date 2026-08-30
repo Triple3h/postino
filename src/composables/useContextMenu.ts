@@ -38,7 +38,7 @@ export function openContextMenu(event: MouseEvent, items: ContextMenuItem[]): vo
   if (!items.length) return
 
   const host = document.createElement('div')
-  host.className = 'apifix-ctx-menu'
+  host.className = 'postino-ctx-menu'
   document.body.appendChild(host)
 
   const menuEl = document.createElement('div')

@@ -8,16 +8,16 @@ const _activeStreams = new Map();
 const _activeSockets = new Map();
 const _recentWebRequests = new Map();
 
-const PENDING_IMPORT_KEY = 'apifix_pending_import';
-const RECENT_WEB_REQUESTS_KEY = 'apifix_recent_web_requests';
+const PENDING_IMPORT_KEY = 'postino_pending_import';
+const RECENT_WEB_REQUESTS_KEY = 'postino_recent_web_requests';
 const MAX_RECENT_WEB_REQUESTS = 50;
 
 const CONTEXT_MENU_IDS = {
-  sendSelectionToSidePanel: 'apifix-send-selection-sidepanel',
-  formatSelectionJson: 'apifix-format-selection-json',
-  sendPageToSidePanel: 'apifix-send-page-sidepanel',
-  openSidePanel: 'apifix-open-sidepanel',
-  openFullPage: 'apifix-open-full-page',
+  sendSelectionToSidePanel: 'postino-send-selection-sidepanel',
+  formatSelectionJson: 'postino-format-selection-json',
+  sendPageToSidePanel: 'postino-send-page-sidepanel',
+  openSidePanel: 'postino-open-sidepanel',
+  openFullPage: 'postino-open-full-page',
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -223,7 +223,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === 'APIFIX_STATE_CHANGED' || message.type === 'APIFIX_EDITOR_ACTIVITY') {
+  if (message.type === 'POSTINO_STATE_CHANGED' || message.type === 'POSTINO_EDITOR_ACTIVITY') {
     if (!message.relayedByBackground) {
       chrome.runtime.sendMessage({ ...message, relayedByBackground: true }).catch(() => {});
     }
@@ -231,8 +231,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message.type === 'TRIGGER_DATA_SOURCE_SYNC' || message.type === 'APIFIX_TRIGGER_DATASOURCE_SYNC') {
-    chrome.runtime.sendMessage({ type: 'APIFIX_TRIGGER_DATASOURCE_SYNC', moduleId: message.moduleId || null, secret: message.secret || '' }).catch(() => {});
+  if (message.type === 'TRIGGER_DATA_SOURCE_SYNC' || message.type === 'POSTINO_TRIGGER_DATASOURCE_SYNC') {
+    chrome.runtime.sendMessage({ type: 'POSTINO_TRIGGER_DATASOURCE_SYNC', moduleId: message.moduleId || null, secret: message.secret || '' }).catch(() => {});
     sendResponse({ success: true });
     return false;
   }
@@ -246,8 +246,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 
 chrome.runtime.onMessageExternal?.addListener((message, _sender, sendResponse) => {
-  if (message?.type === 'TRIGGER_DATA_SOURCE_SYNC' || message?.type === 'APIFIX_TRIGGER_DATASOURCE_SYNC') {
-    chrome.runtime.sendMessage({ type: 'APIFIX_TRIGGER_DATASOURCE_SYNC', moduleId: message.moduleId || null, secret: message.secret || '' }).catch(() => {});
+  if (message?.type === 'TRIGGER_DATA_SOURCE_SYNC' || message?.type === 'POSTINO_TRIGGER_DATASOURCE_SYNC') {
+    chrome.runtime.sendMessage({ type: 'POSTINO_TRIGGER_DATASOURCE_SYNC', moduleId: message.moduleId || null, secret: message.secret || '' }).catch(() => {});
     sendResponse({ success: true });
     return false;
   }
@@ -279,7 +279,7 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
       await storePendingImport({ source: 'context-menu-json-format', context }, { tab });
       if (tab?.id) {
         await chrome.tabs.sendMessage(tab.id, {
-          type: 'APIFIX_FORMAT_SELECTION',
+          type: 'POSTINO_FORMAT_SELECTION',
           selectionText: info.selectionText || '',
         }).catch(() => null);
       }
@@ -288,7 +288,7 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
     }
     if (tab?.id) {
       await chrome.tabs.sendMessage(tab.id, {
-        type: 'APIFIX_FORMAT_SELECTION',
+        type: 'POSTINO_FORMAT_SELECTION',
         selectionText: info.selectionText || '',
       }).catch(() => null);
     }
@@ -417,7 +417,7 @@ async function collectPageContext(tab, fallbackSelection, mode) {
 
   try {
     const response = await chrome.tabs.sendMessage(tab.id, {
-      type: 'APIFIX_COLLECT_PAGE_CONTEXT',
+      type: 'POSTINO_COLLECT_PAGE_CONTEXT',
       mode,
       selectionText: fallbackSelection || '',
     });

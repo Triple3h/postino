@@ -9,8 +9,8 @@ import { useAppStore } from '@/stores/app'
  *   - 明暗:documentElement class(light / black;dark 为默认态)
  *   - 强调色:documentElement data-accent 属性
  */
-const LEGACY_SETTINGS_KEY = 'apifix_settings'
-const THEME_BOOT_KEY = 'apifix_theme_boot'
+const LEGACY_SETTINGS_KEY = 'postino_settings'
+const THEME_BOOT_KEY = 'postino_theme_boot'
 
 export const ACCENT_COLORS: AccentColor[] = ['green', 'teal', 'blue', 'indigo', 'purple', 'yellow', 'orange', 'red', 'pink']
 export const THEME_COLOR_MODES: ThemeColorMode[] = ['system', 'light', 'dark', 'black']

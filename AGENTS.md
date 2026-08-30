@@ -115,7 +115,7 @@ Unlike the earlier version of this project, the UI is now a **single shared code
 
 ### Data Layer (`src/db/`)
 
-All persistent data lives in **IndexedDB via Dexie** (database name: `ApiFixDB` — kept for backward compatibility with existing user data).
+All persistent data lives in **IndexedDB via Dexie** (database name: `PostinoDB`).
 
 Key tables:
 - `apis` — API request configurations (id, name, method, folder, updatedAt)
@@ -126,7 +126,7 @@ Key tables:
 
 > **Note**: Vue reactive proxies cannot be stored directly in IndexedDB (throws `DataCloneError`). The DB layer installs Dexie hooks to deep-clone objects before write.
 
-Legacy localStorage keys (`apifix_bin_data`, `apifix_env_vars`, `apifix_history`) are still supported for migration but the primary store is IndexedDB.
+Legacy localStorage keys (`postino_bin_data`, `postino_env_vars`, `postino_history`) are still supported for migration but the primary store is IndexedDB.
 
 ### Electron Desktop App (`desktop/`)
 
@@ -180,7 +180,7 @@ cURL, Postman collection (v2.1), and OpenAPI formats (`src/utils/`).
 ## Important Notes
 
 - The UI is a **single shared Vue 3 codebase** — changes to `src/` propagate to both extension and desktop.
-- Storage uses **IndexedDB (Dexie)**; the database name `ApiFixDB` must not be changed (existing user data depends on it).
+- Storage uses **IndexedDB (Dexie)**; the database name is `PostinoDB`.
 - Unit tests live in `src/**/__tests__/*.test.ts` (vitest). Run with `npm run test`.
 - The app UI is localized in **Chinese (zh-CN)**.
 - `build.js` orchestrates the full build — use it instead of calling vite/electron-builder directly.

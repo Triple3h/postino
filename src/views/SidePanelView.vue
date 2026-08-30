@@ -68,8 +68,8 @@ function getChromeTabs() {
 }
 
 function saveSelectedDropTab() {
-  if (selectedDropTabId.value) localStorage.setItem('apifix_target_tab_id', selectedDropTabId.value)
-  else localStorage.removeItem('apifix_target_tab_id')
+  if (selectedDropTabId.value) localStorage.setItem('postino_target_tab_id', selectedDropTabId.value)
+  else localStorage.removeItem('postino_target_tab_id')
 }
 
 async function refreshTargetTabs() {
@@ -78,7 +78,7 @@ async function refreshTargetTabs() {
   await new Promise<void>(resolve => {
     tabsApi.query({ currentWindow: true }, (tabs: BrowserTab[]) => {
       targetTabs.value = (tabs || []).filter(tab => typeof tab.id === 'number')
-      const stored = localStorage.getItem('apifix_target_tab_id') || ''
+      const stored = localStorage.getItem('postino_target_tab_id') || ''
       const active = targetTabs.value.find(tab => tab.active)?.id?.toString() || ''
       selectedDropTabId.value = targetTabs.value.some(tab => tab.id.toString() === stored) ? stored : active
       saveSelectedDropTab()
@@ -152,7 +152,7 @@ async function copyCapturedCurl(event: MouseEvent, item: CapturedRequest) {
 async function dragCapturedCurl(event: DragEvent, item: CapturedRequest) {
   const curl = buildCapturedCurl(item)
   event.dataTransfer?.setData('text/plain', curl)
-  event.dataTransfer?.setData('application/x-apifix-curl', curl)
+  event.dataTransfer?.setData('application/x-postino-curl', curl)
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
   await navigator.clipboard.writeText(curl).catch(() => {})
   captureMessage.value = '拖拽内容已设置为 cURL，并已尝试复制到剪贴板'

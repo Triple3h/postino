@@ -31,7 +31,7 @@ const firstPaneRef = ref<ComponentPublicInstance | null>(null)
 
 // 必须用 chrome.storage.local:未打包扩展每次 ↻ 重载会清空 localStorage,
 // chrome.storage.local 跨重载/重启持久,且 popup/sidepanel/tab 三处共享。
-const STORAGE_PREFIX = 'apifix_pane_'
+const STORAGE_PREFIX = 'postino_pane_'
 
 function storageKey(): string {
   return STORAGE_PREFIX + props.layoutId

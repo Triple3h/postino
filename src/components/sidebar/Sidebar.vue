@@ -11,7 +11,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 
 type SidebarTab = 'collections' | 'environments' | 'history'
 
-const TAB_STORAGE_KEY = 'apifix_sidebar_tab'
+const TAB_STORAGE_KEY = 'postino_sidebar_tab'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -31,8 +31,8 @@ function onGotoSidebarTab(event: Event) {
   if (tab && tabs.some(item => item.key === tab)) activeTab.value = tab
 }
 
-onMounted(() => window.addEventListener('apifix:goto-sidebar-tab', onGotoSidebarTab))
-onUnmounted(() => window.removeEventListener('apifix:goto-sidebar-tab', onGotoSidebarTab))
+onMounted(() => window.addEventListener('postino:goto-sidebar-tab', onGotoSidebarTab))
+onUnmounted(() => window.removeEventListener('postino:goto-sidebar-tab', onGotoSidebarTab))
 
 const tabs: Array<{ key: SidebarTab; label: string; icon: unknown }> = [
   { key: 'collections', label: '集合', icon: FolderTree },

@@ -6,7 +6,7 @@ import { migrateLegacyData, hasLegacyData } from '@/utils/migration'
 import { db } from '@/db'
 
 // Phase 5.4:迁移成功后清理的旧 localStorage 键(原 utils/storage.ts 已删除)
-const LEGACY_STORAGE_KEYS = ['apifix_bin_data', 'apifix_env_vars', 'apifix_history'] as const
+const LEGACY_STORAGE_KEYS = ['postino_bin_data', 'postino_env_vars', 'postino_history'] as const
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()

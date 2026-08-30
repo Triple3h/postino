@@ -1,9 +1,9 @@
 import type { ApiConfig, HttpMethod, KvPair, BodyConfig, Environment, EnvVariable, HistoryEntry } from '@/types'
 
 const LEGACY_KEYS = {
-  DATA: 'apifix_bin_data',
-  ENV: 'apifix_env_vars',
-  HISTORY: 'apifix_history',
+  DATA: 'postino_bin_data',
+  ENV: 'postino_env_vars',
+  HISTORY: 'postino_history',
 } as const
 
 /** Phase 5.4:原 utils/storage.ts 已删除,这里内联一个带类型的 localStorage 读取 */

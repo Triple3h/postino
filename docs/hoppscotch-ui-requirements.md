@@ -18,7 +18,7 @@
 
 ### 1.1 现状与差距
 
-| 维度 | 现状(ApiFix Bin) | 目标(Hoppscotch 风格) |
+| 维度 | 现状(Postino) | 目标(Hoppscotch 风格) |
 |---|---|---|
 | 外壳 | 单列布局:左侧集合树 Sidebar + 主区 + 右侧「上下文工具」抽屉(MainView.vue) | 顶部 Header(全局搜索/常用入口)+ 左侧 icon 导航栏 + 主区「上下文侧栏 + 可拖拽分栏编辑区」 |
 | 导航 | Sidebar 内混合集合树/环境/历史,折叠按钮 | icon 导航栏(请求/设置)+ 侧栏三 tab:集合/环境/历史(`http/Sidebar.vue`) |
@@ -125,7 +125,7 @@ GET=emerald-500、POST=yellow-500、PUT=sky-500、PATCH=violet-500、DELETE=rose
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ AppHeader  [⚡ApiFix] [   ⌘K 搜索请求/环境/历史/设置…   ]  [导入▾][Theme][⚙] │  h-12, border-b
+│ AppHeader  [⚡Postino] [   ⌘K 搜索请求/环境/历史/设置…   ]  [导入▾][Theme][⚙] │  h-12, border-b
 ├───┬──────────────────────┬──────────────────────────────────────┤
 │ S │ Sidebar tabs         │  主区(AppPaneLayout,splitpanes)        │
 │ i │ ┌──────────────────┐ │  ┌──────────────────────────────────┐ │

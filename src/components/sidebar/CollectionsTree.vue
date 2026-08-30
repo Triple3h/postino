@@ -363,7 +363,7 @@ function copyNodeCurl(node: InterfaceNode) {
 async function sendNode(node: InterfaceNode) {
   if (isFolderNode(node) || !node.apiId) return
   selectApi(node.apiId)
-  window.dispatchEvent(new CustomEvent('apifix:send-current-request'))
+  window.dispatchEvent(new CustomEvent('postino:send-current-request'))
 }
 
 // ── 右键菜单(FR-2.3)──
@@ -417,7 +417,7 @@ function onNodeDragStart(event: DragEvent, node: InterfaceNode) {
   draggingNodeId.value = node.id
   event.dataTransfer?.setData('text/plain', node.id)
   if (event.dataTransfer) {
-    event.dataTransfer.setData('application/x-apifix-node-id', node.id)
+    event.dataTransfer.setData('application/x-postino-node-id', node.id)
     event.dataTransfer.effectAllowed = 'move'
   }
 }
