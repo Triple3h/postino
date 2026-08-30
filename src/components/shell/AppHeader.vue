@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronDown, Download, FileUp, Moon, Monitor, Search, Settings, Sun, Zap, Contrast } from '@lucide/vue'
+import { ChevronDown, Download, FileUp, Moon, Monitor, Search, Settings, Sun, Contrast } from '@lucide/vue'
 import { Tippy } from 'vue-tippy'
 import { toast } from 'vue-sonner'
 import { useSettings } from '@/composables/useSettings'
@@ -11,6 +11,7 @@ import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import EnvSelector from '@/components/common/EnvSelector.vue'
 import type { ThemeColorMode } from '@/types'
+import postinoWordmark from '@/assets/logo/postino-wordmark.png'
 
 const router = useRouter()
 const store = useAppStore()
@@ -79,11 +80,13 @@ function goToSettings() {
 <template>
   <header class="grid h-12 shrink-0 grid-cols-[minmax(180px,1fr)_minmax(0,2fr)_minmax(180px,1fr)] items-center gap-2 border-b border-divider bg-primary px-3">
     <!-- 左:品牌 -->
-    <div class="flex items-center gap-2">
-      <span class="grid h-7 w-7 place-items-center rounded-md bg-accent text-accentContrast">
-        <Zap :size="16" :stroke-width="2.4" />
-      </span>
-      <span class="text-[13px] font-bold tracking-tight">Postino</span>
+    <div class="flex items-center">
+      <img
+        :src="postinoWordmark"
+        alt="Postino"
+        class="h-8 w-auto shrink-0"
+        draggable="false"
+      />
     </div>
 
     <!-- 中:Spotlight 搜索条 -->
