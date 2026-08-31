@@ -36,6 +36,11 @@ const isFolderMode = computed(() => props.target.type === 'folder')
 
 const collection = computed(() => isFolderMode.value ? null : workspace.collections.find(item => item.id === props.target.id) ?? null)
 const folder = computed(() => isFolderMode.value ? workspace.interfaces.find(item => item.id === props.target.id) ?? null : null)
+const targetCollection = computed(() => {
+  if (collection.value) return collection.value
+  const collectionId = folder.value ? (folder.value.collectionId ?? folder.value.moduleId) : null
+  return collectionId ? workspace.collections.find(item => item.id === collectionId) ?? null : null
+})
 
 const PRESET_COLORS = ['#6366f1', '#3b82f6', '#0ea5e9', '#14b8a6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#71717a']
 
@@ -51,6 +56,7 @@ const draftHeaders = ref<KvPair[]>([])
 const draftAuth = ref<AuthConfigData>(createDefaultAuthConfig())
 const draftAuthOverride = ref(true)
 const draftVariables = ref<CollectionVariable[]>([])
+const variableEnvId = ref<string | null>(null)
 const draftPreScript = ref('')
 const draftPostScript = ref('')
 const draftScriptsInherit = ref(true)
@@ -78,7 +84,10 @@ function loadDraft() {
   if (!source) return
   draftName.value = source.name
   draftHeaders.value = (source.headers ?? []).map(item => ({ ...item }))
-  draftVariables.value = (source.variables ?? []).map(item => ({ ...item }))
+  draftVariables.value = (source.variables ?? []).map(item => ({
+    ...item,
+    environmentValues: { ...(item.environmentValues ?? {}) },
+  }))
   draftPreScript.value = source.preRequestScript ?? ''
   draftPostScript.value = source.postRequestScript ?? ''
 
@@ -87,6 +96,7 @@ function loadDraft() {
     draftColor.value = collection.value.color || '#6366f1'
     draftIcon.value = collection.value.icon ?? ''
     draftSelectedEnvId.value = collection.value.selectedEnvId
+    variableEnvId.value = collection.value.selectedEnvId
     draftAuth.value = { ...collection.value.auth }
     draftAuthOverride.value = true
     draftScriptsInherit.value = true
@@ -95,6 +105,7 @@ function loadDraft() {
     draftColor.value = '#6366f1'
     draftIcon.value = ''
     draftSelectedEnvId.value = null
+    variableEnvId.value = targetCollection.value?.selectedEnvId ?? null
     draftAuth.value = folder.value.auth ? { ...folder.value.auth } : createDefaultAuthConfig()
     draftAuthOverride.value = Boolean(folder.value.auth)
     draftScriptsInherit.value = folder.value.scriptsInherit !== false
@@ -107,7 +118,12 @@ watch(() => props.target, loadDraft, { immediate: true })
 watch(draftSnapshot, value => store.setPropertyTabDirty(editorKey.value, value !== baseline.value))
 
 const collectionEnvs = computed(() =>
-  store.environments.filter(item => item.collectionId === props.target.id),
+  targetCollection.value
+    ? store.environments.filter(item => item.collectionId === targetCollection.value!.id)
+    : [],
+)
+const activeVariableEnv = computed(() =>
+  collectionEnvs.value.find(item => item.id === variableEnvId.value) ?? null,
 )
 
 const folderStats = computed(() => {
@@ -126,10 +142,38 @@ function removeHeader(index: number) {
   draftHeaders.value.splice(index, 1)
 }
 function addVariable() {
-  draftVariables.value.push({ key: '', initialValue: '', currentValue: '', secret: false, enabled: true })
+  draftVariables.value.push({
+    key: '',
+    initialValue: '',
+    currentValue: '',
+    environmentValues: variableEnvId.value ? { [variableEnvId.value]: '' } : {},
+    secret: false,
+    enabled: true,
+  })
 }
 function removeVariable(index: number) {
   draftVariables.value.splice(index, 1)
+}
+
+function selectVariableEnvironment(envId: string | null) {
+  variableEnvId.value = envId
+  if (collection.value) draftSelectedEnvId.value = envId
+}
+
+function variableEnvironmentValue(variable: CollectionVariable): string {
+  if (!variableEnvId.value) return variable.currentValue
+  return variable.environmentValues?.[variableEnvId.value] ?? ''
+}
+
+function updateVariableEnvironmentValue(variable: CollectionVariable, value: string) {
+  if (!variableEnvId.value) {
+    variable.currentValue = value
+    return
+  }
+  variable.environmentValues = {
+    ...(variable.environmentValues ?? {}),
+    [variableEnvId.value]: value,
+  }
 }
 
 async function save(): Promise<boolean> {
@@ -235,13 +279,6 @@ onUnmounted(() => unregisterHandler?.())
                   ></button>
                 </div>
               </div>
-              <div class="field-row">
-                <span>当前环境</span>
-                <select v-model="draftSelectedEnvId">
-                  <option :value="null">不使用环境</option>
-                  <option v-for="env in collectionEnvs" :key="env.id" :value="env.id">{{ env.name }}</option>
-                </select>
-              </div>
             </template>
             <div v-if="folderStats" class="stat-line">
               {{ folderStats.folders }} 个文件夹 · {{ folderStats.requests }} 个请求
@@ -274,16 +311,53 @@ onUnmounted(() => unregisterHandler?.())
 
           <!-- 变量 -->
           <template v-else-if="tab === 'variables'">
-            <p class="hint-line">initialValue 为持久默认值,currentValue 为会话运行值(脚本可改),secret 变量导出时剥离取值。</p>
-            <div v-for="(variable, index) in draftVariables" :key="index" class="kv-row var-row">
-              <input v-model="variable.enabled" type="checkbox" title="启用" />
-              <input v-model="variable.key" type="text" placeholder="变量名" class="kv-key" />
-              <input v-model="variable.initialValue" type="text" placeholder="初始值" class="kv-value" />
-              <input v-model="variable.currentValue" :type="variable.secret ? 'password' : 'text'" placeholder="当前值" class="kv-value" />
-              <label class="secret-check" title="Secret:导出时剥离取值">
-                <input v-model="variable.secret" type="checkbox" /> secret
-              </label>
-              <button class="kv-remove" @click="removeVariable(index)"><X :size="13" /></button>
+            <div class="variable-scope-bar">
+              <span class="variable-scope-label">环境</span>
+              <div class="environment-segments">
+                <button
+                  class="environment-segment"
+                  :class="{ active: variableEnvId === null }"
+                  @click="selectVariableEnvironment(null)"
+                >默认</button>
+                <button
+                  v-for="env in collectionEnvs"
+                  :key="env.id"
+                  class="environment-segment"
+                  :class="{ active: variableEnvId === env.id }"
+                  @click="selectVariableEnvironment(env.id)"
+                >{{ env.name }}</button>
+              </div>
+              <span v-if="activeVariableEnv" class="active-environment-mark">
+                {{ isFolderMode ? '分组值' : '当前环境' }}
+              </span>
+            </div>
+            <div class="variables-table">
+              <div class="variable-head">
+                <span></span>
+                <span>变量名</span>
+                <span>默认值</span>
+                <span>{{ activeVariableEnv?.name ?? '当前值' }}</span>
+                <span>说明</span>
+                <span>Secret</span>
+                <span></span>
+              </div>
+              <div v-for="(variable, index) in draftVariables" :key="index" class="variable-row">
+                <input v-model="variable.enabled" type="checkbox" title="启用" />
+                <input v-model="variable.key" type="text" placeholder="变量名" spellcheck="false" />
+                <input v-model="variable.initialValue" :type="variable.secret ? 'password' : 'text'" placeholder="默认值" />
+                <input
+                  :type="variable.secret ? 'password' : 'text'"
+                  :value="variableEnvironmentValue(variable)"
+                  :placeholder="activeVariableEnv ? `填写 ${activeVariableEnv.name} 的值` : '当前值'"
+                  @input="updateVariableEnvironmentValue(variable, ($event.target as HTMLInputElement).value)"
+                />
+                <input v-model="variable.description" type="text" placeholder="可选" />
+                <label class="secret-check" title="Secret 变量导出时不包含值">
+                  <input v-model="variable.secret" type="checkbox" />
+                </label>
+                <button class="kv-remove" title="删除变量" @click="removeVariable(index)"><X :size="13" /></button>
+              </div>
+              <p v-if="!draftVariables.length" class="variables-empty">暂无变量</p>
             </div>
             <button class="btn btn-sm" @click="addVariable">+ 添加变量</button>
           </template>
@@ -489,18 +563,117 @@ onUnmounted(() => unregisterHandler?.())
   min-width: 0;
 }
 
-.var-row .kv-value {
-  flex: 0.8;
-}
-
 .secret-check {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   font-size: var(--font-size-tiny);
   color: var(--secondary-light-color);
   flex-shrink: 0;
   cursor: pointer;
+}
+
+.variable-scope-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.variable-scope-label {
+  color: var(--secondary-light-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.environment-segments {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.environment-segment {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  white-space: nowrap;
+}
+
+.environment-segment:hover {
+  background: var(--primary-dark-color);
+}
+
+.environment-segment.active {
+  border-color: color-mix(in srgb, var(--accent-color) 35%, var(--divider-color));
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--accent-color);
+}
+
+.active-environment-mark {
+  margin-left: auto;
+  color: var(--secondary-light-color);
+  font-size: var(--font-size-tiny);
+  white-space: nowrap;
+}
+
+.variables-table {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.variable-head,
+.variable-row {
+  display: grid;
+  grid-template-columns: 20px minmax(130px, 0.9fr) minmax(140px, 1fr) minmax(160px, 1.2fr) minmax(120px, 0.9fr) 48px 24px;
+  gap: 6px;
+  align-items: center;
+}
+
+.variable-head {
+  padding: 3px 4px 5px;
+  color: var(--secondary-light-color);
+  font-size: var(--font-size-tiny);
+  font-weight: 700;
+}
+
+.variable-row {
+  padding: 3px 4px;
+}
+
+.variable-head,
+.variable-row {
+  min-width: 760px;
+}
+
+.variable-row:hover {
+  background: var(--primary-light-color);
+}
+
+.variable-row > input:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  font-family: var(--font-code);
+  font-size: var(--font-size-body);
+}
+
+.variables-empty {
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  color: var(--secondary-light-color);
+  font-size: var(--font-size-body);
 }
 
 .kv-remove {

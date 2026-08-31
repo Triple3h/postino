@@ -462,9 +462,16 @@ export function generateCollectionBackup(input: {
   environments: Environment[]
   apis: Record<string, ApiConfig>
 }): string {
+  const stripSecretValues = (variable: CollectionVariable): CollectionVariable => variable.secret
+    ? { ...variable, initialValue: '', currentValue: '', environmentValues: {} }
+    : variable
   const collections = input.collections.map(collection => ({
     ...collection,
-    variables: (collection.variables || []).map(v => v.secret ? { ...v, initialValue: '', currentValue: '' } : v),
+    variables: (collection.variables || []).map(stripSecretValues),
+  }))
+  const nodes = input.nodes.map(node => ({
+    ...node,
+    variables: node.variables?.map(stripSecretValues),
   }))
   const environments = input.environments.map(env => ({
     ...env,
@@ -474,7 +481,7 @@ export function generateCollectionBackup(input: {
     v: COLLECTION_EXPORT_VERSION,
     exportedAt: Date.now(),
     collections,
-    nodes: input.nodes,
+    nodes,
     environments,
     apis: input.apis,
   }

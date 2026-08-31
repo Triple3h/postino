@@ -195,8 +195,11 @@ function loadSearchResult(result: PopupSearchResult) {
 function moduleVariableValue(module: Module, key: string): string {
   const value = module.variables?.[key]
   if (!value) return ''
-  const envValue = store.currentEnvId ? value.environmentValues?.[store.currentEnvId] : ''
-  return envValue || value.local || value.remote || ''
+  const environmentId = workspace.collections.find(item => item.id === module.id)?.selectedEnvId ?? store.currentEnvId
+  if (environmentId && value.environmentValues !== undefined) {
+    return value.environmentValues[environmentId] ?? ''
+  }
+  return value.local || value.remote || ''
 }
 
 function moduleBaseUrlTemplate(module: Module): string {

@@ -17,6 +17,7 @@ import {
 } from '@/utils/pre-request'
 import type { PostResponseData, ScriptResult, ScriptSendRequestInput } from '@/utils/pre-request'
 import { generateCurl } from '@/utils/export'
+import { collectionVariableValue } from '@/utils/variables'
 import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
@@ -583,8 +584,21 @@ async function persistScriptEnvChanges(result: ScriptResult, collection: Collect
         if (index >= 0) merged.splice(index, 1)
         continue
       }
-      if (index >= 0) merged[index] = { ...merged[index], currentValue: nextValue, enabled: true }
-      else merged.push({ key, initialValue: nextValue, currentValue: nextValue, secret: false, enabled: true })
+      if (index >= 0) {
+        const item = merged[index]
+        merged[index] = collection.selectedEnvId
+          ? { ...item, environmentValues: { ...(item.environmentValues ?? {}), [collection.selectedEnvId]: nextValue }, enabled: true }
+          : { ...item, currentValue: nextValue, enabled: true }
+      } else {
+        merged.push({
+          key,
+          initialValue: collection.selectedEnvId ? '' : nextValue,
+          currentValue: collection.selectedEnvId ? '' : nextValue,
+          environmentValues: collection.selectedEnvId ? { [collection.selectedEnvId]: nextValue } : {},
+          secret: false,
+          enabled: true,
+        })
+      }
     }
     await workspace.updateCollectionSettings(collection.id, { variables: merged })
   }
@@ -709,7 +723,7 @@ async function send() {
 
     // Phase 4.1:Postman 兼容执行链 = 集合 → 文件夹(根→叶) → 请求自身
     const collectionVarStore: Record<string, string> = Object.fromEntries(
-      (collection?.variables ?? []).filter(v => v.enabled && v.key).map(v => [v.key, v.currentValue || v.initialValue]),
+      (collection?.variables ?? []).filter(v => v.enabled && v.key).map(v => [v.key, collectionVariableValue(v, collection?.selectedEnvId)]),
     )
     const globalEnvForScripts = store.environments.find(item => store.isGlobalEnv(item) && item.id === store.currentEnvId)
       ?? store.environments.find(item => store.isGlobalEnv(item))

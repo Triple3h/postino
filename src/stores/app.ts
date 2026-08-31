@@ -9,6 +9,7 @@ import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspa
 import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
 import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
 import { collectionFromModule } from '@/utils/collection-migration'
+import { collectionVariableValue } from '@/utils/variables'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -1013,11 +1014,11 @@ export const useAppStore = defineStore('app', () => {
     const collection = collectionId ? workspace.collections.find(item => item.id === collectionId) : null
     if (collection) {
       for (const v of collection.variables) {
-        if (v.enabled && v.key) vars[v.key] = v.currentValue || v.initialValue
+        if (v.enabled && v.key) vars[v.key] = collectionVariableValue(v, collection.selectedEnvId)
       }
       for (const folder of workspace.getAncestorFolders(node?.id ?? apiId ?? '')) {
         for (const v of folder.variables ?? []) {
-          if (v.enabled && v.key) vars[v.key] = v.currentValue || v.initialValue
+          if (v.enabled && v.key) vars[v.key] = collectionVariableValue(v, collection.selectedEnvId)
         }
       }
 

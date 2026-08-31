@@ -112,6 +112,8 @@ export interface CollectionVariable {
   key: string
   initialValue: string
   currentValue: string
+  /** 集合环境 id → 该环境下的运行值;缺少对应项时回退 currentValue / initialValue */
+  environmentValues?: Record<string, string>
   secret: boolean
   enabled: boolean
   description?: string
