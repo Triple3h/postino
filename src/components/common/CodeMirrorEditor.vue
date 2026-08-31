@@ -111,7 +111,10 @@ function createExtensions() {
     ]),
     languageCompartment.of(getLanguageExtension(props.language)),
     themeCompartment.of(getThemeExtension(resolvedTheme.value)),
-    readonlyCompartment.of(EditorState.readOnly.of(props.readonly)),
+    readonlyCompartment.of([
+      EditorState.readOnly.of(props.readonly),
+      EditorView.editable.of(!props.readonly),
+    ]),
     props.placeholder ? cmPlaceholder(props.placeholder) : [],
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
@@ -186,7 +189,10 @@ watch(() => props.theme, (theme) => {
 
 watch(() => props.readonly, (ro) => {
   view.value?.dispatch({
-    effects: readonlyCompartment.reconfigure(EditorState.readOnly.of(ro)),
+    effects: readonlyCompartment.reconfigure([
+      EditorState.readOnly.of(ro),
+      EditorView.editable.of(!ro),
+    ]),
   })
 })
 </script>

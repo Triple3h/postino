@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultAuthConfig } from '@/utils/auth'
-import { resolveInheritedProperties, resolveScriptChain } from '@/utils/inheritance'
+import { matchInheritedScript, resolveInheritedProperties, resolveScriptChain, stripInheritedPrefix } from '@/utils/inheritance'
 import type { Collection, CollectionNode, CollectionVariable } from '@/types'
 
 function makeCollection(overrides: Partial<Collection> = {}): Collection {
@@ -122,13 +122,42 @@ describe('resolveScriptChain', () => {
     expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['col:1', 'f1', 'f2'])
   })
 
-  it('scriptsInherit=false 的节点自身脚本被跳过,但更远祖先仍继承', () => {
+  it('祖先 scriptsInherit=false 时截断更远父级,但保留该祖先自身脚本', () => {
     const collection = makeCollection({ preRequestScript: 'root' })
     const f1 = makeNode({ id: 'f1', nodeType: 'folder', preRequestScript: 'f1' })
     const f2 = makeNode({ id: 'f2', nodeType: 'folder', parentId: 'f1', preRequestScript: 'f2', scriptsInherit: false })
     const req = makeNode({ id: 'req', parentId: 'f2' })
     const chain = resolveScriptChain(collection, [f1, f2, req], 'req')
-    expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['col:1', 'f1'])
+    expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['f2'])
+  })
+
+  it('截断继承后继续收集更近分组脚本', () => {
+    const collection = makeCollection({ preRequestScript: 'root' })
+    const boundary = makeNode({ id: 'boundary', nodeType: 'folder', preRequestScript: 'boundary', scriptsInherit: false })
+    const inner = makeNode({ id: 'inner', nodeType: 'folder', parentId: 'boundary', preRequestScript: 'inner' })
+    const req = makeNode({ id: 'req', parentId: 'inner' })
+    const chain = resolveScriptChain(collection, [boundary, inner, req], 'req')
+    expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['boundary', 'inner'])
+  })
+
+  it('不继承上级的分组脚本仍可识别子请求中的历史副本', () => {
+    const collection = makeCollection({ preRequestScript: 'root' })
+    const folder = makeNode({
+      id: 'folder',
+      name: '粤省事AI',
+      nodeType: 'folder',
+      preRequestScript: 'const token = pm.environment.get("token")',
+      scriptsInherit: false,
+    })
+    const req = makeNode({
+      id: 'req',
+      parentId: 'folder',
+      preRequestScript: 'const token = pm.environment.get("token")',
+    })
+    const chain = resolveScriptChain(collection, [folder, req], 'req')
+
+    expect(chain.preScripts.map(seg => seg.sourceName)).toEqual(['粤省事AI'])
+    expect(matchInheritedScript(chain.preScripts, req.preRequestScript)?.map(seg => seg.sourceId)).toEqual(['folder'])
   })
 
   it('目标节点自身 scriptsInherit=false → 只执行自身(继承链为空)', () => {
@@ -137,5 +166,85 @@ describe('resolveScriptChain', () => {
     const chain = resolveScriptChain(collection, [req], 'req')
     expect(chain.preScripts).toEqual([])
     expect(chain.postScripts).toEqual([])
+  })
+})
+
+describe('matchInheritedScript', () => {
+  const segments = [
+    { sourceId: 'col:1', sourceName: '集合', script: 'console.log("collection")' },
+    { sourceId: 'f1', sourceName: '文件夹', script: 'console.log("folder")' },
+  ]
+
+  it('与单段继承脚本一致 → 命中该段', () => {
+    expect(matchInheritedScript(segments, 'console.log("folder")')).toEqual([segments[1]])
+  })
+
+  it('与多段按根→叶空行拼接一致 → 命中连续段(Postman 导入场景)', () => {
+    expect(matchInheritedScript(segments, 'console.log("collection")\n\nconsole.log("folder")')).toEqual(segments)
+  })
+
+  it('忽略首尾空白差异', () => {
+    expect(matchInheritedScript(segments, '  console.log("collection")\n')).toEqual([segments[0]])
+  })
+
+  it('自定义脚本(追加了自己的逻辑)→ 不命中', () => {
+    expect(matchInheritedScript(segments, 'console.log("collection")\n\nconsole.log("mine")')).toBeNull()
+  })
+
+  it('空脚本 / 空继承链 → 不命中', () => {
+    expect(matchInheritedScript(segments, '')).toBeNull()
+    expect(matchInheritedScript(segments, undefined)).toBeNull()
+    expect(matchInheritedScript([], 'console.log("x")')).toBeNull()
+  })
+})
+
+describe('stripInheritedPrefix', () => {
+  it('剥离单段继承前缀,还原节点自身脚本', () => {
+    const inherited = ['console.log("collection")']
+    expect(stripInheritedPrefix('console.log("collection")\n\nconsole.log("folder")', inherited)).toBe('console.log("folder")')
+  })
+
+  it('内容与继承段完全一致 → 空串(纯副本)', () => {
+    expect(stripInheritedPrefix('console.log("collection")', ['console.log("collection")'])).toBe('')
+  })
+
+  it('多段继承链按顺序逐段剥离', () => {
+    const inherited = ['console.log("collection")', 'console.log("folder")']
+    expect(stripInheritedPrefix('console.log("collection")\n\nconsole.log("folder")\n\nconsole.log("req")', inherited)).toBe('console.log("req")')
+  })
+
+  it('无烘焙前缀的脚本原样返回', () => {
+    expect(stripInheritedPrefix('console.log("mine")', ['console.log("collection")'])).toBe('console.log("mine")')
+  })
+
+  it('空脚本或空继承链 → 原样返回(trim)', () => {
+    expect(stripInheritedPrefix('', ['x'])).toBe('')
+    expect(stripInheritedPrefix(undefined, ['x'])).toBe('')
+    expect(stripInheritedPrefix('  a  ', [])).toBe('a')
+  })
+})
+
+describe('resolveScriptChain · 烘焙数据归一化', () => {
+  it('文件夹存有"集合+自身"烘焙脚本时,继承链不重复收录集合脚本', () => {
+    const collection = makeCollection({ preRequestScript: 'root' })
+    const folder = makeNode({ id: 'f1', nodeType: 'folder', preRequestScript: 'root\n\nfolder-own' })
+    const req = makeNode({ id: 'req', parentId: 'f1', preRequestScript: 'root\n\nfolder-own\n\nreq-own' })
+    const chain = resolveScriptChain(collection, [folder, req], 'req')
+    expect(chain.preScripts.map(seg => seg.script)).toEqual(['root', 'folder-own'])
+  })
+
+  it('请求脚本为父级链纯副本时,继承链仍完整(去重由执行方按副本识别)', () => {
+    const collection = makeCollection({ preRequestScript: 'root' })
+    const req = makeNode({ id: 'req', preRequestScript: 'root' })
+    const chain = resolveScriptChain(collection, [req], 'req')
+    expect(chain.preScripts.map(seg => seg.script)).toEqual(['root'])
+  })
+
+  it('普通自身脚本不受剥离逻辑影响', () => {
+    const collection = makeCollection({ preRequestScript: 'root' })
+    const folder = makeNode({ id: 'f1', nodeType: 'folder', preRequestScript: 'console.log("f1")' })
+    const req = makeNode({ id: 'req', parentId: 'f1', preRequestScript: 'console.log("req")' })
+    const chain = resolveScriptChain(collection, [folder, req], 'req')
+    expect(chain.preScripts.map(seg => seg.script)).toEqual(['root', 'console.log("f1")'])
   })
 })

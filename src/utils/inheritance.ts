@@ -7,7 +7,7 @@ import type { AuthConfig, Collection, CollectionNode, CollectionVariable, KvPair
  * - Auth:节点自身显式定义(非 'inherit' 且非 undefined)→ 最近祖先显式定义 → 集合定义 → none
  * - Headers:祖先激活项合并,同 key 近层覆盖远层;请求自身的合并由发送方追加(优先级最高)
  * - Variables:同 key 近层覆盖远层
- * - Pre Scripts:Collection → 文件夹(根→叶),跳过 scriptsInherit === false 的节点;节点自身脚本由调用方追加在最后
+ * - Pre Scripts:Collection → 文件夹(根→叶);scriptsInherit === false 会截断更上层脚本,但保留该节点自身脚本
  * - Post Scripts:同一脚本链(根→叶),执行时由调用方按 请求 → 文件夹(叶→根) → Collection 反序执行
  */
 
@@ -43,6 +43,34 @@ export interface InheritedProperties {
 
 function hasExplicitAuth(auth?: AuthConfig): boolean {
   return !!auth && auth.type !== 'inherit'
+}
+
+function normalizeScript(script: string | undefined | null): string {
+  return (script ?? '').trim()
+}
+
+/**
+ * 早期树形导入会把"祖先链脚本 + 自身脚本"以空行连接烘焙进节点字段,导致运行时
+ * 继承链重复执行祖先脚本。此处按已收集的祖先脚本逐段剥离该前缀,还原节点自身脚本。
+ */
+export function stripInheritedPrefix(script: string | undefined | null, inheritedParts: string[]): string {
+  const own = normalizeScript(script)
+  if (!own || inheritedParts.length === 0) return own
+  let remaining = own
+  for (const part of inheritedParts) {
+    const partText = normalizeScript(part)
+    if (!partText) continue
+    if (remaining === partText) {
+      remaining = ''
+      continue
+    }
+    if (remaining.startsWith(`${partText}\n\n`) || remaining.startsWith(`${partText}\n`)) {
+      remaining = remaining.slice(partText.length).replace(/^\n+/, '')
+      continue
+    }
+    break
+  }
+  return remaining.trim()
 }
 
 function chainOf(nodes: CollectionNode[], nodeId: string): CollectionNode[] {
@@ -135,24 +163,52 @@ export function resolveInheritedProperties(
   const { headers, sources: headerSources } = mergeKvLayers(headerLayers)
   const { variables, sources: variableSources } = mergeVariableLayers(variableLayers)
 
-  // ── Scripts:根→叶,scriptsInherit === false 截断继承 ──
+  // ── Scripts:根→叶,scriptsInherit === false 从当前节点重新开始继承链 ──
+  // 节点存储的脚本若带有早期树形导入烘焙进去的祖先链前缀,读取时自动剥离,
+  // 避免继承链与烘焙内容重复执行(见 stripInheritedPrefix)。
   const preScripts: ScriptSegment[] = []
   const postScripts: ScriptSegment[] = []
-  const push = (node: CollectionNode) => {
-    if (node.scriptsInherit === false) return
-    if (node.preRequestScript) preScripts.push({ sourceId: node.id, sourceName: node.name, script: node.preRequestScript })
-    if (node.postRequestScript) postScripts.push({ sourceId: node.id, sourceName: node.name, script: node.postRequestScript })
+  const inheritedPreParts: string[] = []
+  const inheritedPostParts: string[] = []
+  const pushCollection = () => {
+    if (collection.preRequestScript?.trim()) {
+      preScripts.push({ sourceId: collection.id, sourceName: collection.name, script: normalizeScript(collection.preRequestScript) })
+      inheritedPreParts.push(collection.preRequestScript)
+    }
+    if (collection.postRequestScript?.trim()) {
+      postScripts.push({ sourceId: collection.id, sourceName: collection.name, script: normalizeScript(collection.postRequestScript) })
+      inheritedPostParts.push(collection.postRequestScript)
+    }
   }
-  if (collection.preRequestScript) preScripts.push({ sourceId: collection.id, sourceName: collection.name, script: collection.preRequestScript })
-  if (collection.postRequestScript) postScripts.push({ sourceId: collection.id, sourceName: collection.name, script: collection.postRequestScript })
-  for (const node of chain) push(node)
+  const pushNode = (node: CollectionNode) => {
+    const ownPre = stripInheritedPrefix(node.preRequestScript, inheritedPreParts)
+    const ownPost = stripInheritedPrefix(node.postRequestScript, inheritedPostParts)
+    // “不继承父级”只截断更上层脚本；当前分组自己的脚本仍应被子请求继承。
+    if (node.scriptsInherit === false) {
+      preScripts.length = 0
+      postScripts.length = 0
+      inheritedPreParts.length = 0
+      inheritedPostParts.length = 0
+    }
+    if (ownPre) {
+      preScripts.push({ sourceId: node.id, sourceName: node.name, script: ownPre })
+      inheritedPreParts.push(ownPre)
+    }
+    if (ownPost) {
+      postScripts.push({ sourceId: node.id, sourceName: node.name, script: ownPost })
+      inheritedPostParts.push(ownPost)
+    }
+  }
+  pushCollection()
+  for (const node of chain) pushNode(node)
 
   return { auth, headers, headerSources, variables, variableSources, preScripts, postScripts }
 }
 
 /**
  * 脚本执行链(Phase 4 发送时调用):
- * - scriptsInherit !== false:pre = [collection, ...祖先(根→叶)],节点自身脚本由调用方追加在最后;
+ * - 祖先 scriptsInherit === false:丢弃其更上层脚本,从该祖先自身重新开始;
+ * - 目标 scriptsInherit !== false:pre = [有效祖先链],节点自身脚本由调用方追加在最后;
  * - scriptsInherit === false:只返回空链(仅执行节点自身)。
  */
 export function resolveScriptChain(
@@ -164,4 +220,25 @@ export function resolveScriptChain(
   if (target?.scriptsInherit === false) return { preScripts: [], postScripts: [] }
   const inherited = resolveInheritedProperties(collection, nodes, nodeId)
   return { preScripts: inherited.preScripts, postScripts: inherited.postScripts }
+}
+
+/**
+ * 识别请求自身脚本是否为继承脚本的"烘焙副本"(Postman 导入 / 复制请求场景):
+ * 内容与继承链中一段,或连续多段按根→叶顺序以空行连接(Postman 导入的拼接方式)一致时视为继承内容。
+ * 返回命中的来源段(供"继承自 XX"标识使用),未命中(含请求自定义脚本)返回 null。
+ */
+export function matchInheritedScript(
+  segments: ScriptSegment[],
+  script: string | undefined | null,
+): ScriptSegment[] | null {
+  const own = (script ?? '').trim()
+  if (!own || segments.length === 0) return null
+  for (let start = 0; start < segments.length; start++) {
+    let acc = ''
+    for (let end = start; end < segments.length; end++) {
+      acc = [acc, segments[end].script.trim()].filter(Boolean).join('\n\n')
+      if (acc === own) return segments.slice(start, end + 1)
+    }
+  }
+  return null
 }
