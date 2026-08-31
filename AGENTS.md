@@ -67,11 +67,11 @@ Use Semantic Versioning:
 - minor (`1.3.0`) for backward-compatible features;
 - major (`2.0.0`) for breaking changes.
 
-Before release, synchronize the version in `package.json`, `package-lock.json`, `desktop/package.json`, `desktop/package-lock.json`, and `extension/manifest.json`. Merge the release change into `main`, verify CI, then tag that exact commit and push the single tag:
+Before release, synchronize the version in `package.json`, `package-lock.json`, `desktop/package.json`, `desktop/package-lock.json`, and `extension/manifest.json`. Rewrite `RELEASE_NOTES.md` in Chinese with the release highlights, download or upgrade guidance, and any migration or compatibility notes; do not leave content from the previous version. Merge the release change into `main`, verify CI, then tag that exact commit and push the single tag:
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Tags matching `v*` trigger `.github/workflows/release.yml`, which builds the Windows app, macOS app, and browser extension and publishes a GitHub Release. Do not create or move a release tag until the version commit is on `main` and checks have passed.
+Tags matching `v*` trigger `.github/workflows/release.yml`, which builds the Windows app, macOS app, and browser extension and publishes a GitHub Release. The workflow uses `RELEASE_NOTES.md` as the curated release introduction and appends GitHub's automatically generated changelog. Do not create or move a release tag until the version and release-notes commit is on `main` and checks have passed.
