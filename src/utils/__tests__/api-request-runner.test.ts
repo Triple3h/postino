@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultAuthConfig } from '@/utils/auth'
-import type { ApiConfig, ResponseData } from '@/types'
+import type { ApiConfig, Collection, CollectionNode, ResponseData } from '@/types'
 
 const mocks = vi.hoisted(() => ({
   sendRequest: vi.fn(),
   addHistory: vi.fn(),
   appStore: {
-    apis: {},
+    apis: {} as Record<string, ApiConfig>,
     environments: [],
     currentEnvId: null,
     settings: { corsMode: 'cors' as const, proxyUrl: '' },
@@ -18,13 +18,16 @@ const mocks = vi.hoisted(() => ({
     isGlobalEnv: vi.fn(() => false),
     addHistory: vi.fn(),
     upsertEnvironment: vi.fn(),
+    updateApi: vi.fn(),
   },
   workspaceStore: {
-    interfaces: [],
-    collections: [],
+    interfaces: [] as CollectionNode[],
+    collections: [] as Collection[],
     modules: [],
     categories: [],
     updateCollectionSettings: vi.fn(),
+    updateInterfaceNode: vi.fn(),
+    getAncestorFolders: vi.fn(() => []),
   },
 }))
 
@@ -83,6 +86,9 @@ function createResponse(overrides: Partial<ResponseData> = {}): ResponseData {
 describe('runApiRequest', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.appStore.apis = {}
+    mocks.workspaceStore.interfaces = []
+    mocks.workspaceStore.collections = []
     mocks.sendRequest.mockResolvedValue(createResponse())
   })
 
@@ -120,5 +126,60 @@ describe('runApiRequest', () => {
       mergedReasoning: 'thinking',
       rawPreview: 'data: hello',
     }))
+  })
+
+  it('extracts a response value into temporary request variables', async () => {
+    const api = createApi()
+    api.postResponseExtractors = [{
+      id: 'extract-1',
+      enabled: true,
+      variableName: 'accessToken',
+      variableScope: 'temporary',
+      source: 'response-json',
+      extractMode: 'jsonpath',
+      jsonPath: '$.data.token',
+      unwrapArray: false,
+    }]
+    mocks.appStore.apis[api.id] = api
+    mocks.sendRequest.mockResolvedValue(createResponse({ body: '{"data":{"token":"abc123"}}' }))
+
+    await runApiRequest(api, { recordHistory: false })
+
+    expect(mocks.appStore.updateApi).toHaveBeenCalledWith(api.id, {
+      requestVariables: [{ key: 'accessToken', value: 'abc123', enabled: true }],
+    })
+  })
+
+  it('writes collection extraction into the selected collection environment', async () => {
+    const api = createApi()
+    api.postResponseExtractors = [
+      {
+        id: 'extract-1', enabled: true, variableName: 'accessToken', variableScope: 'collection',
+        source: 'response-json', extractMode: 'jsonpath', jsonPath: '$.token', unwrapArray: false,
+      },
+      {
+        id: 'extract-2', enabled: true, variableName: 'refreshToken', variableScope: 'collection',
+        source: 'response-json', extractMode: 'jsonpath', jsonPath: '$.refresh', unwrapArray: false,
+      },
+    ]
+    const collection = {
+      id: 'collection-1', name: 'Auth', order: 0, auth: createDefaultAuthConfig(), headers: [], variables: [],
+      preRequestScript: '', postRequestScript: '', selectedEnvId: 'env-local', createdAt: 1, updatedAt: 1,
+    }
+    mocks.workspaceStore.collections = [collection]
+    mocks.workspaceStore.interfaces = [{
+      id: 'node-1', moduleId: collection.id, collectionId: collection.id, apiId: api.id, nodeType: 'request' as const,
+      parentId: null, name: api.name, method: api.method, url: api.url, order: 0, createdAt: 1, updatedAt: 1,
+    }]
+    mocks.sendRequest.mockResolvedValue(createResponse({ body: '{"token":"abc123","refresh":"xyz789"}' }))
+
+    await runApiRequest(api, { recordHistory: false })
+
+    expect(mocks.workspaceStore.updateCollectionSettings).toHaveBeenCalledWith(collection.id, {
+      variables: expect.arrayContaining([
+        expect.objectContaining({ key: 'accessToken', environmentValues: { 'env-local': 'abc123' }, enabled: true }),
+        expect.objectContaining({ key: 'refreshToken', environmentValues: { 'env-local': 'xyz789' }, enabled: true }),
+      ]),
+    })
   })
 })

@@ -10,11 +10,13 @@ import {
 import type { PostResponseData, ScriptResult, ScriptSendRequestInput } from '@/utils/pre-request'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import { collectionVariableValue } from '@/utils/variables'
+import { extractPostResponseValue } from '@/utils/post-response-extract'
 import type {
   ApiConfig,
   AuthConfig,
   BodyConfig,
   Collection,
+  CollectionVariable,
   CollectionNode,
   CookieItem,
   Environment,
@@ -32,6 +34,88 @@ export interface ApiRequestOverrides {
   signal?: AbortSignal
   onStreamingUpdate?: (response: ResponseData) => void
   recordHistory?: boolean
+}
+
+function upsertCollectionVariable(
+  variables: CollectionVariable[],
+  key: string,
+  value: string,
+  environmentId: string | null | undefined,
+): CollectionVariable[] {
+  const next = variables.map(item => ({ ...item, environmentValues: { ...(item.environmentValues ?? {}) } }))
+  const index = next.findIndex(item => item.key === key)
+  const base = index >= 0 ? next[index] : {
+    key,
+    initialValue: environmentId ? '' : value,
+    currentValue: environmentId ? '' : value,
+    environmentValues: {},
+    secret: false,
+    enabled: true,
+  }
+  const updated = environmentId
+    ? { ...base, environmentValues: { ...(base.environmentValues ?? {}), [environmentId]: value }, enabled: true }
+    : { ...base, currentValue: value, enabled: true }
+  if (index >= 0) next[index] = updated
+  else next.push(updated)
+  return next
+}
+
+async function applyPostResponseExtractors(
+  api: ApiConfig,
+  responseBody: string,
+): Promise<{ all: Record<string, string>; collection: Record<string, string> }> {
+  const rules = (api.postResponseExtractors ?? []).filter(rule => rule.enabled)
+  if (!rules.length) return { all: {}, collection: {} }
+
+  const store = useAppStore()
+  const workspace = useWorkspaceStore()
+  const context = executionContext(api)
+  const extracted: Record<string, string> = {}
+  const collectionExtracted: Record<string, string> = {}
+  let collectionVariables = context.collection?.variables ?? []
+  let json: unknown
+  try {
+    json = JSON.parse(responseBody)
+  } catch {
+    store.scriptLogs.push({ level: 'error', timestamp: Date.now(), args: ['后置提取失败：响应不是有效 JSON'] })
+    return { all: extracted, collection: collectionExtracted }
+  }
+
+  for (const rule of rules) {
+    const key = rule.variableName.trim()
+    if (!key) continue
+    try {
+      const value = extractPostResponseValue(rule, json)
+      let target = '临时变量'
+      if (rule.variableScope === 'temporary') {
+        const variables = (store.apis[api.id]?.requestVariables ?? []).map(item => ({ ...item }))
+        const index = variables.findIndex(item => item.key === key)
+        const next = { key, value, enabled: true }
+        if (index >= 0) variables[index] = { ...variables[index], ...next }
+        else variables.push(next)
+        store.updateApi(api.id, { requestVariables: variables })
+      } else if (rule.variableScope === 'collection') {
+        if (!context.collection) throw new Error('当前请求尚未保存到集合')
+        collectionVariables = upsertCollectionVariable(collectionVariables, key, value, context.collection.selectedEnvId)
+        await workspace.updateCollectionSettings(context.collection.id, { variables: collectionVariables })
+        collectionExtracted[key] = value
+        target = `集合「${context.collection.name}」`
+      } else {
+        const folders = workspace.getAncestorFolders(context.node?.id ?? api.id)
+        const folder = folders[folders.length - 1]
+        if (!folder) throw new Error('当前请求不在任何分组中')
+        const variables = upsertCollectionVariable(folder.variables ?? [], key, value, context.collection?.selectedEnvId)
+        await workspace.updateInterfaceNode(folder.id, { variables })
+        target = `分组「${folder.name}」`
+      }
+      extracted[key] = value
+      store.scriptLogs.push({ level: 'info', timestamp: Date.now(), args: [`已提取 ${key} → ${target}`] })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      store.scriptLogs.push({ level: 'error', timestamp: Date.now(), args: [`提取 ${key} 失败：${message}`] })
+    }
+  }
+  return { all: extracted, collection: collectionExtracted }
 }
 
 export interface ApiRequestCapabilities {
@@ -449,6 +533,11 @@ export async function runApiRequest(api: ApiConfig, overrides: ApiRequestOverrid
     streamMerge: api.streamMerge,
     onStreamingUpdate: overrides.onStreamingUpdate,
   })
+
+  const extractedVars = await applyPostResponseExtractors(api, response.body)
+  envVars = { ...envVars, ...extractedVars.all }
+  latestCollectionStore = { ...latestCollectionStore, ...extractedVars.collection }
+  allLogs.push(...store.scriptLogs)
 
   const postSegments = [
     ...(api.postRequestScript?.trim() ? [{ sourceId: api.id, sourceName: '请求', script: api.postRequestScript }] : []),

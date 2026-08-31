@@ -81,6 +81,8 @@ export interface ApiConfig {
   requestVariables?: KvPair[]
   preRequestScript: string
   postRequestScript: string
+  /** 收到响应后执行的可视化变量提取规则。 */
+  postResponseExtractors?: PostResponseExtractor[]
   /** 请求类型,缺省 'rest'(Phase 0 存量数据无此字段) */
   requestType?: RequestType
   /** 流式合并规则(SSE/NDJSON) */
@@ -91,6 +93,19 @@ export interface ApiConfig {
   folder: string | null
   createdAt: number
   updatedAt: number
+}
+
+export type PostResponseVariableScope = 'collection' | 'folder' | 'temporary'
+
+export interface PostResponseExtractor {
+  id: string
+  enabled: boolean
+  variableName: string
+  variableScope: PostResponseVariableScope
+  source: 'response-json'
+  extractMode: 'jsonpath' | 'whole-json'
+  jsonPath: string
+  unwrapArray: boolean
 }
 
 export interface EnvVariable {

@@ -1,24 +1,29 @@
 <script setup lang="ts">
 import { ref, computed, watch, reactive } from 'vue'
 import JsonTreeNode from './JsonTreeNode.vue'
+import { appendJsonPath } from '@/utils/post-response-extract'
 
 const props = withDefaults(defineProps<{
   data: unknown
   maxDepth?: number
   searchQuery?: string
   rootName?: string
+  extractable?: boolean
 }>(), {
   maxDepth: 10,
   searchQuery: '',
   rootName: 'response',
+  extractable: true,
 })
+
+const emit = defineEmits<{
+  'extract-variable': [path: string, variableName: string]
+}>()
 
 const expandedPaths = reactive(new Set<string>())
 
 function buildPath(parentPath: string, key: string, isIndex: boolean): string {
-  if (isIndex) return `${parentPath}[${key}]`
-  if (parentPath) return `${parentPath}.${key}`
-  return key
+  return appendJsonPath(parentPath, key, isIndex)
 }
 
 function matchesSearch(val: unknown, key: string, query: string): boolean {
@@ -59,7 +64,7 @@ function expandAll() {
   function addAllPaths(data: unknown, key: string, depth: number, parentPath: string) {
     if (data === null || data === undefined || typeof data !== 'object') return
     const isRoot = depth === 0
-    const path = isRoot ? props.rootName : buildPath(parentPath, key, /^\d+$/.test(key))
+    const path = isRoot ? '$' : buildPath(parentPath, key, /^\d+$/.test(key))
     expandedPaths.add(path)
     const entries = Array.isArray(data)
       ? (data as unknown[]).map((v, i) => [String(i), v] as [string, unknown])
@@ -68,12 +73,12 @@ function expandAll() {
       addAllPaths(childVal, childKey, depth + 1, path)
     }
   }
-  addAllPaths(props.data, '', 0, '')
+  addAllPaths(props.data, '', 0, '$')
 }
 
 watch(() => props.searchQuery, () => {
   if (props.searchQuery) {
-    expandMatchingPaths(props.data, '', 0, '')
+    expandMatchingPaths(props.data, '', 0, '$')
   }
 })
 
@@ -82,7 +87,7 @@ function expandMatchingPaths(data: unknown, key: string, depth: number, parentPa
     return matchesSearch(data, key, props.searchQuery)
   }
   const isRoot = depth === 0
-  const path = isRoot ? props.rootName : buildPath(parentPath, key, /^\d+$/.test(key))
+  const path = isRoot ? '$' : buildPath(parentPath, key, /^\d+$/.test(key))
   let anyMatch = false
   const entries = Array.isArray(data)
     ? (data as unknown[]).map((v, i) => [String(i), v] as [string, unknown])
@@ -155,13 +160,15 @@ const parsedData = computed(() => {
         :key-name="rootName"
         :depth="0"
         :is-root="true"
-        :path="rootName"
+        path="$"
         :search-query="searchQuery"
         :is-index="false"
         :max-depth="maxDepth"
         :expanded-paths="expandedPaths"
+        :extractable="extractable"
         @toggle="toggleNode"
         @context-menu="onContextMenu"
+        @extract-variable="(path, key) => emit('extract-variable', path, key)"
       />
     </div>
     <Teleport to="body">
