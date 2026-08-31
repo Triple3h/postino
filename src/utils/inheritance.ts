@@ -45,6 +45,34 @@ function hasExplicitAuth(auth?: AuthConfig): boolean {
   return !!auth && auth.type !== 'inherit'
 }
 
+function normalizeScript(script: string | undefined | null): string {
+  return (script ?? '').trim()
+}
+
+/**
+ * 早期树形导入会把"祖先链脚本 + 自身脚本"以空行连接烘焙进节点字段,导致运行时
+ * 继承链重复执行祖先脚本。此处按已收集的祖先脚本逐段剥离该前缀,还原节点自身脚本。
+ */
+export function stripInheritedPrefix(script: string | undefined | null, inheritedParts: string[]): string {
+  const own = normalizeScript(script)
+  if (!own || inheritedParts.length === 0) return own
+  let remaining = own
+  for (const part of inheritedParts) {
+    const partText = normalizeScript(part)
+    if (!partText) continue
+    if (remaining === partText) {
+      remaining = ''
+      continue
+    }
+    if (remaining.startsWith(`${partText}\n\n`) || remaining.startsWith(`${partText}\n`)) {
+      remaining = remaining.slice(partText.length).replace(/^\n+/, '')
+      continue
+    }
+    break
+  }
+  return remaining.trim()
+}
+
 function chainOf(nodes: CollectionNode[], nodeId: string): CollectionNode[] {
   const byId = new Map(nodes.map(node => [node.id, node]))
   const chain: CollectionNode[] = []
@@ -136,16 +164,37 @@ export function resolveInheritedProperties(
   const { variables, sources: variableSources } = mergeVariableLayers(variableLayers)
 
   // ── Scripts:根→叶,scriptsInherit === false 截断继承 ──
+  // 节点存储的脚本若带有早期树形导入烘焙进去的祖先链前缀,读取时自动剥离,
+  // 避免继承链与烘焙内容重复执行(见 stripInheritedPrefix)。
   const preScripts: ScriptSegment[] = []
   const postScripts: ScriptSegment[] = []
-  const push = (node: CollectionNode) => {
-    if (node.scriptsInherit === false) return
-    if (node.preRequestScript) preScripts.push({ sourceId: node.id, sourceName: node.name, script: node.preRequestScript })
-    if (node.postRequestScript) postScripts.push({ sourceId: node.id, sourceName: node.name, script: node.postRequestScript })
+  const inheritedPreParts: string[] = []
+  const inheritedPostParts: string[] = []
+  const pushCollection = () => {
+    if (collection.preRequestScript?.trim()) {
+      preScripts.push({ sourceId: collection.id, sourceName: collection.name, script: normalizeScript(collection.preRequestScript) })
+      inheritedPreParts.push(collection.preRequestScript)
+    }
+    if (collection.postRequestScript?.trim()) {
+      postScripts.push({ sourceId: collection.id, sourceName: collection.name, script: normalizeScript(collection.postRequestScript) })
+      inheritedPostParts.push(collection.postRequestScript)
+    }
   }
-  if (collection.preRequestScript) preScripts.push({ sourceId: collection.id, sourceName: collection.name, script: collection.preRequestScript })
-  if (collection.postRequestScript) postScripts.push({ sourceId: collection.id, sourceName: collection.name, script: collection.postRequestScript })
-  for (const node of chain) push(node)
+  const pushNode = (node: CollectionNode) => {
+    if (node.scriptsInherit === false) return
+    const ownPre = stripInheritedPrefix(node.preRequestScript, inheritedPreParts)
+    const ownPost = stripInheritedPrefix(node.postRequestScript, inheritedPostParts)
+    if (ownPre) {
+      preScripts.push({ sourceId: node.id, sourceName: node.name, script: ownPre })
+      inheritedPreParts.push(ownPre)
+    }
+    if (ownPost) {
+      postScripts.push({ sourceId: node.id, sourceName: node.name, script: ownPost })
+      inheritedPostParts.push(ownPost)
+    }
+  }
+  pushCollection()
+  for (const node of chain) pushNode(node)
 
   return { auth, headers, headerSources, variables, variableSources, preScripts, postScripts }
 }
@@ -164,4 +213,25 @@ export function resolveScriptChain(
   if (target?.scriptsInherit === false) return { preScripts: [], postScripts: [] }
   const inherited = resolveInheritedProperties(collection, nodes, nodeId)
   return { preScripts: inherited.preScripts, postScripts: inherited.postScripts }
+}
+
+/**
+ * 识别请求自身脚本是否为继承脚本的"烘焙副本"(Postman 导入 / 复制请求场景):
+ * 内容与继承链中一段,或连续多段按根→叶顺序以空行连接(Postman 导入的拼接方式)一致时视为继承内容。
+ * 返回命中的来源段(供"继承自 XX"标识使用),未命中(含请求自定义脚本)返回 null。
+ */
+export function matchInheritedScript(
+  segments: ScriptSegment[],
+  script: string | undefined | null,
+): ScriptSegment[] | null {
+  const own = (script ?? '').trim()
+  if (!own || segments.length === 0) return null
+  for (let start = 0; start < segments.length; start++) {
+    let acc = ''
+    for (let end = start; end < segments.length; end++) {
+      acc = [acc, segments[end].script.trim()].filter(Boolean).join('\n\n')
+      if (acc === own) return segments.slice(start, end + 1)
+    }
+  }
+  return null
 }

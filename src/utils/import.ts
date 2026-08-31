@@ -513,26 +513,23 @@ export function importPostmanTree(jsonStr: string): ImportedPostmanTree | null {
       for (const node of items) {
         if ('item' in node && Array.isArray(node.item)) {
           const key = `pf:${++seq}:${generateId()}`
-          // 文件夹自身脚本 + 上级继承脚本,一起传给更深层(Postman 脚本从集合→文件夹→请求逐层叠加)
-          const folderPre = joinPostmanScripts(inheritedPreRequestScript, resolvePostmanScript(node.event, 'prerequest'))
-          const folderPost = joinPostmanScripts(inheritedPostRequestScript, resolvePostmanScript(node.event, 'test'))
+          // 传给子层的继承脚本 = 上级链 + 自身(供请求归并 auth 判断等);落库只存文件夹自身脚本,
+          // 祖先脚本由运行时继承链执行,避免重复
+          const chainPre = joinPostmanScripts(inheritedPreRequestScript, resolvePostmanScript(node.event, 'prerequest'))
+          const chainPost = joinPostmanScripts(inheritedPostRequestScript, resolvePostmanScript(node.event, 'test'))
           folders.push({
             key,
             parentKey,
             name: node.name || `Folder ${seq}`,
             auth: node.auth ? normalizeAuthConfig(parsePostmanAuth(node.auth)) : undefined,
-            preRequestScript: folderPre,
-            postRequestScript: folderPost,
+            preRequestScript: resolvePostmanScript(node.event, 'prerequest'),
+            postRequestScript: resolvePostmanScript(node.event, 'test'),
             variables: parsePostmanVariables(node.variable),
           })
-          walk(node.item, key, folderPre, folderPost)
+          walk(node.item, key, chainPre, chainPost)
         } else if ('request' in node) {
-          // 树形模式:请求携带上一级继承下来的集合/文件夹脚本(根→叶链)
-          const api = parsePostmanItem(
-            node as PostmanItem,
-            inheritedPreRequestScript,
-            inheritedPostRequestScript,
-          )
+          // 树形模式:请求只保留自身脚本,集合/文件夹脚本走运行时继承链,不再烘焙进请求字段
+          const api = parsePostmanItem(node as PostmanItem)
           if (!api) continue
           // 树形模式:请求只保留自身脚本与自身 auth;无 auth 时留 inherit 以继承上级
           if (!(node as PostmanItem).request?.auth) {

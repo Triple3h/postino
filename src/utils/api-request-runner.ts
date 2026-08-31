@@ -474,8 +474,18 @@ export async function runApiRequest(api: ApiConfig, overrides: ApiRequestOverrid
     ...scriptChain.preScripts,
     ...(api.preRequestScript?.trim() ? [{ sourceId: api.id, sourceName: '请求', script: api.preRequestScript }] : []),
   ]
+    // 存量数据兼容:历史导入把父级脚本烘焙进了请求字段,继承链执行后请求段会重复执行;
+    // 执行前剥离与继承链内容一致的前缀
+  const preChainText = scriptChain.preScripts.map(segment => segment.script.trim()).filter(Boolean).join('\n\n')
   for (const segment of preSegments) {
-    const result = await executePreRequestScriptAsync(segment.script, headers, url, body, urlencoded, formdata, envVars, {
+    let segmentScript = segment.script
+    if (segment.sourceName === '请求' && preChainText) {
+      const trimmed = segmentScript.trim()
+      if (trimmed === preChainText) segmentScript = ''
+      else if (trimmed.startsWith(`${preChainText}\n`)) segmentScript = trimmed.slice(preChainText.length).replace(/^\n+/, '')
+    }
+    if (!segmentScript.trim()) continue
+    const result = await executePreRequestScriptAsync(segmentScript, headers, url, body, urlencoded, formdata, envVars, {
       requestMethod: method,
       requestCookies: cookies,
       sendRequest: input => sendScriptHttpRequest(input, undefined, api),
@@ -543,6 +553,8 @@ export async function runApiRequest(api: ApiConfig, overrides: ApiRequestOverrid
     ...(api.postRequestScript?.trim() ? [{ sourceId: api.id, sourceName: '请求', script: api.postRequestScript }] : []),
     ...[...scriptChain.postScripts].reverse(),
   ]
+  // 同 pre:剥离存量请求段中烘焙的父级链副本,避免重复执行
+  const postChainText = scriptChain.postScripts.map(segment => segment.script.trim()).filter(Boolean).join('\n\n')
   const postData: PostResponseData = {
     status: response.status,
     statusText: response.statusText,
@@ -552,7 +564,14 @@ export async function runApiRequest(api: ApiConfig, overrides: ApiRequestOverrid
     responseSize: response.size,
   }
   for (const segment of postSegments) {
-    const result = await executePostResponseScriptAsync(segment.script, postData, envVars, {
+    let segmentScript = segment.script
+    if (segment.sourceName === '请求' && postChainText) {
+      const trimmed = segmentScript.trim()
+      if (trimmed === postChainText) segmentScript = ''
+      else if (trimmed.startsWith(`${postChainText}\n`)) segmentScript = trimmed.slice(postChainText.length).replace(/^\n+/, '')
+    }
+    if (!segmentScript.trim()) continue
+    const result = await executePostResponseScriptAsync(segmentScript, postData, envVars, {
       sendRequest: input => sendScriptHttpRequest(input, undefined, api),
       sendInterface: (id, input) => sendScriptInterface(id, input, api),
       info: scriptInfo(api, 'test', segment.sourceName === '请求' ? api.name : segment.sourceName),
