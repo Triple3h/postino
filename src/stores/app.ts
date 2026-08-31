@@ -9,7 +9,7 @@ import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspa
 import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
 import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
 import { collectionFromModule } from '@/utils/collection-migration'
-import { collectionVariableValue } from '@/utils/variables'
+import { resolveVariableResolutions, type VariableResolution } from '@/utils/variables'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -994,49 +994,27 @@ export const useAppStore = defineStore('app', () => {
   /**
    * 请求的完整变量解析(Phase 2.2,Postman 优先级):
    * 请求变量 > 脚本运行时变量(发送时另行合并)> 当前集合所选环境 > 集合变量(父→子就近覆盖)> 全局环境变量
+   * 统一走 resolveVariableResolutions,与 UI 的「变量来源提示」共享同一份解析结果。
    */
-  function getEnvVariablesForApi(apiId: string | null): Record<string, string> {
-    const vars: Record<string, string> = {}
+  function getVariableResolutionForApi(apiId: string | null): Record<string, VariableResolution> {
     const workspace = useWorkspaceStore()
-
-    // 1) 全局环境变量(优先级最低)
-    const globalEnv = environments.value.find(e => e.id === currentEnvId.value && isGlobalEnv(e))
-      ?? environments.value.find(e => isGlobalEnv(e))
-    if (globalEnv) {
-      for (const v of globalEnv.variables) {
-        if (v.enabled && v.key) vars[v.key] = v.value
-      }
-    }
-
-    // 2) 集合变量 + 祖先文件夹变量(父→子,近者覆盖)
     const node = apiId ? workspace.interfaces.find(item => item.apiId === apiId || item.id === apiId) : null
     const collectionId = node ? (node.collectionId ?? node.moduleId) : null
     const collection = collectionId ? workspace.collections.find(item => item.id === collectionId) : null
-    if (collection) {
-      for (const v of collection.variables) {
-        if (v.enabled && v.key) vars[v.key] = collectionVariableValue(v, collection.selectedEnvId)
-      }
-      for (const folder of workspace.getAncestorFolders(node?.id ?? apiId ?? '')) {
-        for (const v of folder.variables ?? []) {
-          if (v.enabled && v.key) vars[v.key] = collectionVariableValue(v, collection.selectedEnvId)
-        }
-      }
+    return resolveVariableResolutions({
+      requestVariables: apiId ? apis.value[apiId]?.requestVariables ?? [] : [],
+      folders: workspace.getAncestorFolders(node?.id ?? apiId ?? ''),
+      collection,
+      environments: environments.value,
+      globalEnvId: currentEnvId.value,
+    })
+  }
 
-      // 3) 当前集合所选环境
-      const selectedEnv = collection.selectedEnvId
-        ? environments.value.find(e => e.id === collection.selectedEnvId)
-        : null
-      if (selectedEnv) {
-        for (const v of selectedEnv.variables) {
-          if (v.enabled && v.key) vars[v.key] = v.value
-        }
-      }
-    }
-
-    // 4) 请求自身变量(优先级最高)
-    const api = apiId ? apis.value[apiId] : null
-    for (const item of api?.requestVariables ?? []) {
-      if (item.enabled && item.key) vars[item.key] = item.value
+  function getEnvVariablesForApi(apiId: string | null): Record<string, string> {
+    const resolutions = getVariableResolutionForApi(apiId)
+    const vars: Record<string, string> = {}
+    for (const [key, resolution] of Object.entries(resolutions)) {
+      vars[key] = resolution.value
     }
     return vars
   }
@@ -1100,7 +1078,7 @@ export const useAppStore = defineStore('app', () => {
     upsertEnvironment, deleteEnvironment,
     addCollectionEnvironment, selectCollectionEnvironment, isGlobalEnv,
     importPostmanCollectionTree, importCollectionEnvironment, restoreCollectionBackup,
-    getEnvVariables, getEnvVariablesForApi, saveSettings, setTheme, setAccent, toggleTheme,
+    getEnvVariables, getEnvVariablesForApi, getVariableResolutionForApi, saveSettings, setTheme, setAccent, toggleTheme,
     setRequestAbortController, clearRequestAbortController, cancelCurrentRequest,
   }
 })

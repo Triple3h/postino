@@ -15,6 +15,7 @@ import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
+import type { VariableResolution, VariableSourceKind } from '@/utils/variables'
 import type { CollectionNode, HttpMethod, RequestType, ResponseData } from '@/types'
 
 const store = useAppStore()
@@ -201,7 +202,10 @@ type UrlHighlightSegment = {
   text: string
   variable?: boolean
   resolved?: boolean
-  preview?: string
+  /** 片段在完整 URL 中的字符偏移(用于悬停命中定位) */
+  start?: number
+  /** 变量表达式(去掉 {{ }} 后的 trim 结果) */
+  expression?: string
 }
 
 function splitUrlForHighlight(url: string, vars: Record<string, string>): UrlHighlightSegment[] {
@@ -211,19 +215,95 @@ function splitUrlForHighlight(url: string, vars: Record<string, string>): UrlHig
   let match: RegExpExecArray | null
 
   while ((match = pattern.exec(url))) {
-    if (match.index > lastIndex) segments.push({ text: url.slice(lastIndex, match.index) })
+    if (match.index > lastIndex) segments.push({ text: url.slice(lastIndex, match.index), start: lastIndex })
     const expression = match[1]?.trim() || ''
     segments.push({
       text: match[0],
       variable: true,
       resolved: expression.startsWith('$') || Object.prototype.hasOwnProperty.call(vars, expression),
-      preview: expression.startsWith('$') ? '动态变量' : vars[expression],
+      start: match.index,
+      expression,
     })
     lastIndex = match.index + match[0].length
   }
 
-  if (lastIndex < url.length) segments.push({ text: url.slice(lastIndex) })
-  return segments.length ? segments : [{ text: url }]
+  if (lastIndex < url.length) segments.push({ text: url.slice(lastIndex), start: lastIndex })
+  return segments.length ? segments : [{ text: url, start: 0 }]
+}
+
+// ── URL 变量悬停卡片:等宽字体下按字符宽度定位指针命中的 {{var}} 片段,展示取值与来源 ──
+const SOURCE_LABELS: Record<VariableSourceKind, string> = {
+  request: '请求变量',
+  'collection-env': '环境',
+  folder: '文件夹变量',
+  collection: '集合变量',
+  'global-env': '全局环境',
+}
+
+const variableResolutions = computed(() => store.getVariableResolutionForApi(store.currentApiId))
+const variableTip = ref<{ segment: UrlHighlightSegment; x: number; y: number } | null>(null)
+
+const variableTipResolution = computed<VariableResolution | null>(() => {
+  const expression = variableTip.value?.segment.expression
+  return expression ? variableResolutions.value[expression] ?? null : null
+})
+
+let tipMeasureContext: CanvasRenderingContext2D | null = null
+
+/** 等宽字体的单字符宽度(canvas 量宽,与输入框字体设置一致) */
+function monospaceCharWidth(style: CSSStyleDeclaration): number {
+  if (!tipMeasureContext) tipMeasureContext = document.createElement('canvas').getContext('2d')
+  if (!tipMeasureContext) return 0
+  tipMeasureContext.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+  const sample = currentUrl.value || 'M'.repeat(32)
+  return sample.length ? tipMeasureContext.measureText(sample).width / sample.length : 0
+}
+
+function handleUrlMouseMove(event: MouseEvent) {
+  const input = urlInputRef.value
+  if (!input || !currentUrl.value || urlAutocomplete.showAutocomplete.value) {
+    variableTip.value = null
+    return
+  }
+  const variableSegments = highlightedUrlSegments.value
+    .filter(segment => segment.variable && segment.start !== undefined)
+  if (!variableSegments.length) {
+    variableTip.value = null
+    return
+  }
+
+  const style = window.getComputedStyle(input)
+  const charWidth = monospaceCharWidth(style)
+  if (charWidth <= 0) {
+    variableTip.value = null
+    return
+  }
+
+  const rect = input.getBoundingClientRect()
+  const paddingLeft = parseFloat(style.paddingLeft) || 0
+  const offsetWithinText = event.clientX - rect.left - paddingLeft + input.scrollLeft
+  const charIndex = Math.floor(offsetWithinText / charWidth)
+  const hit = variableSegments.find(segment =>
+    charIndex >= segment.start! && charIndex < segment.start! + segment.text.length)
+  if (!hit) {
+    variableTip.value = null
+    return
+  }
+
+  variableTip.value = {
+    segment: hit,
+    x: Math.max(8, Math.min(rect.left + paddingLeft + hit.start! * charWidth - input.scrollLeft, window.innerWidth - 392)),
+    y: rect.bottom + 6,
+  }
+}
+
+function hideVariableTip() {
+  variableTip.value = null
+}
+
+function handleUrlScroll() {
+  syncUrlScroll()
+  hideVariableTip()
 }
 
 function syncUrlScroll() {
@@ -232,6 +312,7 @@ function syncUrlScroll() {
 
 function handleUrlInput() {
   syncUrlScroll()
+  hideVariableTip()
   urlAutocomplete.handleInput()
 }
 
@@ -565,8 +646,8 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- URL 输入(环境变量高亮 + 自动补全) -->
-      <div class="url-field">
+      <!-- URL 输入(环境变量高亮 + 自动补全 + 变量悬停卡片) -->
+      <div class="url-field" @mousemove="handleUrlMouseMove" @mouseleave="hideVariableTip">
         <div class="url-input-wrap">
           <div
             class="url-highlight-layer"
@@ -577,7 +658,6 @@ onUnmounted(() => {
               v-for="(segment, index) in highlightedUrlSegments"
               :key="`${index}-${segment.text}`"
               :class="{ 'url-var-token': segment.variable, unresolved: segment.variable && !segment.resolved }"
-              :title="segment.variable ? (segment.resolved ? segment.preview : '未定义变量') : undefined"
             >{{ segment.text }}</span>
           </div>
           <input
@@ -589,7 +669,7 @@ onUnmounted(() => {
             spellcheck="false"
             @keydown.enter="send"
             @input="handleUrlInput"
-            @scroll="syncUrlScroll"
+            @scroll="handleUrlScroll"
             :disabled="isReadonlyModule"
           />
         </div>
@@ -679,6 +759,36 @@ onUnmounted(() => {
     :env-vars="envVars"
     @close="showCodeGenPanel = false"
   />
+
+  <!-- 变量悬停卡片:展示 {{var}} 的实际取值与定义来源(Teleport 避免被输入框 overflow 裁剪) -->
+  <Teleport to="body">
+    <div
+      v-if="variableTip"
+      class="var-tip"
+      :style="{ left: `${variableTip.x}px`, top: `${variableTip.y}px` }"
+    >
+      <template v-if="variableTipResolution">
+        <div class="var-tip-row">
+          <span class="var-tip-label">{{ SOURCE_LABELS[variableTipResolution.source] }}</span>
+          <span class="var-tip-source">{{ variableTipResolution.sourceName }}</span>
+          <span v-if="variableTipResolution.secret" class="var-tip-secret">secret</span>
+        </div>
+        <div class="var-tip-value" :class="{ masked: variableTipResolution.secret }">{{ variableTipResolution.secret ? '••••••••' : variableTipResolution.value || '(空值)' }}</div>
+      </template>
+      <template v-else-if="variableTip.segment.expression?.startsWith('$')">
+        <div class="var-tip-row">
+          <span class="var-tip-label">动态变量</span>
+        </div>
+        <div class="var-tip-value">发送时由脚本运行时计算</div>
+      </template>
+      <template v-else>
+        <div class="var-tip-row">
+          <span class="var-tip-label var-tip-missing">未定义变量</span>
+        </div>
+        <div class="var-tip-value">未在任何作用域中定义,发送时将保持原样</div>
+      </template>
+    </div>
+  </Teleport>
 
   <VariableAutocomplete
     :visible="urlAutocomplete.showAutocomplete.value"
@@ -1128,5 +1238,72 @@ onUnmounted(() => {
 
 .menu-item:hover {
   background: var(--primary-dark-color);
+}
+
+/* 变量悬停卡片(Teleport 到 body,scoped 属性随元素保留仍生效) */
+.var-tip {
+  position: fixed;
+  z-index: 1200;
+  max-width: 380px;
+  padding: 8px 10px;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--popover-color);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-code);
+  pointer-events: none;
+}
+
+.var-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-family: var(--font-ui, inherit);
+  font-size: var(--font-size-tiny);
+}
+
+.var-tip-label {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
+.var-tip-label.var-tip-missing {
+  background: color-mix(in srgb, var(--status-critical-error-color) 14%, transparent);
+  color: var(--status-critical-error-color);
+}
+
+.var-tip-source {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--secondary-color);
+}
+
+.var-tip-secret {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.var-tip-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--secondary-dark-color);
+  font-size: var(--font-size-body);
+}
+
+.var-tip-value.masked {
+  letter-spacing: 2px;
 }
 </style>
