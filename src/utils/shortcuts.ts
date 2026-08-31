@@ -15,7 +15,7 @@ export interface ShortcutActionMeta {
 
 export const SHORTCUT_ACTIONS: ShortcutActionMeta[] = [
   { action: 'sendCurrentRequest', label: '发送请求 / 取消', description: '发送当前请求;发送中再按一次取消', defaultShortcut: 'Mod+Enter', group: '请求' },
-  { action: 'saveCurrentRequest', label: '保存请求', description: '已保存过的请求直接保存并熄灭未保存圆点;未保存的新请求弹窗命名 + 选落点', defaultShortcut: 'Mod+S', group: '请求' },
+  { action: 'saveCurrentRequest', label: '保存当前标签', description: '保存当前请求或集合/分组配置;未保存的新请求弹窗命名 + 选落点', defaultShortcut: 'Mod+S', group: '请求' },
   { action: 'createNewRequest', label: '新建请求', description: '直接打开一个新请求标签(保存时再命名)', defaultShortcut: 'Mod+N', group: '请求' },
   { action: 'resetRequest', label: '重置请求', description: '清空响应并重置当前请求参数', defaultShortcut: 'Mod+I', group: '请求' },
   { action: 'cycleMethodNext', label: '切换 Method(下一个)', description: 'Alt+↓ 循环切换 HTTP 方法', defaultShortcut: 'Alt+ArrowDown', group: '请求' },

@@ -134,8 +134,8 @@ function revealFolder(folderId: string) {
   const node = workspace.interfaces.find(item => item.id === folderId)
   const collectionId = node ? (node.collectionId ?? node.moduleId) : null
   if (!node || !collectionId) return
-  workspace.selectModule(collectionId)
-  store.currentApiId = null
+  workspace.selectInterface(node.id)
+  store.openPropertiesInTab({ type: 'folder', id: node.id })
   const byId = new Map(workspace.interfaces.map(item => [item.id, item]))
   const chain: string[] = [node.id]
   let parentId = node.parentId ?? null
@@ -405,7 +405,7 @@ function selectResult(result: SearchResult) {
     revealFolder(result.id)
   } else if (result.type === '集合变量') {
     workspace.selectModule(result.id)
-    store.currentApiId = null
+    store.openPropertiesInTab({ type: 'collection', id: result.id })
   } else if (result.type === '导航' || result.type === '设置项') {
     result.run?.()
   }

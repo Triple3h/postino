@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { ChevronDown, Ellipsis, House, Layers, Lock, Save, X } from '@lucide/vue'
+import { ChevronDown, ChevronRight, Ellipsis, House, Lock, Pencil, Save, X } from '@lucide/vue'
 import { Tippy } from 'vue-tippy'
 import { toast } from 'vue-sonner'
 import { useAppStore } from '@/stores/app'
@@ -35,6 +35,51 @@ const currentModule = computed(() => {
 })
 const currentCategory = computed(() => currentModule.value ? workspace.categories.find(category => category.id === currentModule.value?.categoryId) ?? null : null)
 const isReadonlyModule = computed(() => currentModule.value?.type === 'readonly')
+
+// ── 请求位置面包屑:集合 › 文件夹(根→叶) › 请求名 ──
+const breadcrumbFolderNames = computed<string[]>(() => {
+  const node = workspace.interfaces.find(item => item.apiId === store.currentApiId && (item.nodeType ?? 'request') === 'request')
+  if (!node) return []
+  const names: string[] = []
+  let cursor = node.parentId ?? null
+  let guard = 0
+  while (cursor && guard++ < 32) {
+    const parent = workspace.interfaces.find(item => item.id === cursor)
+    if (!parent) break
+    names.unshift(parent.name)
+    cursor = parent.parentId ?? null
+  }
+  return names
+})
+
+// ── 请求名就地重命名(提交后立即落库并同步集合树) ──
+const isRenaming = ref(false)
+const renameDraft = ref('')
+const renameInputRef = ref<HTMLInputElement | null>(null)
+
+function startRename() {
+  if (!currentApi.value || isReadonlyModule.value) return
+  renameDraft.value = currentApi.value.name
+  isRenaming.value = true
+  nextTick(() => {
+    renameInputRef.value?.focus()
+    renameInputRef.value?.select()
+  })
+}
+
+async function commitRename() {
+  if (!isRenaming.value) return
+  isRenaming.value = false
+  const name = renameDraft.value.trim()
+  const api = currentApi.value
+  if (!api || !name || name === api.name) return
+  await store.updateApiNow(api.id, { name })
+  toast.success('已重命名')
+}
+
+function cancelRename() {
+  isRenaming.value = false
+}
 const currentMethod = ref<HttpMethod>('GET')
 const currentUrl = ref('')
 const urlScrollLeft = ref(0)
@@ -924,12 +969,45 @@ onUnmounted(() => {
 
 <template>
   <div class="request-bar-area">
-    <!-- 请求名 + 继承标记 -->
+    <!-- 请求名 + 位置面包屑(集合 › 文件夹 › 请求名;点击请求名就地重命名) -->
     <div class="request-meta-row">
       <span class="request-name-dot" :style="{ backgroundColor: methodColor(currentMethod) }"></span>
-      <span class="request-name" :title="currentApi?.name">{{ currentApi?.name || '未命名请求' }}</span>
-      <template v-if="inheritedChips">
-        <span class="inherit-chip base"><Layers :size="11" />{{ inheritedChips.collectionName }}</span>
+      <template v-if="isRenaming">
+        <input
+          ref="renameInputRef"
+          v-model="renameDraft"
+          type="text"
+          class="rename-input"
+          maxlength="120"
+          @keydown.enter.stop="commitRename"
+          @keydown.esc.stop="cancelRename"
+          @blur="commitRename"
+          @click.stop
+        />
+      </template>
+      <template v-else>
+        <span v-if="currentCategory" class="crumb-folder" :title="currentCategory.name">{{ currentCategory.name }}</span>
+        <ChevronRight v-if="currentCategory" :size="11" class="crumb-sep" />
+        <span v-if="currentModule" class="crumb-folder" :title="currentModule.name">{{ currentModule.name }}</span>
+        <ChevronRight v-if="currentModule" :size="11" class="crumb-sep" />
+        <span
+          v-for="(folderName, index) in breadcrumbFolderNames"
+          :key="`${index}-${folderName}`"
+          class="crumb-folder"
+          :title="folderName"
+        >{{ folderName }}</span>
+        <ChevronRight v-if="breadcrumbFolderNames.length" :size="11" class="crumb-sep" />
+        <span
+          class="request-name"
+          :title="`${currentApi?.name ?? ''}(点击重命名)`"
+          role="button"
+          tabindex="0"
+          @click="startRename"
+          @keydown.enter.stop.prevent="startRename"
+        >{{ currentApi?.name || '未命名请求' }}</span>
+        <button class="rename-btn" title="重命名" @click.stop="startRename"><Pencil :size="12" /></button>
+      </template>
+      <template v-if="inheritedChips && !isRenaming">
         <span
           v-for="chip in inheritedChips.chips"
           :key="chip.key"
@@ -1130,19 +1208,81 @@ onUnmounted(() => {
 .request-meta-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin-bottom: 8px;
   font-size: var(--font-size-body);
   font-weight: 600;
   color: var(--secondary-dark-color);
   min-height: 18px;
+  overflow: hidden;
+}
+
+/* 面包屑:集合/文件夹段弱化展示,可横向收缩 */
+.crumb-folder {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--secondary-color);
+  font-weight: 500;
+  font-size: var(--font-size-tiny);
+}
+
+.crumb-sep {
+  flex-shrink: 0;
+  color: var(--secondary-light-color);
 }
 
 .request-name {
+  min-width: 0;
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border-radius: var(--radius-sm);
+  cursor: text;
+}
+
+.request-name:hover {
+  color: var(--accent-color);
+}
+
+.rename-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--secondary-light-color);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.request-meta-row:hover .rename-btn {
+  opacity: 1;
+}
+
+.rename-btn:hover {
+  color: var(--accent-color);
+  background: var(--primary-dark-color);
+}
+
+.rename-input {
+  width: 320px;
+  max-width: 60%;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--accent-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-color);
+  color: var(--secondary-dark-color);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  outline: none;
 }
 
 .request-name-dot {
@@ -1166,11 +1306,7 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.inherit-chip.base {
-  border-color: color-mix(in srgb, var(--accent-color) 40%, var(--divider-dark-color));
-  color: var(--accent-color);
+  flex-shrink: 0;
 }
 
 .request-line {

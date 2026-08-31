@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
-import { ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import type { ApiConfig, Category, CollectionExportDocument, CollectionVariable, Environment, HistoryEntry, InterfaceNode, Module as ApiModule, ResponseData, AppSettings, Group } from '@/types'
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 import type { ImportedPostmanTree } from '@/utils/import'
-import { db } from '@/db'
+import { db, plainPut } from '@/db'
 import { useDialog } from '@/composables/useDialog'
 import { derivePlannedWorkspaceModel, useWorkspaceStore } from '@/stores/workspace'
 import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
@@ -198,6 +198,20 @@ async function seedStarterWorkspace(): Promise<void> {
 const OPEN_TABS_SETTINGS_KEY = 'openTabIds'
 const ACTIVE_TAB_SETTINGS_KEY = 'activeTabId'
 
+export interface PropertyTabTarget {
+  type: 'collection' | 'folder'
+  id: string
+}
+
+interface PropertyTabHandler {
+  save: () => Promise<boolean>
+  discard: () => void
+}
+
+export function propertyTabKey(target: PropertyTabTarget): string {
+  return `${target.type}:${target.id}`
+}
+
 /** 每个标签页私有的编辑态(切换标签时暂存/恢复) */
 interface TabEditorState {
   response: ResponseData | null
@@ -231,6 +245,10 @@ export const useAppStore = defineStore('app', () => {
   const currentApiId = ref<string | null>(null)
   /** 已打开的请求标签(apiId 顺序即标签顺序);currentApiId 即当前激活标签 */
   const openTabs = ref<string[]>([])
+  /** 集合/文件夹属性页与请求共用顶部标签栏。 */
+  const openPropertyTabs = ref<PropertyTabTarget[]>([])
+  const activePropertyTabKey = ref<string | null>(null)
+  const propertyTabDirty = ref<Record<string, boolean>>({})
   /** 新建未保存请求的预期落点(SaveRequestModal 预选用) */
   const pendingSaveTarget = ref<{ moduleId?: string; parentId?: string | null } | null>(null)
   const activeTab = ref<string>('params')
@@ -250,6 +268,11 @@ export const useAppStore = defineStore('app', () => {
   const scriptTests = ref<ScriptTestResult[]>([])
   const autoCarryCookies = ref(false)
   const requestAbortController = shallowRef<AbortController | null>(null)
+  const propertyTabHandlers = new Map<string, PropertyTabHandler>()
+
+  const activePropertyTarget = computed(() => openPropertyTabs.value.find(
+    target => propertyTabKey(target) === activePropertyTabKey.value,
+  ) ?? null)
 
   let initialized = false
 
@@ -359,7 +382,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** 切换激活标签,并按标签暂存/恢复各自的响应与脚本产物 */
   function activateTab(apiId: string): void {
-    if (currentApiId.value === apiId) return
+    if (currentApiId.value === apiId && !activePropertyTabKey.value) return
     const previousId = currentApiId.value
     if (previousId) {
       tabStates[previousId] = {
@@ -370,6 +393,7 @@ export const useAppStore = defineStore('app', () => {
       }
     }
     currentApiId.value = apiId
+    activePropertyTabKey.value = null
     const next = tabStates[apiId]
     response.value = next?.response ?? null
     scriptLogs.value = next?.scriptLogs ?? []
@@ -377,6 +401,132 @@ export const useAppStore = defineStore('app', () => {
     scriptTests.value = next?.scriptTests ?? []
     delete tabStates[apiId]
     void persistTabs()
+  }
+
+  function activatePropertyTab(key: string): void {
+    if (activePropertyTabKey.value === key) return
+    const target = openPropertyTabs.value.find(item => propertyTabKey(item) === key)
+    if (!target) return
+    const previousId = currentApiId.value
+    if (previousId) {
+      tabStates[previousId] = {
+        response: response.value,
+        scriptLogs: scriptLogs.value,
+        scriptVisualizations: scriptVisualizations.value,
+        scriptTests: scriptTests.value,
+      }
+    }
+    currentApiId.value = null
+    activePropertyTabKey.value = key
+    response.value = null
+    scriptLogs.value = []
+    scriptVisualizations.value = []
+    scriptTests.value = []
+    void persistTabs()
+  }
+
+  function openPropertiesInTab(target: PropertyTabTarget): void {
+    const key = propertyTabKey(target)
+    if (!openPropertyTabs.value.some(item => propertyTabKey(item) === key)) {
+      openPropertyTabs.value.push({ ...target })
+    }
+    activatePropertyTab(key)
+  }
+
+  function registerPropertyTabHandler(key: string, handler: PropertyTabHandler): () => void {
+    propertyTabHandlers.set(key, handler)
+    return () => propertyTabHandlers.delete(key)
+  }
+
+  function setPropertyTabDirty(key: string, dirty: boolean): void {
+    propertyTabDirty.value = { ...propertyTabDirty.value, [key]: dirty }
+  }
+
+  async function saveActivePropertyTab(): Promise<boolean> {
+    const key = activePropertyTabKey.value
+    if (!key) return false
+    return await propertyTabHandlers.get(key)?.save() ?? false
+  }
+
+  function activateEditorTab(key: string): void {
+    if (key.startsWith('api:')) activateTab(key.slice(4))
+    else activatePropertyTab(key.slice('properties:'.length))
+  }
+
+  function editorTabKeys(): string[] {
+    return [
+      ...openTabs.value.map(id => `api:${id}`),
+      ...openPropertyTabs.value.map(target => `properties:${propertyTabKey(target)}`),
+    ]
+  }
+
+  async function closePropertyTab(key: string): Promise<boolean> {
+    const index = openPropertyTabs.value.findIndex(item => propertyTabKey(item) === key)
+    if (index === -1) return true
+    if (propertyTabDirty.value[key]) {
+      const target = openPropertyTabs.value[index]
+      const workspace = useWorkspaceStore()
+      const name = target.type === 'collection'
+        ? workspace.collections.find(item => item.id === target.id)?.name
+        : workspace.interfaces.find(item => item.id === target.id)?.name
+      const choice = await useDialog().confirmTertiary({
+        title: '未保存的修改',
+        message: `「${name ?? '属性配置'}」有未保存的修改，关闭前要保存吗？`,
+        confirmText: '保存并关闭',
+        tertiaryText: '不保存',
+        cancelText: '取消',
+      })
+      if (choice === 'cancel') return false
+      if (choice === 'confirm') {
+        const saved = await propertyTabHandlers.get(key)?.save()
+        if (!saved) return false
+      } else {
+        propertyTabHandlers.get(key)?.discard()
+      }
+    }
+
+    const allKeys = editorTabKeys()
+    const closedEditorIndex = allKeys.indexOf(`properties:${key}`)
+    openPropertyTabs.value.splice(index, 1)
+    delete propertyTabDirty.value[key]
+    if (activePropertyTabKey.value === key) {
+      activePropertyTabKey.value = null
+      const remaining = editorTabKeys()
+      const next = remaining[Math.min(closedEditorIndex, remaining.length - 1)]
+      if (next) activateEditorTab(next)
+    }
+    void persistTabs()
+    return true
+  }
+
+  async function closeEditorTab(key: string): Promise<boolean> {
+    if (key.startsWith('properties:')) return closePropertyTab(key.slice('properties:'.length))
+    const apiId = key.slice(4)
+    const allowed = await confirmCloseTargets([apiId])
+    if (!allowed) return false
+    closeTabNow(apiId)
+    return true
+  }
+
+  async function closeOtherEditorTabs(key: string): Promise<void> {
+    for (const candidate of editorTabKeys().filter(item => item !== key)) {
+      if (!await closeEditorTab(candidate)) return
+    }
+  }
+
+  async function closeEditorTabsToTheRight(key: string): Promise<void> {
+    const keys = editorTabKeys()
+    const index = keys.indexOf(key)
+    if (index === -1) return
+    for (const candidate of keys.slice(index + 1)) {
+      if (!await closeEditorTab(candidate)) return
+    }
+  }
+
+  async function closeAllEditorTabs(): Promise<void> {
+    for (const key of [...editorTabKeys()]) {
+      if (!await closeEditorTab(key)) return
+    }
   }
 
   /** 在标签页中打开请求(已打开则仅激活);新开标签拍内容基线 */
@@ -408,6 +558,7 @@ export const useAppStore = defineStore('app', () => {
       scriptVisualizations.value = []
       scriptTests.value = []
       if (next) activateTab(next)
+      else if (openPropertyTabs.value.length) activatePropertyTab(propertyTabKey(openPropertyTabs.value[0]))
     }
     void persistTabs()
   }
@@ -548,6 +699,7 @@ export const useAppStore = defineStore('app', () => {
       }
     }
     currentApiId.value = api.id
+    activePropertyTabKey.value = null
     response.value = null
     scriptLogs.value = []
     scriptVisualizations.value = []
@@ -652,7 +804,7 @@ export const useAppStore = defineStore('app', () => {
     api.auth = normalizeAuthConfig(api.auth)
     apis.value[api.id] = api
     try {
-      await db.apis.put(api)
+      await plainPut(db.apis, api)
       await useWorkspaceStore().addInterfaceForApi(api, moduleId ?? undefined, parentId)
     } catch (e) {
       console.error('Failed to add API to IndexedDB:', e)
@@ -660,8 +812,8 @@ export const useAppStore = defineStore('app', () => {
     markApiSnapshot(api.id)
   }
 
-  /** Phase 4.4:Postman v2.1 树形导入 —— 建集合 + 文件夹树 + 请求,集合/文件夹级 auth/变量/脚本落位 */
-  async function importPostmanCollectionTree(tree: ImportedPostmanTree): Promise<string | null> {
+  /** Phase 4.4:Postman v2.1 树形导入 —— 建集合 + 文件夹树 + 请求,集合/文件夹级 auth/变量/脚本落位;onProgress 报已写入条数 */
+  async function importPostmanCollectionTree(tree: ImportedPostmanTree, onProgress?: (done: number) => void): Promise<string | null> {
     const workspace = useWorkspaceStore()
     const module = await workspace.ensureModuleForLegacyGroup(tree.name)
     if (!module) return null
@@ -684,6 +836,7 @@ export const useAppStore = defineStore('app', () => {
     })
 
     const folderIdByKey = new Map<string, string>()
+    let written = 0
     for (const folder of tree.folders) {
       const parentId = folder.parentKey ? folderIdByKey.get(folder.parentKey) ?? null : null
       const node = await workspace.addFolder(module.id, folder.name, parentId)
@@ -694,11 +847,13 @@ export const useAppStore = defineStore('app', () => {
         ...(folder.auth ? { auth: normalizeAuthConfig(folder.auth) } : {}),
         ...(folder.variables.some(item => item.key) ? { variables: toCollectionVars(folder.variables) } : {}),
       })
+      onProgress?.(++written)
     }
 
     for (const { parentKey, api } of tree.requests) {
       const parentId = parentKey ? folderIdByKey.get(parentKey) ?? null : null
       await addApi(api, module.id, parentId)
+      onProgress?.(++written)
     }
     return module.id
   }
@@ -710,7 +865,7 @@ export const useAppStore = defineStore('app', () => {
     const apiEntries = Object.values(doc.apis ?? {})
     for (const api of apiEntries) {
       apis.value[api.id] = api
-      await db.apis.put(api)
+      await plainPut(db.apis, api)
     }
     for (const env of doc.environments ?? []) {
       await upsertEnvironment(env)
@@ -930,13 +1085,15 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     apis, groups, groupOrder, currentApiId, activeTab,
-    openTabs, pendingSaveTarget,
+    openTabs, openPropertyTabs, activePropertyTabKey, activePropertyTarget, propertyTabDirty, pendingSaveTarget,
     response, loading, environments, currentEnvId,
     history, settings, expandedFolders, scriptLogs, scriptVisualizations, scriptTests, autoCarryCookies,
     requestAbortController,
     init, getCurrentApi, updateApi, updateApiNow, saveApi, discardApiChanges, isApiDirty, flushDirtyApis, mergeApisFromDb,
     addApi, deleteApi,
     openApiInTab, activateTab, closeTab, closeOtherTabs, closeTabsToTheRight, closeAllTabs,
+    openPropertiesInTab, activatePropertyTab, closeEditorTab, closeOtherEditorTabs, closeEditorTabsToTheRight, closeAllEditorTabs,
+    registerPropertyTabHandler, setPropertyTabDirty, saveActivePropertyTab,
     newRequestTab, isApiUnsaved, persistTabs,
     addHistory, toggleStar, deleteHistoryEntry, clearHistory,
     upsertEnvironment, deleteEnvironment,

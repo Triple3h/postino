@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Clock3, FolderTree, Layers, Plus, Search } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
 import CollectionsTree from './CollectionsTree.vue'
-import CollectionSettingsModal from './CollectionSettingsModal.vue'
 import EnvPanel from '@/components/common/EnvPanel.vue'
 import HistoryPanel from '@/components/common/HistoryPanel.vue'
 import { useDialog } from '@/composables/useDialog'
@@ -19,7 +18,6 @@ const dialog = useDialog()
 
 const activeTab = ref<SidebarTab>((localStorage.getItem(TAB_STORAGE_KEY) as SidebarTab) || 'collections')
 const collectionsFilter = ref('')
-const propertiesTarget = ref<{ type: 'collection' | 'folder'; id: string } | null>(null)
 
 watch(activeTab, (tab) => {
   try { localStorage.setItem(TAB_STORAGE_KEY, tab) } catch { /* 忽略 */ }
@@ -50,8 +48,7 @@ async function createCollection() {
   if (!categoryId) categoryId = (await workspace.ensureDefaultCategory()).id
   const module = await workspace.addModule(categoryId, name.trim())
   workspace.selectModule(module.id)
-  store.currentApiId = null
-  store.response = null
+  store.openPropertiesInTab({ type: 'collection', id: module.id })
 }
 </script>
 
@@ -83,7 +80,7 @@ async function createCollection() {
           <Plus :size="15" />
         </button>
       </div>
-      <CollectionsTree :filter="collectionsFilter" @open-properties="propertiesTarget = $event" />
+      <CollectionsTree :filter="collectionsFilter" />
     </template>
 
     <!-- 环境 tab(M3 重做编辑弹窗,此为容器) -->
@@ -95,12 +92,6 @@ async function createCollection() {
     <template v-else>
       <HistoryPanel class="sidebar-panel" />
     </template>
-
-    <CollectionSettingsModal
-      v-if="propertiesTarget"
-      :target="propertiesTarget"
-      @close="propertiesTarget = null"
-    />
 
     <div class="sidebar-footer-hint">
       {{ activeTab === 'collections' ? `${workspace.collections.length} 集合` : activeTab === 'environments' ? `${environmentCount} 环境` : `${historyCount} 条记录` }}

@@ -1,24 +1,21 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { X } from '@lucide/vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { RotateCcw, Save, X } from '@lucide/vue'
+import { toast } from 'vue-sonner'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useAppStore } from '@/stores/app'
+import { propertyTabKey, useAppStore } from '@/stores/app'
 import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import type { AuthConfig as AuthConfigData, CollectionVariable, KvPair } from '@/types'
 
 /**
- * Properties 弹窗(FR-2.6,参考 Hoppscotch Properties.vue):
+ * 集合/分组属性标签页:
  * Headers / Auth / 变量 / 脚本(前置+后置子 tab) / 详情 五 tab;
  * 集合与文件夹双模式,文件夹多「脚本继承父级」开关。
  */
 const props = defineProps<{
   target: { type: 'collection' | 'folder'; id: string }
-}>()
-
-const emit = defineEmits<{
-  close: []
 }>()
 
 const workspace = useWorkspaceStore()
@@ -58,7 +55,25 @@ const draftPreScript = ref('')
 const draftPostScript = ref('')
 const draftScriptsInherit = ref(true)
 
-watch(() => props.target, () => {
+const editorKey = computed(() => propertyTabKey(props.target))
+const baseline = ref('')
+
+const draftSnapshot = computed(() => JSON.stringify({
+  name: draftName.value,
+  description: draftDescription.value,
+  color: draftColor.value,
+  icon: draftIcon.value,
+  selectedEnvId: draftSelectedEnvId.value,
+  headers: draftHeaders.value,
+  auth: draftAuth.value,
+  authOverride: draftAuthOverride.value,
+  variables: draftVariables.value,
+  preScript: draftPreScript.value,
+  postScript: draftPostScript.value,
+  scriptsInherit: draftScriptsInherit.value,
+}))
+
+function loadDraft() {
   const source = collection.value ?? folder.value
   if (!source) return
   draftName.value = source.name
@@ -84,7 +99,12 @@ watch(() => props.target, () => {
     draftAuthOverride.value = Boolean(folder.value.auth)
     draftScriptsInherit.value = folder.value.scriptsInherit !== false
   }
-}, { immediate: true })
+  baseline.value = draftSnapshot.value
+  store.setPropertyTabDirty(editorKey.value, false)
+}
+
+watch(() => props.target, loadDraft, { immediate: true })
+watch(draftSnapshot, value => store.setPropertyTabDirty(editorKey.value, value !== baseline.value))
 
 const collectionEnvs = computed(() =>
   store.environments.filter(item => item.collectionId === props.target.id),
@@ -112,9 +132,9 @@ function removeVariable(index: number) {
   draftVariables.value.splice(index, 1)
 }
 
-async function save() {
+async function save(): Promise<boolean> {
   const name = draftName.value.trim()
-  if (!name) return
+  if (!name) return false
   if (isFolderMode.value && folder.value) {
     const updates: Record<string, unknown> = {
       name,
@@ -145,20 +165,35 @@ async function save() {
       color: draftColor.value,
     })
   }
-  emit('close')
+  baseline.value = draftSnapshot.value
+  store.setPropertyTabDirty(editorKey.value, false)
+  toast.success(`${isFolderMode.value ? '分组' : '集合'}配置已保存`)
+  return true
 }
+
+function discard() {
+  loadDraft()
+}
+
+let unregisterHandler: (() => void) | null = null
+onMounted(() => {
+  unregisterHandler = store.registerPropertyTabHandler(editorKey.value, { save, discard })
+})
+onUnmounted(() => unregisterHandler?.())
 </script>
 
 <template>
-  <Teleport to="body">
-    <div class="modal-overlay" @click.self="emit('close')">
-      <div class="properties-modal">
+  <div class="properties-page">
+    <div class="properties-editor">
         <header class="modal-header">
           <div>
-            <h3>属性 · {{ draftName || (isFolderMode ? '文件夹' : '集合') }}</h3>
+            <h3>{{ draftName || (isFolderMode ? '分组' : '集合') }} · 属性</h3>
             <p>{{ isFolderMode ? '文件夹级配置会被子节点继承(就近覆盖)。' : '集合级配置会被树内所有请求继承(就近覆盖)。' }}</p>
           </div>
-          <button class="close-btn" @click="emit('close')"><X :size="15" /></button>
+          <div class="header-actions">
+            <button class="btn btn-sm" :disabled="!store.propertyTabDirty[editorKey]" title="放弃当前修改" @click="discard"><RotateCcw :size="13" /> 重置</button>
+            <button class="btn btn-sm btn-primary" :disabled="!draftName.trim() || !store.propertyTabDirty[editorKey]" title="保存(Cmd+S)" @click="save"><Save :size="13" /> 保存</button>
+          </div>
         </header>
 
         <div class="prop-tabs">
@@ -282,38 +317,29 @@ async function save() {
           </template>
         </div>
 
-        <footer class="modal-actions">
-          <button class="btn btn-sm" @click="emit('close')">取消</button>
-          <button class="btn btn-sm btn-primary" :disabled="!draftName.trim()" @click="save">保存</button>
-        </footer>
-      </div>
     </div>
-  </Teleport>
+  </div>
 </template>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
+.properties-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(4px);
+  padding: 24px;
+  background: var(--primary-color);
 }
 
-.properties-modal {
+.properties-editor {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(640px, calc(100vw - 32px));
-  height: min(600px, 86vh);
-  padding: 16px;
-  border: 1px solid var(--divider-dark-color);
-  border-radius: var(--radius-lg);
-  background: var(--popover-color);
-  box-shadow: var(--shadow-lg);
+  width: min(920px, 100%);
+  min-height: min(640px, calc(100vh - 150px));
+  padding: 4px 8px 24px;
 }
 
 .modal-header {
@@ -333,16 +359,16 @@ async function save() {
   font-size: var(--font-size-tiny);
 }
 
-.close-btn {
-  display: inline-flex;
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  color: var(--secondary-color);
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.close-btn:hover {
-  background: var(--primary-dark-color);
-  color: var(--secondary-dark-color);
+.header-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .prop-tabs {

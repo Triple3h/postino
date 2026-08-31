@@ -8,6 +8,7 @@ import TabPanel from './TabPanel.vue'
 import ResponsePanel from '@/components/response/ResponsePanel.vue'
 import WsPanel from '@/components/response/WsPanel.vue'
 import WorkspaceSettingsView from './WorkspaceSettingsView.vue'
+import CollectionSettingsModal from '@/components/sidebar/CollectionSettingsModal.vue'
 import { useAppStore } from '@/stores/app'
 import { isWebSocketUrl } from '@/utils/http'
 
@@ -44,7 +45,7 @@ onUnmounted(() => document.removeEventListener('click', onGlobalPointerDown, tru
   <div class="editor-view">
     <!-- 多标签栏常驻(Postman 式):0 标签时也保留「+」入口,集合欢迎页可点标签切回请求 -->
     <RequestTabs />
-    <template v-if="currentApi">
+    <template v-if="currentApi && !store.activePropertyTarget">
       <!-- WS 请求(ws/wss scheme 自动识别):固定上下堆叠,无分栏概念 -->
       <div v-if="currentRequestType === 'ws'" class="editor-stack">
         <RequestBar />
@@ -98,7 +99,13 @@ onUnmounted(() => document.removeEventListener('click', onGlobalPointerDown, tru
         </div>
       </template>
     </template>
-    <WorkspaceSettingsView v-else />
+    <CollectionSettingsModal
+      v-for="target in store.openPropertyTabs"
+      v-show="store.activePropertyTabKey === `${target.type}:${target.id}`"
+      :key="`${target.type}:${target.id}`"
+      :target="target"
+    />
+    <WorkspaceSettingsView v-if="!currentApi && !store.activePropertyTarget" />
   </div>
 </template>
 

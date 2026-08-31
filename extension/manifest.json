@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Postino",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Lightweight API debugging workspace — no login required, supports cURL/Postman import, local-first storage",
   "permissions": [
     "storage",

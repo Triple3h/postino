@@ -197,3 +197,12 @@ export class PostinoDB extends Dexie {
 
 export const db = new PostinoDB()
 installPlainWriteHooks(db)
+
+/**
+ * 顶层 Proxy 的对象在 Dexie 内部 structured clone 阶段就会抛 DataCloneError,
+ * creating 钩子来不及转纯对象。写库前必须先经过这里(嵌套 Proxy 由钩子兜底,
+ * 但顶层必须已是纯对象)。store 里「从 state 取出再展开/直传」的写入一律用它。
+ */
+export function plainPut<T>(table: Table<T, string>, obj: T): Promise<void> {
+  return table.put(deepPlain(obj)).then(() => undefined)
+}

@@ -31,10 +31,6 @@ const props = defineProps<{
   filter: string
 }>()
 
-const emit = defineEmits<{
-  'open-properties': [target: { type: 'collection' | 'folder'; id: string }]
-}>()
-
 const store = useAppStore()
 const workspace = useWorkspaceStore()
 const wsStore = useWsStore()
@@ -186,10 +182,16 @@ function selectApi(apiId: string) {
 
 function openNode(node: InterfaceNode) {
   if (isFolderNode(node)) {
-    toggleExpanded(nodeKey(node.id))
+    workspace.selectInterface(node.id)
+    store.openPropertiesInTab({ type: 'folder', id: node.id })
     return
   }
   if (node.apiId) selectApi(node.apiId)
+}
+
+function openCollection(id: string) {
+  workspace.selectModule(id)
+  store.openPropertiesInTab({ type: 'collection', id })
 }
 
 // ── 新建 ──
@@ -206,6 +208,7 @@ async function createFolder(parentId: string | null, moduleId: string) {
   const folder = await workspace.addFolder(moduleId, name.trim(), parentId)
   if (parentId && !isExpanded(nodeKey(parentId))) toggleExpanded(nodeKey(parentId))
   if (!isExpanded(nodeKey(folder.id))) toggleExpanded(nodeKey(folder.id))
+  openNode(folder)
 }
 
 async function createCollection() {
@@ -215,8 +218,7 @@ async function createCollection() {
   if (!categoryId) categoryId = (await workspace.ensureDefaultCategory()).id
   const module = await workspace.addModule(categoryId, name.trim())
   workspace.selectModule(module.id)
-  store.currentApiId = null
-  store.response = null
+  store.openPropertiesInTab({ type: 'collection', id: module.id })
   if (!isExpanded(collectionKey(module.id))) toggleExpanded(collectionKey(module.id))
 }
 
@@ -377,7 +379,7 @@ function menuForCollection(event: MouseEvent, id: string) {
     { key: 'sort', label: '排序(按名称)', shortcut: 'S', icon: SlidersHorizontal, handler: () => sortChildren(null, id) },
     { key: 'duplicate', label: '复制集合', shortcut: 'D', icon: Copy, handler: () => duplicateCollection(id) },
     { key: 'export', label: '导出(Postman)', shortcut: 'X', icon: Download, handler: () => exportCollectionPostman(id) },
-    { key: 'properties', label: '属性', shortcut: 'P', icon: Settings2, handler: () => emit('open-properties', { type: 'collection', id }) },
+    { key: 'properties', label: '属性', shortcut: 'P', icon: Settings2, handler: () => openCollection(id) },
     { key: 'delete', label: '删除', shortcut: '⌫', icon: Trash2, danger: true, separatorBefore: true, handler: () => confirmDeleteCollection(id) },
   ])
 }
@@ -390,7 +392,7 @@ function menuForFolder(event: MouseEvent, node: InterfaceNode) {
     { key: 'sort', label: '排序(按名称)', shortcut: 'S', icon: SlidersHorizontal, handler: () => sortChildren(node, node.moduleId) },
     { key: 'duplicate', label: '复制文件夹', shortcut: 'D', icon: Copy, handler: () => duplicateNode(node) },
     { key: 'export', label: '导出(cURL)', shortcut: 'X', icon: Download, handler: () => exportFolderCurl(node) },
-    { key: 'properties', label: '属性', shortcut: 'P', icon: Settings2, handler: () => emit('open-properties', { type: 'folder', id: node.id }) },
+    { key: 'properties', label: '属性', shortcut: 'P', icon: Settings2, handler: () => openNode(node) },
     { key: 'delete', label: '删除', shortcut: '⌫', icon: Trash2, danger: true, separatorBefore: true, handler: () => confirmDeleteNode(node) },
   ])
 }
@@ -506,6 +508,7 @@ async function onCollectionHeaderDrop(event: DragEvent, collectionId: string) {
         @dragend="onDragEnd"
         @dragover.prevent="dropTarget = { kind: 'collection-root', id: collection.id }"
         @drop="onCollectionHeaderDrop($event, collection.id)"
+        @click="openCollection(collection.id)"
         @contextmenu="menuForCollection($event, collection.id)"
       >
         <button class="chevron" @click.stop="toggleExpanded(collectionKey(collection.id))">

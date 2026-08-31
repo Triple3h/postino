@@ -505,23 +505,34 @@ export function importPostmanTree(jsonStr: string): ImportedPostmanTree | null {
     const folders: ImportedPostmanFolder[] = []
     const requests: ImportedPostmanRequest[] = []
     let seq = 0
+    // 集合级脚本(根),作为所有分支继承的起点
+    const treePreRequestScript = resolvePostmanScript(collection.event, 'prerequest')
+    const treePostRequestScript = resolvePostmanScript(collection.event, 'test')
 
-    const walk = (items: PostmanNode[], parentKey: string | null) => {
+    const walk = (items: PostmanNode[], parentKey: string | null, inheritedPreRequestScript = '', inheritedPostRequestScript = '') => {
       for (const node of items) {
         if ('item' in node && Array.isArray(node.item)) {
           const key = `pf:${++seq}:${generateId()}`
+          // 文件夹自身脚本 + 上级继承脚本,一起传给更深层(Postman 脚本从集合→文件夹→请求逐层叠加)
+          const folderPre = joinPostmanScripts(inheritedPreRequestScript, resolvePostmanScript(node.event, 'prerequest'))
+          const folderPost = joinPostmanScripts(inheritedPostRequestScript, resolvePostmanScript(node.event, 'test'))
           folders.push({
             key,
             parentKey,
             name: node.name || `Folder ${seq}`,
             auth: node.auth ? normalizeAuthConfig(parsePostmanAuth(node.auth)) : undefined,
-            preRequestScript: resolvePostmanScript(node.event, 'prerequest'),
-            postRequestScript: resolvePostmanScript(node.event, 'test'),
+            preRequestScript: folderPre,
+            postRequestScript: folderPost,
             variables: parsePostmanVariables(node.variable),
           })
-          walk(node.item, key)
+          walk(node.item, key, folderPre, folderPost)
         } else if ('request' in node) {
-          const api = parsePostmanItem(node as PostmanItem)
+          // 树形模式:请求携带上一级继承下来的集合/文件夹脚本(根→叶链)
+          const api = parsePostmanItem(
+            node as PostmanItem,
+            inheritedPreRequestScript,
+            inheritedPostRequestScript,
+          )
           if (!api) continue
           // 树形模式:请求只保留自身脚本与自身 auth;无 auth 时留 inherit 以继承上级
           if (!(node as PostmanItem).request?.auth) {
@@ -531,15 +542,15 @@ export function importPostmanTree(jsonStr: string): ImportedPostmanTree | null {
         }
       }
     }
-    walk(collection.item, null)
+    walk(collection.item, null, treePreRequestScript, treePostRequestScript)
 
     const description = collection.info?.description
     return {
       name: collection.info?.name || 'Imported Collection',
       description: typeof description === 'string' ? description : description?.content,
       auth: collection.auth ? normalizeAuthConfig(parsePostmanAuth(collection.auth)) : undefined,
-      preRequestScript: resolvePostmanScript(collection.event, 'prerequest'),
-      postRequestScript: resolvePostmanScript(collection.event, 'test'),
+      preRequestScript: treePreRequestScript,
+      postRequestScript: treePostRequestScript,
       variables: parsePostmanVariables(collection.variable),
       folders,
       requests,

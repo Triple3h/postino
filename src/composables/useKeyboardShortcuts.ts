@@ -47,7 +47,8 @@ export function useKeyboardShortcuts() {
       return
     }
     if (action === 'saveCurrentRequest') {
-      dispatch('postino:save-request')
+      if (store.activePropertyTabKey) void store.saveActivePropertyTab()
+      else dispatch('postino:save-request')
       return
     }
     if (action === 'openGlobalSearch') {

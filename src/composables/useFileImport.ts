@@ -9,6 +9,14 @@ import type { ApiConfig } from '@/types'
 
 export type ImportType = 'curl' | 'postman' | 'openapi' | 'har'
 
+/** 导入进度:phase 用于状态文案,percent 0-100(done 后隐藏) */
+export interface ImportProgress {
+  active: boolean
+  fileName: string
+  phase: 'parsing' | 'writing' | 'done'
+  percent: number
+}
+
 export function detectImportType(fileName: string, content: string): ImportType | null {
   const lowerName = fileName.toLowerCase()
   const trimmed = content.trim()
@@ -46,19 +54,29 @@ function parseImportedApis(fileName: string, content: string): ApiConfig[] {
  * 文件导入(原 MainView 逻辑迁移):按内容探测 cURL / Postman / OpenAPI / HAR /
  * Postman 环境与自有备份,写入集合树。
  */
+
+// 导入进度必须是模块级单例:AppShell(进度条 UI)、AppHeader/SettingsView(导入入口)
+// 各自调用 useFileImport(),共享同一份状态才能让触发方更新到 UI
+const importProgress = ref<ImportProgress>({ active: false, fileName: '', phase: 'parsing', percent: 0 })
+
+function setProgress(patch: Partial<ImportProgress>) {
+  importProgress.value = { ...importProgress.value, ...patch }
+}
+
 export function useFileImport() {
   const dragImportDepth = ref(0)
 
   async function addImportedApis(apis: ApiConfig[]): Promise<void> {
     const store = useAppStore()
     const workspace = useWorkspaceStore()
-    for (const api of apis) {
+    for (const [index, api] of apis.entries()) {
       if (api.folder) {
         const module = await workspace.ensureModuleForLegacyGroup(api.folder)
         await store.addApi(api, module.id)
       } else {
         await store.addApi(api, null)
       }
+      setProgress({ phase: 'writing', percent: Math.round(((index + 1) / apis.length) * 100) })
     }
     if (apis.length > 0) {
       const first = apis[0]
@@ -76,12 +94,20 @@ export function useFileImport() {
     if (fileArray.length === 0) return
     let imported = 0
     const failed: string[] = []
-    for (const file of fileArray) {
+    setProgress({ active: true, fileName: '', phase: 'parsing', percent: 0 })
+    // 进度条最短展示时长:本地库写入极快,没有下限会一闪而过,用户感知不到反馈
+    const minShowStart = Date.now()
+    // 每个文件平分进度条区间,文件内部按条目数推进
+    const fileSlice = 100 / fileArray.length
+    for (const [fileIndex, file] of fileArray.entries()) {
+      const fileBase = Math.round(fileIndex * fileSlice)
+      setProgress({ fileName: file.name, phase: 'parsing', percent: fileBase })
       try {
         const content = await file.text()
         // 自有备份格式优先识别
         const backup = parseCollectionBackup(content)
         if (backup) {
+          setProgress({ phase: 'writing' })
           const stats = await store.restoreCollectionBackup(backup)
           imported += stats.nodes
           continue
@@ -90,7 +116,10 @@ export function useFileImport() {
         if (detectImportType(file.name, content) === 'postman') {
           const tree = importPostmanTree(content)
           if (tree) {
-            const collectionId = await store.importPostmanCollectionTree(tree)
+            const total = tree.folders.length + tree.requests.length
+            const collectionId = await store.importPostmanCollectionTree(tree, (done) => {
+              setProgress({ phase: 'writing', percent: Math.min(99, fileBase + Math.round((done / Math.max(total, 1)) * fileSlice)) })
+            })
             if (!collectionId) {
               failed.push(file.name)
               continue
@@ -106,6 +135,7 @@ export function useFileImport() {
           }
           const envDraft = importPostmanEnvironment(content)
           if (envDraft) {
+            setProgress({ phase: 'writing' })
             const targetCollection = workspace.activeCollection?.id ?? workspace.collections[0]?.id
             if (targetCollection) {
               await store.importCollectionEnvironment(targetCollection, envDraft.name, envDraft.variables)
@@ -114,6 +144,7 @@ export function useFileImport() {
             }
           }
         }
+        setProgress({ phase: 'writing' })
         const apis = parseImportedApis(file.name, content)
         if (apis.length === 0) {
           failed.push(file.name)
@@ -123,8 +154,15 @@ export function useFileImport() {
         imported += apis.length
       } catch {
         failed.push(file.name)
+      } finally {
+        setProgress({ percent: Math.round((fileIndex + 1) * fileSlice) })
       }
     }
+    setProgress({ phase: 'done', percent: 100 })
+    // 保证「100% 完成」至少可见一小段时间,再收起进度条
+    const elapsed = Date.now() - minShowStart
+    await new Promise(resolve => setTimeout(resolve, Math.max(400, 800 - elapsed)))
+    setProgress({ active: false, fileName: '', percent: 0 })
     if (failed.length) {
       toast.warning(`已导入 ${imported} 个接口，${failed.length} 个文件未识别`, {
         description: failed.slice(0, 3).join('、'),
@@ -180,6 +218,7 @@ export function useFileImport() {
 
   return {
     dragImportDepth,
+    importProgress,
     importFiles,
     addImportedApis,
     bindWindowDragImport,

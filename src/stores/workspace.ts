@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { db } from '@/db'
+import { db, plainPut } from '@/db'
 import type { ApiConfig, Category, Collection, CollectionNode, Group, InterfaceNode, Module as ApiModule, ModuleExportConfig, ModuleStats, ModuleType, PlannedWorkspaceModel } from '@/types'
 import { collectionFromModule, collectionVarsToModuleVars, assignGlobalCollectionOrder } from '@/utils/collection-migration'
 
@@ -274,7 +274,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const idx = collections.value.findIndex(item => item.id === collection.id)
     if (idx === -1) collections.value.push(collection)
     else collections.value[idx] = collection
-    await db.collections.put(collection)
+    await plainPut(db.collections, collection)
   }
 
   async function unmirrorModule(moduleId: string): Promise<void> {
@@ -321,7 +321,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const midx = modules.value.findIndex(existing => existing.id === module.id)
       if (midx === -1) modules.value.push(module)
       else modules.value[midx] = module
-      await db.modules.put(module)
+      await plainPut(db.modules, module)
     }
 
     const nodeIds = new Set(nodesInput.map(node => node.id))
@@ -462,7 +462,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!existing) return
     const updatedAt = Date.now()
     const next: Collection = { ...existing, ...updates, updatedAt }
-    await db.collections.put(next)
+    await plainPut(db.collections, next)
     collections.value = collections.value.map(item => item.id === id ? next : item)
 
     if (updates.variables) {
