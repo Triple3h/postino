@@ -7,7 +7,7 @@ import type { AuthConfig, Collection, CollectionNode, CollectionVariable, KvPair
  * - Auth:节点自身显式定义(非 'inherit' 且非 undefined)→ 最近祖先显式定义 → 集合定义 → none
  * - Headers:祖先激活项合并,同 key 近层覆盖远层;请求自身的合并由发送方追加(优先级最高)
  * - Variables:同 key 近层覆盖远层
- * - Pre Scripts:Collection → 文件夹(根→叶),跳过 scriptsInherit === false 的节点;节点自身脚本由调用方追加在最后
+ * - Pre Scripts:Collection → 文件夹(根→叶);scriptsInherit === false 会截断更上层脚本,但保留该节点自身脚本
  * - Post Scripts:同一脚本链(根→叶),执行时由调用方按 请求 → 文件夹(叶→根) → Collection 反序执行
  */
 
@@ -163,7 +163,7 @@ export function resolveInheritedProperties(
   const { headers, sources: headerSources } = mergeKvLayers(headerLayers)
   const { variables, sources: variableSources } = mergeVariableLayers(variableLayers)
 
-  // ── Scripts:根→叶,scriptsInherit === false 截断继承 ──
+  // ── Scripts:根→叶,scriptsInherit === false 从当前节点重新开始继承链 ──
   // 节点存储的脚本若带有早期树形导入烘焙进去的祖先链前缀,读取时自动剥离,
   // 避免继承链与烘焙内容重复执行(见 stripInheritedPrefix)。
   const preScripts: ScriptSegment[] = []
@@ -181,9 +181,15 @@ export function resolveInheritedProperties(
     }
   }
   const pushNode = (node: CollectionNode) => {
-    if (node.scriptsInherit === false) return
     const ownPre = stripInheritedPrefix(node.preRequestScript, inheritedPreParts)
     const ownPost = stripInheritedPrefix(node.postRequestScript, inheritedPostParts)
+    // “不继承父级”只截断更上层脚本；当前分组自己的脚本仍应被子请求继承。
+    if (node.scriptsInherit === false) {
+      preScripts.length = 0
+      postScripts.length = 0
+      inheritedPreParts.length = 0
+      inheritedPostParts.length = 0
+    }
     if (ownPre) {
       preScripts.push({ sourceId: node.id, sourceName: node.name, script: ownPre })
       inheritedPreParts.push(ownPre)
@@ -201,7 +207,8 @@ export function resolveInheritedProperties(
 
 /**
  * 脚本执行链(Phase 4 发送时调用):
- * - scriptsInherit !== false:pre = [collection, ...祖先(根→叶)],节点自身脚本由调用方追加在最后;
+ * - 祖先 scriptsInherit === false:丢弃其更上层脚本,从该祖先自身重新开始;
+ * - 目标 scriptsInherit !== false:pre = [有效祖先链],节点自身脚本由调用方追加在最后;
  * - scriptsInherit === false:只返回空链(仅执行节点自身)。
  */
 export function resolveScriptChain(

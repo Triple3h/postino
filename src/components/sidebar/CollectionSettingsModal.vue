@@ -12,7 +12,7 @@ import type { AuthConfig as AuthConfigData, CollectionVariable, KvPair } from '@
 /**
  * 集合/分组属性标签页:
  * Headers / Auth / 变量 / 脚本(前置+后置子 tab) / 详情 五 tab;
- * 集合与文件夹双模式,文件夹多「脚本继承父级」开关。
+ * 集合与文件夹双模式,文件夹可选择是否同时执行集合和上级分组脚本。
  */
 const props = defineProps<{
   target: { type: 'collection' | 'folder'; id: string }
@@ -366,8 +366,9 @@ onUnmounted(() => unregisterHandler?.())
           <template v-else-if="tab === 'scripts'">
             <label v-if="isFolderMode" class="inherit-toggle">
               <input v-model="draftScriptsInherit" type="checkbox" />
-              <span>脚本继承父级(勾选 = 父级脚本 + 自身脚本都执行)</span>
+              <span>同时执行集合和上级分组脚本</span>
             </label>
+            <p v-if="isFolderMode" class="hint-line">当前分组脚本始终执行；关闭后，将从当前分组重新开始脚本链。</p>
             <div class="script-sub-tabs">
               <button :class="['sub-tab', { active: scriptSubTab === 'pre' }]" @click="scriptSubTab = 'pre'">前置脚本</button>
               <button :class="['sub-tab', { active: scriptSubTab === 'post' }]" @click="scriptSubTab = 'post'">后置脚本</button>

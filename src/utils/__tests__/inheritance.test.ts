@@ -122,13 +122,42 @@ describe('resolveScriptChain', () => {
     expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['col:1', 'f1', 'f2'])
   })
 
-  it('scriptsInherit=false 的节点自身脚本被跳过,但更远祖先仍继承', () => {
+  it('祖先 scriptsInherit=false 时截断更远父级,但保留该祖先自身脚本', () => {
     const collection = makeCollection({ preRequestScript: 'root' })
     const f1 = makeNode({ id: 'f1', nodeType: 'folder', preRequestScript: 'f1' })
     const f2 = makeNode({ id: 'f2', nodeType: 'folder', parentId: 'f1', preRequestScript: 'f2', scriptsInherit: false })
     const req = makeNode({ id: 'req', parentId: 'f2' })
     const chain = resolveScriptChain(collection, [f1, f2, req], 'req')
-    expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['col:1', 'f1'])
+    expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['f2'])
+  })
+
+  it('截断继承后继续收集更近分组脚本', () => {
+    const collection = makeCollection({ preRequestScript: 'root' })
+    const boundary = makeNode({ id: 'boundary', nodeType: 'folder', preRequestScript: 'boundary', scriptsInherit: false })
+    const inner = makeNode({ id: 'inner', nodeType: 'folder', parentId: 'boundary', preRequestScript: 'inner' })
+    const req = makeNode({ id: 'req', parentId: 'inner' })
+    const chain = resolveScriptChain(collection, [boundary, inner, req], 'req')
+    expect(chain.preScripts.map(seg => seg.sourceId)).toEqual(['boundary', 'inner'])
+  })
+
+  it('不继承上级的分组脚本仍可识别子请求中的历史副本', () => {
+    const collection = makeCollection({ preRequestScript: 'root' })
+    const folder = makeNode({
+      id: 'folder',
+      name: '粤省事AI',
+      nodeType: 'folder',
+      preRequestScript: 'const token = pm.environment.get("token")',
+      scriptsInherit: false,
+    })
+    const req = makeNode({
+      id: 'req',
+      parentId: 'folder',
+      preRequestScript: 'const token = pm.environment.get("token")',
+    })
+    const chain = resolveScriptChain(collection, [folder, req], 'req')
+
+    expect(chain.preScripts.map(seg => seg.sourceName)).toEqual(['粤省事AI'])
+    expect(matchInheritedScript(chain.preScripts, req.preRequestScript)?.map(seg => seg.sourceId)).toEqual(['folder'])
   })
 
   it('目标节点自身 scriptsInherit=false → 只执行自身(继承链为空)', () => {

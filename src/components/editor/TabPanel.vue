@@ -8,6 +8,7 @@ import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
 import PostResponseActions from '@/components/editor/PostResponseActions.vue'
+import { Lock } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import { COMMON_HEADER_NAMES } from '@/utils/common-headers'
@@ -76,14 +77,14 @@ function updateAuth(auth: AuthConfigType) {
 }
 
 function updatePreScript(value: string) {
-  if (isReadonlyModule.value) return
+  if (isPreScriptInherited.value) return
   if (currentApi.value) {
     store.updateApi(currentApi.value.id, { preRequestScript: value })
   }
 }
 
 function updatePostScript(value: string) {
-  if (isReadonlyModule.value) return
+  if (isPostScriptInherited.value) return
   if (currentApi.value) {
     store.updateApi(currentApi.value.id, { postRequestScript: value })
   }
@@ -118,12 +119,13 @@ const scriptSnippets = [
 ]
 
 // ── 脚本继承识别(每个槽位独立)──
+// inherited:请求自身无脚本,编辑器展示父级继承链 → 只读
 // locked:   请求脚本与继承链完全一致(历史导入的父级副本)→ 只读 + 移除副本
 // mixed:    请求脚本以继承链内容开头且带自身逻辑(烘焙)→ 只读 + 清理重复段
 // suspected:父级链无脚本,但同分组请求共享相同脚本(扁平导入烘焙)→ 提升到分组
 // info:     父级链有脚本,显示执行来源;请求自身脚本自由编辑
 interface ScriptGroupState {
-  kind: 'locked' | 'mixed' | 'suspected' | 'info'
+  kind: 'inherited' | 'locked' | 'mixed' | 'suspected' | 'info'
   sourceLabel: string
   /** mixed:继承链拼接文本;suspected:共享脚本内容 */
   chainText?: string
@@ -157,11 +159,18 @@ function groupScriptState(slot: 'pre' | 'post'): ScriptGroupState | null {
   const own = ((isPre ? currentApi.value?.preRequestScript : currentApi.value?.postRequestScript) ?? '').trim()
 
   if (segments.length) {
+    const chainText = joinedChainText(segments)
+    if (!own) {
+      return {
+        kind: 'inherited',
+        sourceLabel: segments.map(segment => segment.sourceName).join(' → '),
+        chainText,
+      }
+    }
     const matched = matchInheritedScript(segments, own)
     if (matched) {
       return { kind: 'locked', sourceLabel: matched.map(segment => segment.sourceName).join(' → ') }
     }
-    const chainText = joinedChainText(segments)
     if (chainText && (own === chainText || own.startsWith(`${chainText}\n`))) {
       return { kind: 'mixed', sourceLabel: segments.map(segment => segment.sourceName).join(' → '), chainText }
     }
@@ -193,8 +202,17 @@ function groupScriptState(slot: 'pre' | 'post'): ScriptGroupState | null {
 
 const preGroupState = computed(() => groupScriptState('pre'))
 const postGroupState = computed(() => groupScriptState('post'))
-const isPreScriptInherited = computed(() => isReadonlyModule.value || preGroupState.value?.kind === 'locked' || preGroupState.value?.kind === 'mixed')
-const isPostScriptInherited = computed(() => isReadonlyModule.value || postGroupState.value?.kind === 'locked' || postGroupState.value?.kind === 'mixed')
+const readonlyScriptKinds = new Set<ScriptGroupState['kind']>(['inherited', 'locked', 'mixed'])
+const isPreScriptInherited = computed(() => isReadonlyModule.value || Boolean(preGroupState.value && readonlyScriptKinds.has(preGroupState.value.kind)))
+const isPostScriptInherited = computed(() => isReadonlyModule.value || Boolean(postGroupState.value && readonlyScriptKinds.has(postGroupState.value.kind)))
+const preScriptEditorValue = computed(() =>
+  preGroupState.value?.kind === 'inherited'
+    ? preGroupState.value.chainText ?? ''
+    : currentApi.value?.preRequestScript ?? '')
+const postScriptEditorValue = computed(() =>
+  postGroupState.value?.kind === 'inherited'
+    ? postGroupState.value.chainText ?? ''
+    : currentApi.value?.postRequestScript ?? '')
 
 /** 继承修复:按状态移除副本 / 清理重复段 / 把共享脚本提升到分组,统一入口 */
 async function promoteScriptToParent(slot: 'pre' | 'post') {
@@ -414,13 +432,13 @@ onUnmounted(() => {
 })
 
 function appendPreSnippet(code: string) {
-  if (isReadonlyModule.value || !currentApi.value) return
+  if (isPreScriptInherited.value || !currentApi.value) return
   const next = [currentApi.value.preRequestScript, code].filter(Boolean).join('\n\n')
   updatePreScript(next)
 }
 
 function appendPostSnippet(code: string) {
-  if (isReadonlyModule.value || !currentApi.value) return
+  if (isPostScriptInherited.value || !currentApi.value) return
   const next = [currentApi.value.postRequestScript, code].filter(Boolean).join('\n\n')
   updatePostScript(next)
 }
@@ -448,6 +466,12 @@ function formatLogTime(ts: number): string {
         @click="selectTab(tab.key)"
       >
         {{ tab.label }}
+        <Lock
+          v-if="tab.key === 'pre-script' && isPreScriptInherited && !isReadonlyModule"
+          class="tab-lock-icon"
+          :size="12"
+          aria-label="脚本继承自父级，只读"
+        />
       </button>
       <!-- FR-6:环境选择器已迁至 AppHeader 右上角(Hoppscotch 式全局入口) -->
     </div>
@@ -520,12 +544,13 @@ function formatLogTime(ts: number): string {
       <div v-if="activeTab === 'pre-script'" class="tab-inner script-tab-inner">
         <div v-if="preGroupState" class="script-inherit-banner" :class="{ 'is-suspected': preGroupState.kind === 'suspected' }">
           <span class="inherit-tag">{{ preGroupState.kind === 'suspected' ? '疑似继承' : '继承' }}</span>
-          <span v-if="preGroupState.kind === 'locked'">前置脚本继承自「{{ preGroupState.sourceLabel }}」,如需修改请编辑集合/分组脚本;运行时将按继承链执行。</span>
+          <span v-if="preGroupState.kind === 'inherited'">当前显示的前置脚本继承自「{{ preGroupState.sourceLabel }}」,不可在请求中编辑;如需修改请前往对应集合/分组。</span>
+          <span v-else-if="preGroupState.kind === 'locked'">前置脚本继承自「{{ preGroupState.sourceLabel }}」,如需修改请编辑集合/分组脚本;运行时将按继承链执行。</span>
           <span v-else-if="preGroupState.kind === 'mixed'">前置脚本包含「{{ preGroupState.sourceLabel }}」脚本的重复副本(历史导入数据),运行时已自动去重。</span>
           <span v-else-if="preGroupState.kind === 'suspected'">同分组 {{ preGroupState.sharedCount }} 个请求共享相同的前置脚本(导入时烘焙),建议提升到「{{ preGroupState.sourceLabel }}」统一继承。</span>
           <span v-else>将按继承链执行「{{ preGroupState.sourceLabel }}」的脚本,下方为请求自身脚本。</span>
           <button
-            v-if="preGroupState.kind !== 'info'"
+            v-if="preGroupState.kind !== 'info' && preGroupState.kind !== 'inherited'"
             class="btn btn-sm inherit-action"
             @click="promoteScriptToParent('pre')"
           >{{ preGroupState.kind === 'locked' ? '移除副本' : preGroupState.kind === 'mixed' ? '清理重复段' : '提升到分组' }}</button>
@@ -542,7 +567,7 @@ function formatLogTime(ts: number): string {
         </div>
         <CodeMirrorEditor
           class="script-editor"
-          :model-value="currentApi?.preRequestScript || ''"
+          :model-value="preScriptEditorValue"
           language="javascript"
           placeholder="// 前置脚本:在请求发送前执行"
           @update:model-value="updatePreScript"
@@ -564,7 +589,15 @@ function formatLogTime(ts: number): string {
           <button :class="{ active: postEditorMode === 'actions' }" @click="postEditorMode = 'actions'">
             提取变量 <small>{{ currentApi?.postResponseExtractors?.length || 0 }}</small>
           </button>
-          <button :class="{ active: postEditorMode === 'script' }" @click="postEditorMode = 'script'">脚本</button>
+          <button :class="{ active: postEditorMode === 'script' }" @click="postEditorMode = 'script'">
+            脚本
+            <Lock
+              v-if="isPostScriptInherited && !isReadonlyModule"
+              class="tab-lock-icon"
+              :size="12"
+              aria-label="脚本继承自父级，只读"
+            />
+          </button>
         </div>
         <PostResponseActions
           v-if="postEditorMode === 'actions'"
@@ -576,12 +609,13 @@ function formatLogTime(ts: number): string {
         <div v-else class="post-script-editor">
           <div v-if="postGroupState" class="script-inherit-banner" :class="{ 'is-suspected': postGroupState.kind === 'suspected' }">
             <span class="inherit-tag">{{ postGroupState.kind === 'suspected' ? '疑似继承' : '继承' }}</span>
-            <span v-if="postGroupState.kind === 'locked'">后置脚本继承自「{{ postGroupState.sourceLabel }}」,如需修改请编辑集合/分组脚本;运行时将按继承链执行。</span>
+            <span v-if="postGroupState.kind === 'inherited'">当前显示的后置脚本继承自「{{ postGroupState.sourceLabel }}」,不可在请求中编辑;如需修改请前往对应集合/分组。</span>
+            <span v-else-if="postGroupState.kind === 'locked'">后置脚本继承自「{{ postGroupState.sourceLabel }}」,如需修改请编辑集合/分组脚本;运行时将按继承链执行。</span>
             <span v-else-if="postGroupState.kind === 'mixed'">后置脚本包含「{{ postGroupState.sourceLabel }}」脚本的重复副本(历史导入数据),运行时已自动去重。</span>
             <span v-else-if="postGroupState.kind === 'suspected'">同分组 {{ postGroupState.sharedCount }} 个请求共享相同的后置脚本(导入时烘焙),建议提升到「{{ postGroupState.sourceLabel }}」统一继承。</span>
             <span v-else>将按继承链执行「{{ postGroupState.sourceLabel }}」的脚本,下方为请求自身脚本。</span>
             <button
-              v-if="postGroupState.kind !== 'info'"
+              v-if="postGroupState.kind !== 'info' && postGroupState.kind !== 'inherited'"
               class="btn btn-sm inherit-action"
               @click="promoteScriptToParent('post')"
             >{{ postGroupState.kind === 'locked' ? '移除副本' : postGroupState.kind === 'mixed' ? '清理重复段' : '提升到分组' }}</button>
@@ -598,7 +632,7 @@ function formatLogTime(ts: number): string {
           </div>
           <CodeMirrorEditor
             class="script-editor"
-            :model-value="currentApi?.postRequestScript || ''"
+            :model-value="postScriptEditorValue"
             language="javascript"
             placeholder="// 后置脚本:在收到响应后执行"
             @update:model-value="updatePostScript"
@@ -638,6 +672,9 @@ function formatLogTime(ts: number): string {
 }
 
 .tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 8px 10px;
   border: none;
   background: transparent;
@@ -647,6 +684,11 @@ function formatLogTime(ts: number): string {
   font-weight: 500;
   border-bottom: 2px solid transparent;
   transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.tab-lock-icon {
+  flex: 0 0 auto;
+  color: var(--secondary-light-color);
 }
 
 .tab-btn:hover {
@@ -781,6 +823,10 @@ function formatLogTime(ts: number): string {
 
 .inherited-editor {
   opacity: 0.75;
+}
+
+.inherited-editor :deep(.cm-editor) {
+  cursor: default;
 }
 
 .post-mode-tabs {
