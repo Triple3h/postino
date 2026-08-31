@@ -1,5 +1,6 @@
 import type { ApiConfig, AuthConfig, Collection, CollectionExportDocument, CollectionNode, CollectionVariable, Environment, KvPair } from '@/types'
 import { COLLECTION_EXPORT_VERSION } from '@/types'
+import { parseUrlQueryToPairs, stripUrlQuery } from '@/utils/url-params'
 
 export function generateCurl(api: ApiConfig, envVars: Record<string, string> = {}): string {
   const parts: string[] = ['curl']
@@ -44,16 +45,22 @@ export function generateCurl(api: ApiConfig, envVars: Record<string, string> = {
     }
   }
 
-  // URL with query params
+  // URL with query params:URL 自带 query 原样保留,参数表只补 URL 里没有的(防重复)
   let url = resolveValue(api.url, envVars)
-  const queryParts: string[] = []
+  const urlQueryPairs = parseUrlQueryToPairs(url)
+  const queryParts: string[] = urlQueryPairs.map(pair => `${pair.key}=${pair.value}`)
   for (const p of api.params) {
-    if (p.enabled && p.key) {
-      queryParts.push(`${encodeURIComponent(resolveValue(p.key, envVars))}=${encodeURIComponent(resolveValue(p.value, envVars))}`)
-    }
+    if (!p.enabled || !p.key) continue
+    const key = resolveValue(p.key, envVars)
+    const value = resolveValue(p.value, envVars)
+    if (urlQueryPairs.some(q => q.key === key && q.value === value)) continue
+    queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
   }
+  const base = stripUrlQuery(url)
   if (queryParts.length > 0) {
-    url += '?' + queryParts.join('&')
+    url = `${base}?${queryParts.join('&')}`
+  } else {
+    url = base
   }
   parts.push(`'${url}'`)
 
@@ -77,10 +84,15 @@ export function generatePythonRequests(api: ApiConfig, envVars: Record<string, s
     lines.push(`headers = ${JSON.stringify(headers, null, 4)}`)
   }
 
-  // Params
+  // Params:URL 自带 query 原样保留在 url 里,参数表只补 URL 里没有的(requests 会把两者相加)
+  const urlQueryPairs = parseUrlQueryToPairs(api.url)
   const params: Record<string, string> = {}
   for (const p of api.params) {
-    if (p.enabled && p.key) params[p.key] = resolveValue(p.value, envVars)
+    if (!p.enabled || !p.key) continue
+    const key = resolveValue(p.key, envVars)
+    const value = resolveValue(p.value, envVars)
+    if (urlQueryPairs.some(q => q.key === key && q.value === value)) continue
+    params[key] = value
   }
   if (Object.keys(params).length > 0) {
     lines.push(`params = ${JSON.stringify(params, null, 4)}`)
@@ -154,13 +166,16 @@ export function generateJavaScriptFetch(api: ApiConfig, envVars: Record<string, 
   }
 
   let url = resolveValue(api.url, envVars)
-  const queryParts: string[] = []
+  const urlQueryPairs = parseUrlQueryToPairs(url)
+  const queryParts: string[] = urlQueryPairs.map(pair => `${pair.key}=${pair.value}`)
   for (const p of api.params) {
-    if (p.enabled && p.key) {
-      queryParts.push(`${encodeURIComponent(resolveValue(p.key, envVars))}=${encodeURIComponent(resolveValue(p.value, envVars))}`)
-    }
+    if (!p.enabled || !p.key) continue
+    const key = resolveValue(p.key, envVars)
+    const value = resolveValue(p.value, envVars)
+    if (urlQueryPairs.some(q => q.key === key && q.value === value)) continue
+    queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
   }
-  if (queryParts.length > 0) url += '?' + queryParts.join('&')
+  if (queryParts.length > 0) url = `${stripUrlQuery(url)}?${queryParts.join('&')}`
 
   const lines: string[] = []
   lines.push(`fetch("${url}", ${JSON.stringify(options, null, 2)})`)
@@ -193,10 +208,15 @@ export function generateJavaScriptAxios(api: ApiConfig, envVars: Record<string, 
   }
   if (Object.keys(headers).length > 0) config.headers = headers
 
-  // Params
+  // Params:URL 自带 query 原样保留在 config.url 里,参数表只补 URL 里没有的(axios 会合并)
+  const urlQueryPairs = parseUrlQueryToPairs(api.url)
   const params: Record<string, string> = {}
   for (const p of api.params) {
-    if (p.enabled && p.key) params[p.key] = resolveValue(p.value, envVars)
+    if (!p.enabled || !p.key) continue
+    const key = resolveValue(p.key, envVars)
+    const value = resolveValue(p.value, envVars)
+    if (urlQueryPairs.some(q => q.key === key && q.value === value)) continue
+    params[key] = value
   }
   if (Object.keys(params).length > 0) config.params = params
 
@@ -234,16 +254,19 @@ export function generateJavaHttpClient(api: ApiConfig, envVars: Record<string, s
   }
 
   let url = resolveValue(api.url, envVars)
-  const queryParts: string[] = []
+  const urlQueryPairs = parseUrlQueryToPairs(url)
+  const queryParts: string[] = urlQueryPairs.map(pair => `${pair.key}=${pair.value}`)
   for (const p of api.params) {
-    if (p.enabled && p.key) {
-      queryParts.push(`${encodeURIComponent(resolveValue(p.key, envVars))}=${encodeURIComponent(resolveValue(p.value, envVars))}`)
-    }
+    if (!p.enabled || !p.key) continue
+    const key = resolveValue(p.key, envVars)
+    const value = resolveValue(p.value, envVars)
+    if (urlQueryPairs.some(q => q.key === key && q.value === value)) continue
+    queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
   }
   if (api.auth.type === 'apikey' && api.auth.apiKeyIn === 'query' && api.auth.apiKeyName) {
     queryParts.push(`${encodeURIComponent(api.auth.apiKeyName)}=${encodeURIComponent(resolveValue(api.auth.apiKeyValue, envVars))}`)
   }
-  if (queryParts.length > 0) url += (url.includes('?') ? '&' : '?') + queryParts.join('&')
+  if (queryParts.length > 0) url = `${stripUrlQuery(url)}?${queryParts.join('&')}`
 
   const body = getRequestBodyString(api, envVars)
   if (body && api.body.type === 'json' && !hasHeader(headers, 'Content-Type')) {
@@ -354,13 +377,17 @@ function buildPostmanEvents(preRequestScript?: string, postRequestScript?: strin
 }
 
 function buildPostmanRequestItem(api: ApiConfig): Record<string, unknown> {
+  // Postman v2.1:url.raw 保留原样;query 只放 URL 里没有的参数,避免导入方重复拼接
+  const urlQueryPairs = parseUrlQueryToPairs(api.url)
   const request: Record<string, unknown> = {
     method: api.method,
     header: api.headers.filter(h => h.enabled).map(h => ({ key: h.key, value: h.value })),
     cookie: api.cookies.filter(cookie => cookie.enabled).map(cookie => ({ key: cookie.key, value: cookie.value })),
     url: {
       raw: api.url,
-      query: api.params.filter(p => p.enabled).map(p => ({ key: p.key, value: p.value })),
+      query: api.params
+        .filter(p => p.enabled && p.key && !urlQueryPairs.some(q => q.key === p.key && q.value === p.value))
+        .map(p => ({ key: p.key, value: p.value })),
     },
     body: api.body.type !== 'none' ? {
       mode: api.body.type === 'json' || api.body.type === 'raw' ? 'raw' : api.body.type === 'form' ? 'formdata' : 'urlencoded',

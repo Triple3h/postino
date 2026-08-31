@@ -3,6 +3,7 @@ import { resolveTemplateVars } from '@/utils/template'
 import { arrayBufferToBase64, isBinaryContentType } from '@/utils/binary-response'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import { StreamMerger } from '@/utils/stream-merge'
+import { parseUrlQueryToPairs, stripUrlQuery } from '@/utils/url-params'
 
 export interface RequestOptions {
   method: HttpMethod
@@ -589,21 +590,25 @@ function buildUrl(baseUrl: string, params: KvPair[], auth: AuthConfig, envVars: 
     url = joinRequestPrefix(resolveValue(requestPrefix, envVars), url)
   }
 
-  const queryParts: string[] = []
-  const urlObj = new URL(url.startsWith('http') ? url : `http://${url}`)
-  urlObj.searchParams.forEach((v, k) => queryParts.push(`${k}=${v}`))
+  // URL 自带 query 原样保留;params 表按 (key, value) 去重后只追加 URL 里没有的参数
+  // (双向同步上线前的存量数据可能两侧各有一份,不去重会重复发送)
+  const urlQueryPairs = parseUrlQueryToPairs(url)
+  const urlSignatures = new Set(urlQueryPairs.map(pair => `${pair.key}=${pair.value}`))
 
+  const queryParts: string[] = urlQueryPairs.map(pair => `${pair.key}=${pair.value}`)
   for (const p of params) {
-    if (p.enabled && p.key) {
-      queryParts.push(`${encodeURIComponent(resolveValue(p.key, envVars))}=${encodeURIComponent(resolveValue(p.value, envVars))}`)
-    }
+    if (!p.enabled || !p.key) continue
+    const key = resolveValue(p.key, envVars)
+    const value = resolveValue(p.value, envVars)
+    if (urlSignatures.has(`${key}=${value}`)) continue
+    queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
   }
 
   if (auth.type === 'apikey' && auth.apiKeyIn === 'query' && auth.apiKeyName && auth.apiKeyValue) {
     queryParts.push(`${encodeURIComponent(resolveValue(auth.apiKeyName, envVars))}=${encodeURIComponent(resolveValue(auth.apiKeyValue, envVars))}`)
   }
 
-  const base = url.split('?')[0]
+  const base = stripUrlQuery(url)
   return queryParts.length > 0 ? `${base}?${queryParts.join('&')}` : base
 }
 
