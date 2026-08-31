@@ -54,8 +54,18 @@ export function useVariableAutocomplete(inputRef: Ref<HTMLInputElement | HTMLTex
     return node ? workspace.modules.find(item => item.id === node.moduleId) ?? null : null
   })
 
-  function moduleVariableValue(value: { remote?: string; local?: string; environmentValues?: Record<string, string> }): string {
-    return (store.currentEnvId && value.environmentValues?.[store.currentEnvId]) || value.local || value.remote || ''
+  function moduleEnvironmentId(moduleId: string): string | null {
+    return workspace.collections.find(item => item.id === moduleId)?.selectedEnvId ?? store.currentEnvId
+  }
+
+  function moduleVariableValue(
+    value: { remote?: string; local?: string; environmentValues?: Record<string, string> },
+    environmentId: string | null,
+  ): string {
+    if (environmentId && value.environmentValues !== undefined) {
+      return value.environmentValues[environmentId] ?? ''
+    }
+    return value.local || value.remote || ''
   }
 
   const moduleItems = computed<AutocompleteItem[]>(() => {
@@ -63,7 +73,7 @@ export function useVariableAutocomplete(inputRef: Ref<HTMLInputElement | HTMLTex
     if (!module?.variables) return []
     return Object.entries(module.variables).map(([name, value]) => ({
       name,
-      preview: moduleVariableValue(value).slice(0, 40),
+      preview: moduleVariableValue(value, moduleEnvironmentId(module.id)).slice(0, 40),
       source: '模块变量',
     }))
   })
@@ -71,7 +81,7 @@ export function useVariableAutocomplete(inputRef: Ref<HTMLInputElement | HTMLTex
   const scopedModuleItems = computed<AutocompleteItem[]>(() => {
     return workspace.modules.flatMap(module => Object.entries(module.variables ?? {}).map(([key, value]) => ({
       name: `${module.name}.${key}`,
-      preview: moduleVariableValue(value).slice(0, 40),
+      preview: moduleVariableValue(value, moduleEnvironmentId(module.id)).slice(0, 40),
       source: '跨模块引用',
     })))
   })

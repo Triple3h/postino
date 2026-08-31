@@ -6,22 +6,16 @@ import { toast } from 'vue-sonner'
 import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useWsStore } from '@/stores/ws'
-import { isWebSocketUrl, sendRequest as httpSendRequest } from '@/utils/http'
-import { resolveScriptChain, resolveInheritedProperties } from '@/utils/inheritance'
+import { isWebSocketUrl } from '@/utils/http'
+import { resolveInheritedProperties } from '@/utils/inheritance'
+import { runApiRequest } from '@/utils/api-request-runner'
 import { responseBodyToBlob, responseContentType, responseFileExtension } from '@/utils/binary-response'
-import {
-  createDefaultAuthConfig,
-  createDefaultBodyConfig,
-  executePostResponseScriptAsync,
-  executePreRequestScriptAsync,
-} from '@/utils/pre-request'
-import type { PostResponseData, ScriptResult, ScriptSendRequestInput } from '@/utils/pre-request'
 import { generateCurl } from '@/utils/export'
 import ExportPanel from '@/components/common/ExportPanel.vue'
 import CodeGenPanel from '@/components/common/CodeGenPanel.vue'
 import VariableAutocomplete from '@/components/common/VariableAutocomplete.vue'
 import { useVariableAutocomplete } from '@/composables/useVariableAutocomplete'
-import type { ApiConfig, AuthConfig, BodyConfig, Collection, CollectionNode, CookieItem, Environment, HttpMethod, KvPair, RequestType, ResponseData } from '@/types'
+import type { CollectionNode, HttpMethod, RequestType, ResponseData } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
@@ -120,12 +114,6 @@ const baseUrlOptions = computed(() => {
 const highlightedUrlSegments = computed(() => splitUrlForHighlight(currentUrl.value, envVars.value))
 
 // ── Phase 2:当前请求所属集合与它的环境 ──
-const currentCollection = computed<Collection | null>(() => {
-  const node = workspace.interfaces.find(item => item.apiId === store.currentApiId)
-  const cid = node ? (node.collectionId ?? node.moduleId) : null
-  return cid ? workspace.collections.find(item => item.id === cid) ?? null : null
-})
-
 // ── Phase 1.5:继承标记(集合/文件夹级 Auth/Headers/变量/脚本)──
 const inheritedSummary = computed(() => {
   const api = currentApi.value
@@ -189,28 +177,6 @@ const inheritedChips = computed<{ collectionName: string; chips: InheritedChip[]
 // ── FR-4:请求类型自动识别 —— ws/wss scheme 即 WS 模式,其余统一走流式 HTTP 管道;
 // ApiConfig.requestType 仅保留兼容存量数据,不再作为 UI 分支依据 ──
 const currentRequestType = computed<RequestType>(() => isWebSocketUrl(currentUrl.value) ? 'ws' : 'rest')
-
-// (FR-5:流式合并配置已迁入响应卡片 ResponsePanel/StreamMergeConfig)
-
-/** Phase 4.1:解析脚本执行链(集合 → 文件夹根→叶),请求自身脚本始终执行 */
-function resolveScriptSegments(api: ApiConfig, event: 'pre' | 'post'): Array<{ sourceName: string; script: string }> {
-  const node = workspace.interfaces.find(item => item.apiId === api.id)
-  const cid = node ? (node.collectionId ?? node.moduleId) : null
-  const collection = cid ? workspace.collections.find(item => item.id === cid) : null
-  const chain = collection && node
-    ? resolveScriptChain(collection, workspace.interfaces as CollectionNode[], node.id)
-    : { preScripts: [], postScripts: [] }
-  if (event === 'pre') {
-    return [
-      ...chain.preScripts.map(seg => ({ sourceName: seg.sourceName, script: seg.script })),
-      ...(api.preRequestScript?.trim() ? [{ sourceName: '请求', script: api.preRequestScript }] : []),
-    ]
-  }
-  return [
-    ...(api.postRequestScript?.trim() ? [{ sourceName: '请求', script: api.postRequestScript }] : []),
-    ...[...chain.postScripts].reverse().map(seg => ({ sourceName: seg.sourceName, script: seg.script })),
-  ]
-}
 
 const urlInputRef = ref<HTMLInputElement | null>(null)
 const urlAutocomplete = useVariableAutocomplete(urlInputRef)
@@ -365,439 +331,27 @@ function commitCustomMethod() {
   else if (isCustomMethod.value) currentMethod.value = 'GET'
 }
 
-function headerRecordToPairs(headers: Record<string, string>): KvPair[] {
-  return Object.entries(headers).map(([key, value]) => ({
-    key,
-    value,
-    enabled: true,
-  }))
-}
-
-function cloneKvPairs(items: KvPair[] = []): KvPair[] {
-  return items.map(item => ({ ...item }))
-}
-
-function cloneCookies(items: CookieItem[] = []): CookieItem[] {
-  return items.map(item => ({ ...item }))
-}
-
-function cloneBody(body?: BodyConfig): BodyConfig {
-  if (!body) return createDefaultBodyConfig()
-  return {
-    ...body,
-    formData: cloneKvPairs(body.formData),
-    urlEncoded: cloneKvPairs(body.urlEncoded),
-  }
-}
-
-function inferScriptBodyConfig(baseBody: BodyConfig, rawBody: string, urlencoded: KvPair[], formdata: KvPair[]): BodyConfig {
-  if (formdata.some(item => item.enabled !== false && item.key)) {
-    return { ...baseBody, type: 'form', raw: '', urlEncoded: [], formData: formdata }
-  }
-  if (urlencoded.some(item => item.enabled !== false && item.key)) {
-    return { ...baseBody, type: 'urlencoded', raw: '', urlEncoded: urlencoded, formData: [] }
-  }
-  if (rawBody && baseBody.type === 'none') {
-    try {
-      JSON.parse(rawBody)
-      return { ...baseBody, type: 'json', raw: rawBody, urlEncoded: [], formData: [] }
-    } catch {
-      return { ...baseBody, type: 'raw', raw: rawBody, urlEncoded: [], formData: [], contentType: baseBody.contentType || 'text/plain' }
-    }
-  }
-  return {
-    ...baseBody,
-    raw: rawBody,
-    urlEncoded: urlencoded,
-    formData: formdata,
-  }
-}
-
-function cloneAuth(auth?: AuthConfig): AuthConfig {
-  return auth ? { ...auth } : createDefaultAuthConfig()
-}
-
-function kvPairsFromEntries(entries: Iterable<[unknown, unknown]>): KvPair[] {
-  return Array.from(entries).map(([key, entryValue]) => ({
-    key: String(key),
-    value: String(entryValue ?? ''),
-    enabled: true,
-  })).filter(item => item.key)
-}
-
-function stringifyBodyInput(value: unknown): string {
-  if (value == null) return ''
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
-}
-
-function normalizeKvInput(input: unknown, value?: unknown): KvPair[] {
-  if (Array.isArray(input)) return input.flatMap(item => normalizeKvInput(item))
-  if (input && typeof input === 'object') {
-    const item = input as { key?: unknown; name?: unknown; value?: unknown; disabled?: unknown; description?: unknown }
-    if (!('key' in item) && !('name' in item)) {
-      const entries = (input as { entries?: unknown }).entries
-      if (typeof entries === 'function') return kvPairsFromEntries((entries as () => Iterable<[unknown, unknown]>).call(input))
-      return Object.entries(input as Record<string, unknown>).map(([key, entryValue]) => ({
-        key,
-        value: String(entryValue ?? ''),
-        enabled: true,
-      })).filter(field => field.key)
-    }
-    const key = String(item.key ?? item.name ?? '')
-    if (!key) return []
-    return [{
-      key,
-      value: String(item.value ?? ''),
-      enabled: item.disabled === undefined ? true : !item.disabled,
-      description: item.description == null ? undefined : String(item.description),
-    }]
-  }
-  if (typeof input === 'string') return [{ key: input, value: String(value ?? ''), enabled: true }]
-  return []
-}
-
-function normalizeHeaderInput(input: unknown): KvPair[] {
-  if (!input) return []
-  if (Array.isArray(input)) return input.flatMap(item => normalizeHeaderInput(item))
-  if (typeof input === 'object') {
-    const maybeRecord = input as Record<string, unknown>
-    if ('key' in maybeRecord || 'name' in maybeRecord) return normalizeKvInput(input)
-    return Object.entries(maybeRecord).map(([key, value]) => ({ key, value: String(value ?? ''), enabled: true }))
-  }
-  return []
-}
-
-function upsertPairs(target: KvPair[], source: KvPair[]) {
-  for (const item of source) {
-    const existing = target.find(pair => pair.key.toLowerCase() === item.key.toLowerCase())
-    if (existing) Object.assign(existing, item)
-    else target.push({ ...item })
-  }
-}
-
-function readScriptInput(input?: ScriptSendRequestInput): Record<string, any> {
-  if (!input) return {}
-  if (typeof input === 'string') return { url: input }
-  return input as Record<string, any>
-}
-
-function readScriptUrl(inputUrl: unknown, fallback: string): string {
-  if (typeof inputUrl === 'string') return inputUrl
-  if (inputUrl && typeof inputUrl === 'object') {
-    const url = inputUrl as { raw?: unknown; toString?: () => string }
-    if (typeof url.raw === 'string') return url.raw
-    if (url.toString && url.toString !== Object.prototype.toString) return url.toString()
-  }
-  return fallback
-}
-
-function applyScriptBodyOverride(target: BodyConfig, bodyInput: unknown): BodyConfig {
-  if (bodyInput == null) return target
-  if (typeof bodyInput === 'string') {
-    return { ...target, type: 'raw', raw: bodyInput, contentType: target.contentType || 'text/plain' }
-  }
-  if (typeof bodyInput !== 'object') {
-    return { ...target, type: 'raw', raw: String(bodyInput), contentType: target.contentType || 'text/plain' }
-  }
-
-  const body = bodyInput as Record<string, any>
-  const mode = String(body.mode ?? body.type ?? '').toLowerCase()
-  const entries = (bodyInput as { entries?: unknown }).entries
-  if (typeof entries === 'function') {
-    const pairs = kvPairsFromEntries((entries as () => Iterable<[unknown, unknown]>).call(bodyInput))
-    const ctorName = (bodyInput as { constructor?: { name?: string } }).constructor?.name?.toLowerCase() ?? ''
-    return ctorName.includes('urlsearchparams')
-      ? { ...target, type: 'urlencoded', raw: '', urlEncoded: pairs, formData: [] }
-      : { ...target, type: 'form', raw: '', urlEncoded: [], formData: pairs }
-  }
-  if (mode === 'raw' || 'raw' in body) {
-    return { ...target, type: body.contentType === 'application/json' ? 'json' : 'raw', raw: stringifyBodyInput(body.raw ?? body.content ?? ''), urlEncoded: [], formData: [], contentType: String(body.contentType ?? target.contentType ?? 'text/plain') }
-  }
-  if (mode === 'json') {
-    return { ...target, type: 'json', raw: stringifyBodyInput('content' in body ? body.content : bodyInput), urlEncoded: [], formData: [], contentType: 'application/json' }
-  }
-  if (mode === 'urlencoded' || mode === 'x-www-form-urlencoded') {
-    return { ...target, type: 'urlencoded', raw: '', urlEncoded: normalizeKvInput(body.urlencoded ?? body.urlencodedData ?? body.data ?? body.content ?? []), formData: [] }
-  }
-  if (mode === 'formdata' || mode === 'form') {
-    return { ...target, type: 'form', raw: '', urlEncoded: [], formData: normalizeKvInput(body.formdata ?? body.formData ?? body.data ?? body.content ?? []) }
-  }
-  if (mode === 'none') return { ...target, type: 'none', raw: '', urlEncoded: [], formData: [] }
-  return { ...target, type: 'json', raw: JSON.stringify(bodyInput), contentType: 'application/json' }
-}
-
-function normalizeMethod(method: unknown, fallback: HttpMethod): HttpMethod {
-  const upper = String(method ?? fallback).toUpperCase()
-  return methods.includes(upper as HttpMethod) ? upper as HttpMethod : fallback
-}
-
-function mergeEnvKeys(env: Environment, keys: string[], source: Record<string, string>) {
-  for (const key of keys) {
-    const index = env.variables.findIndex(item => item.key === key)
-    const nextValue = source[key]
-    if (nextValue === undefined) {
-      if (index >= 0) env.variables.splice(index, 1)
-      continue
-    }
-    if (index >= 0) {
-      env.variables[index] = { ...env.variables[index], value: nextValue, enabled: true }
-    } else {
-      env.variables.push({ key, value: nextValue, enabled: true })
-    }
-  }
-}
-
-/**
- * Phase 2.3 + 4.2:脚本变量按 scope 写回。
- * pm.environment → 当前集合所选环境(无则全局);pm.collectionVariables → 集合变量;pm.globals → 全局环境。
- */
-async function persistScriptEnvChanges(result: ScriptResult, collection: Collection | null) {
-  const envChanged = result.envChangedKeys ?? []
-  const globalChanged = result.changedGlobalKeys ?? []
-  if (envChanged.length > 0 || globalChanged.length > 0) {
-    const targetEnv = (collection?.selectedEnvId
-      ? store.environments.find(item => item.id === collection.selectedEnvId)
-      : null)
-      ?? store.environments.find(item => store.isGlobalEnv(item) && item.id === store.currentEnvId)
-      ?? store.environments.find(item => store.isGlobalEnv(item))
-    if (targetEnv) {
-      const env: Environment = { ...targetEnv, variables: targetEnv.variables.map(item => ({ ...item })) }
-      mergeEnvKeys(env, [...envChanged, ...globalChanged], { ...result.envVars, ...(result.globalVars ?? {}) })
-      await store.upsertEnvironment(env)
-    }
-  }
-
-  const collectionChanged = result.changedCollectionKeys ?? []
-  if (collection && collectionChanged.length > 0) {
-    const merged = collection.variables.map(item => ({ ...item }))
-    for (const key of collectionChanged) {
-      const nextValue = result.collectionVars?.[key]
-      const index = merged.findIndex(item => item.key === key)
-      if (nextValue === undefined) {
-        if (index >= 0) merged.splice(index, 1)
-        continue
-      }
-      if (index >= 0) merged[index] = { ...merged[index], currentValue: nextValue, enabled: true }
-      else merged.push({ key, initialValue: nextValue, currentValue: nextValue, secret: false, enabled: true })
-    }
-    await workspace.updateCollectionSettings(collection.id, { variables: merged })
-  }
-}
-
-function collectScriptArtifacts(result: ScriptResult) {
-  if (result.visualizations?.length) {
-    store.scriptVisualizations.push(...result.visualizations)
-  }
-  if (result.tests?.length) {
-    store.scriptTests.push(...result.tests)
-  }
-}
-
-function buildScriptInfo(api: ApiConfig, eventName: 'prerequest' | 'test', interfaceName = api.name) {
-  return {
-    moduleName: currentModule.value?.name || '',
-    categoryName: currentCategory.value?.name || '',
-    interfaceName,
-    eventName,
-  }
-}
-
-async function sendScriptHttpRequest(input?: ScriptSendRequestInput, baseApi?: ApiConfig): Promise<ResponseData> {
-  const request = readScriptInput(input)
-  const headers = baseApi ? cloneKvPairs(baseApi.headers) : []
-  upsertPairs(headers, normalizeHeaderInput(request.header))
-  upsertPairs(headers, normalizeHeaderInput(request.headers))
-
-  const params = baseApi ? cloneKvPairs(baseApi.params) : []
-  upsertPairs(params, normalizeKvInput(request.params))
-  if (request.url && typeof request.url === 'object') {
-    upsertPairs(params, normalizeKvInput((request.url as Record<string, unknown>).query))
-  }
-
-  const cookies = baseApi ? cloneCookies(baseApi.cookies) : []
-  upsertPairs(cookies, normalizeKvInput(request.cookie) as CookieItem[])
-  upsertPairs(cookies, normalizeKvInput(request.cookies) as CookieItem[])
-
-  const body = applyScriptBodyOverride(cloneBody(baseApi?.body), request.body)
-  const auth = { ...cloneAuth(baseApi?.auth), ...(request.auth && typeof request.auth === 'object' ? request.auth : {}) }
-
-  return httpSendRequest({
-    method: normalizeMethod(request.method, baseApi?.method ?? 'GET'),
-    url: readScriptUrl(request.url, baseApi?.url ?? ''),
-    headers,
-    params,
-    cookies,
-    autoCarryCookies: store.autoCarryCookies,
-    body,
-    auth,
-    corsMode: store.settings.corsMode,
-    proxyUrl: store.settings.proxyUrl,
-    envVars: store.getEnvVariables(),
-    timeoutMs: typeof request.timeout === 'number' && request.timeout > 0 ? request.timeout : undefined,
-    followRedirects: typeof request.followRedirects === 'boolean' ? request.followRedirects : undefined,
-  })
-}
-
-async function sendScriptInterface(interfaceOrApiId: string, overrides?: ScriptSendRequestInput): Promise<ResponseData> {
-  const node = workspace.interfaces.find(item => item.id === interfaceOrApiId || item.apiId === interfaceOrApiId || item.name === interfaceOrApiId)
-  const api = node?.apiId ? store.apis[node.apiId] : store.apis[interfaceOrApiId]
-  if (!api) throw new Error(`未找到接口：${interfaceOrApiId}`)
-  return sendScriptHttpRequest(overrides ?? { url: api.url, method: api.method }, api)
-}
-
 async function send() {
-  if (!currentUrl.value.trim()) return
-  if (!currentApi.value) return
-  // FR-4:WS 模式(ws/wss scheme)不走 HTTP 发送链,由 ws store 管理连接(发送框在 WsPanel)
+  if (!currentUrl.value.trim() || !currentApi.value) return
   if (currentRequestType.value === 'ws') {
     wsStore.toggleConnect(currentApi.value)
     return
   }
 
-  // Create AbortController for cancellation support
   const abortController = new AbortController()
   store.setRequestAbortController(abortController)
-
   store.loading = true
   store.response = null
-  store.scriptLogs = []
-  store.scriptVisualizations = []
-  store.scriptTests = []
-
-  const allLogs: import('@/utils/pre-request').ScriptLog[] = []
 
   try {
-    const api = currentApi.value
-    const envVars = store.getEnvVariables()
-    const collection = currentCollection.value
-
-    // Phase 1.2 + 4.4:继承 Auth/Headers 在发送时落地;请求自身显式配置优先级最高
-    const apiNode = workspace.interfaces.find(item => item.apiId === api.id)
-    const inheritedProps = collection && apiNode
-      ? resolveInheritedProperties(collection, workspace.interfaces as CollectionNode[], apiNode.id)
-      : null
-    const effectiveAuth = api.auth?.type === 'inherit'
-      ? (inheritedProps && inheritedProps.auth.source !== 'none'
-          ? cloneAuth(inheritedProps.auth.auth)
-          : cloneAuth())
-      : cloneAuth(api.auth)
-
-    // Execute pre-request script
-    let headers: Record<string, string> = {}
-    if (inheritedProps) {
-      for (const h of inheritedProps.headers) {
-        if (h.enabled && h.key) headers[h.key] = h.value
-      }
-    }
-    for (const h of api.headers) {
-      if (h.enabled && h.key) headers[h.key] = h.value
-    }
-
-    let method = api.method
-    let url = api.url
-    let body = api.body.raw || ''
-    let urlencoded = [...api.body.urlEncoded]
-    let formdata = [...api.body.formData]
-    let cookies = (api.cookies || []).map(cookie => ({ ...cookie }))
-    let effectiveEnvVars = envVars
-
-    // Phase 4.1:Postman 兼容执行链 = 集合 → 文件夹(根→叶) → 请求自身
-    const collectionVarStore: Record<string, string> = Object.fromEntries(
-      (collection?.variables ?? []).filter(v => v.enabled && v.key).map(v => [v.key, v.currentValue || v.initialValue]),
-    )
-    const globalEnvForScripts = store.environments.find(item => store.isGlobalEnv(item) && item.id === store.currentEnvId)
-      ?? store.environments.find(item => store.isGlobalEnv(item))
-    const globalVarStore: Record<string, string> = Object.fromEntries(
-      (globalEnvForScripts?.variables ?? []).filter(v => v.enabled && v.key).map(v => [v.key, v.value]),
-    )
-    let collectionStoreLatest = { ...collectionVarStore }
-    let globalStoreLatest = { ...globalVarStore }
-
-    const preSegments = resolveScriptSegments(api, 'pre')
-    for (const segment of preSegments) {
-      if (!segment.script?.trim()) continue
-      const scriptResult = await executePreRequestScriptAsync(
-        segment.script,
-        headers,
-        url,
-        body,
-        urlencoded,
-        formdata,
-        effectiveEnvVars,
-        {
-          requestMethod: method,
-          requestCookies: cookies,
-          sendRequest: input => sendScriptHttpRequest(input),
-          sendInterface: sendScriptInterface,
-          info: buildScriptInfo(api, 'prerequest', segment.sourceName === '请求' ? api.name : `${segment.sourceName}`),
-          collectionVarStore: collectionStoreLatest,
-          globalVarStore: globalStoreLatest,
-        },
-      )
-      method = normalizeMethod(scriptResult.method, method)
-      headers = scriptResult.headers
-      cookies = scriptResult.cookies
-      url = scriptResult.url
-      body = scriptResult.body
-      urlencoded = scriptResult.urlencoded
-      formdata = scriptResult.formdata
-      effectiveEnvVars = scriptResult.envVars
-      collectionStoreLatest = { ...collectionStoreLatest, ...(scriptResult.collectionVars ?? {}) }
-      globalStoreLatest = { ...globalStoreLatest, ...(scriptResult.globalVars ?? {}) }
-      if (segment.sourceName !== '请求') {
-        allLogs.push({ level: 'info', timestamp: Date.now(), args: [`执行继承前置脚本：${segment.sourceName}`] })
-      }
-      allLogs.push(...scriptResult.logs)
-      collectScriptArtifacts(scriptResult)
-      await persistScriptEnvChanges(scriptResult, collection)
-      if (scriptResult.skipRequest) {
-        store.response = {
-          status: 0,
-          statusText: 'Pre-request skipped',
-          headers: {},
-          body: '',
-          duration: 0,
-          size: 0,
-          url,
-          method,
-          requestHeaders: headers,
-          requestBody: body || null,
-          timestamp: Date.now(),
-        }
-        store.scriptLogs = allLogs
-        postSendAction.value = null
-        return
-      }
-    }
-
-    const effectiveBody = inferScriptBodyConfig(api.body, body, urlencoded, formdata)
-
-    // Send request with cancellation signal and streaming callback
-    const response = await httpSendRequest({
-      method,
-      url,
-      headers: headerRecordToPairs(headers),
-      params: api.params,
-      cookies,
-      autoCarryCookies: store.autoCarryCookies,
-      body: effectiveBody,
-      auth: effectiveAuth,
-      corsMode: store.settings.corsMode,
-      proxyUrl: store.settings.proxyUrl,
-      envVars: effectiveEnvVars,
+    const response = await runApiRequest(currentApi.value, {
+      method: currentMethod.value,
+      url: currentUrl.value,
       signal: abortController.signal,
-      streamMerge: api.streamMerge,
-      onStreamingUpdate: (streamingResponse: ResponseData) => {
+      onStreamingUpdate: streamingResponse => {
         store.response = streamingResponse
       },
     })
-
     store.response = response
 
     if (postSendAction.value === 'download') {
@@ -806,72 +360,11 @@ async function send() {
       showCodeGenPanel.value = true
     }
     postSendAction.value = null
-
-    // Phase 4.1:Postman 兼容 Post 脚本链 = 请求自身 → 文件夹(叶→根) → 集合
-    const postSegments = resolveScriptSegments(api, 'post')
-    for (const segment of postSegments) {
-      if (!segment.script?.trim()) continue
-      const postData: PostResponseData = {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-        body: response.body,
-        duration: response.duration,
-        responseSize: response.size,
-      }
-      const postResult = await executePostResponseScriptAsync(
-        segment.script,
-        postData,
-        effectiveEnvVars,
-        {
-          sendRequest: input => sendScriptHttpRequest(input),
-          sendInterface: sendScriptInterface,
-          info: buildScriptInfo(api, 'test', segment.sourceName === '请求' ? api.name : segment.sourceName),
-          collectionVarStore: collectionStoreLatest,
-          globalVarStore: globalStoreLatest,
-        },
-      )
-      collectionStoreLatest = { ...collectionStoreLatest, ...(postResult.collectionVars ?? {}) }
-      globalStoreLatest = { ...globalStoreLatest, ...(postResult.globalVars ?? {}) }
-      if (segment.sourceName !== '请求') {
-        allLogs.push({ level: 'info', timestamp: Date.now(), args: [`执行继承后置脚本：${segment.sourceName}`] })
-      }
-      allLogs.push(...postResult.logs)
-      collectScriptArtifacts(postResult)
-      await persistScriptEnvChanges(postResult, collection)
-    }
-
-    store.scriptLogs = allLogs
-
-    // Add to history(FR-4:流式标记记录「实际发生了流式」,与声明的请求类型解耦;chunks 不入库)
-    const streamExtras = response.chunks?.length
-      ? {
-          requestType: 'sse' as const,
-          streamMerge: api.streamMerge,
-          mergedText: response.mergedText || undefined,
-          mergedReasoning: response.mergedReasoning || undefined,
-          rawPreview: response.body.slice(0, 64 * 1024),
-        }
-      : {}
-    store.addHistory({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-      apiId: api.id,
-      method,
-      url,
-      status: response.status,
-      statusText: response.statusText,
-      duration: response.duration,
-      timestamp: Date.now(),
-      requestHeaders: response.requestHeaders,
-      requestBody: response.requestBody,
-      responseSize: response.size,
-      starred: false,
-      ...streamExtras,
-    })
-  } catch (err: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     store.response = {
       status: 0,
-      statusText: err.message || 'Unknown Error',
+      statusText: message || 'Unknown Error',
       headers: {},
       body: '',
       duration: 0,
@@ -882,11 +375,10 @@ async function send() {
       requestBody: null,
       timestamp: Date.now(),
     }
-    store.scriptLogs = allLogs
     postSendAction.value = null
   } finally {
     store.loading = false
-    store.clearRequestAbortController()
+    store.clearRequestAbortController(abortController)
   }
 }
 

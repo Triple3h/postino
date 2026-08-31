@@ -1,187 +1,77 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents when working with this repository.
+Guidance for coding agents working on Postino. Keep this file limited to repository-specific rules that cannot be inferred reliably from the code or `package.json`.
 
-## Project Overview
+## Project
 
-**Postino** is a lightweight, local-first API debugging workspace — no login required, supports cURL / Postman / OpenAPI import, with local-first storage persistence. It ships as both a **Chrome/Edge browser extension** (MV3) and an **Electron desktop app** (Windows / macOS).
+Postino is a local-first API debugging workspace delivered from one Vue 3 + TypeScript codebase as:
 
-The UI is built with **Vue 3 + TypeScript + Vite + Pinia**, sharing a single codebase across the extension and desktop targets.
+- a Chrome/Edge Manifest V3 extension;
+- an Electron desktop app for Windows and macOS.
 
-## Build Commands
+The user interface is localized in Chinese (`zh-CN`). New user-facing copy should remain consistent with the existing Chinese UI.
+
+## Code Navigation
+
+This repository is indexed by CodeGraph (`.codegraph/`). Before using `rg`, `find`, or opening many files to understand or locate code, use:
 
 ```bash
-# Install dependencies
-npm install
-
-# Vite dev server with hot reload
-npm run dev
-
-# Type-check (vue-tsc)
-npm run typecheck
-
-# Run unit tests (vitest)
-npm run test
-
-# Build browser extension only → dist-extension/
-npm run build:ext
-
-# Build desktop app only (current platform)
-npm run build:desktop
-
-# Build desktop app — Windows
-npm run build:desktop:win
-
-# Build desktop app — macOS
-npm run build:desktop:mac
-
-# Build desktop app — all platforms
-npm run build:desktop:all
-
-# Build everything — extension + desktop (current platform)
-npm run build:all
-
-# Build pm-facade IIFE bundle only (extension pre-request script runtime)
-npm run build:facade
+codegraph explore "<question or symbol>"
+codegraph node <symbol-or-file>
 ```
 
-Releases are triggered via GitHub Actions on `v*` tags (e.g., `git tag v1.1.0 && git push --tags`). The workflow builds Windows (.exe), macOS (.dmg), and the browser extension (.zip) and publishes a GitHub Release.
+Use normal filesystem tools when CodeGraph does not answer the question or for non-code files.
 
-## Architecture
+## Architecture Guardrails
 
-### Tech Stack
+- `src/` is shared by the extension and desktop app. Do not create target-specific copies of shared UI or business logic.
+- Persistent data uses Dexie/IndexedDB (`PostinoDB`). Do not write Vue reactive proxies directly; values must be converted to cloneable plain data.
+- Extension requests run through `extension/background.js` to bypass browser CORS restrictions. Desktop requests rely on Electron's configuration in `desktop/main.js`.
+- Pre-request script compatibility lives in `src/scripting/pm-facade.ts`. After changing it, run `npm run build:facade` and include the rebuilt `extension/pm-facade.js`.
+- Use `build.js` through the npm scripts for packaged builds instead of invoking Vite or electron-builder directly.
+- Unit tests belong in `src/**/__tests__/*.test.ts`.
 
-- **Framework**: Vue 3 (`<script setup>` SFCs) + TypeScript
-- **Build**: Vite 8
-- **State**: Pinia stores (`src/stores/`)
-- **Data Layer**: Dexie (IndexedDB wrapper, `src/db/index.ts`)
-- **Editor**: CodeMirror 6 (JSON / headers / body editing)
-- **Styling**: Tailwind CSS 4 + CSS custom properties (design tokens in `src/assets/styles/tokens.css`)
-- **Routing**: Vue Router 4 (popup / side-panel / full-page views)
-- **Desktop**: Electron 33 + electron-builder
-- **Extension**: Manifest V3 service worker
+## Common Commands
 
-### Codebase Layout
-
-```
-src/                        # Shared Vue 3 SPA source (single codebase for all targets)
-├── App.vue
-├── main.ts                 # App entry point
-├── components/
-│   ├── common/             # Reusable components (CodeMirror editor, KV editor, history, search, …)
-│   ├── editor/             # Request editor (URL bar, body, tabs, headers)
-│   ├── response/           # Response viewer (body, headers, timing)
-│   ├── shell/              # App shell (header, layout, pane layout)
-│   └── sidebar/            # Collections tree, save modal
-├── composables/            # Vue composables (keyboard shortcuts, context menu, settings)
-├── db/                     # Dexie database schema + migration
-├── scripting/              # Pre-request script runtime (pm.* facade source)
-├── stores/                 # Pinia stores (app state)
-├── types/                  # TypeScript type definitions
-├── utils/                  # Utilities (template vars, migration, data-source sync)
-└── views/                  # Page views
-    ├── PopupView.vue       # Extension popup
-    ├── SidePanelView.vue   # Extension side panel
-    └── SettingsView.vue    # In-app settings
-
-extension/                  # Chrome/Edge extension (MV3)
-├── manifest.json           # Extension manifest (<all_urls> host permissions)
-├── background.js           # Service worker — CORS-bypassing fetch + streaming
-├── content.js              # Content bridge — page integration, JSON formatter, drag-and-drop
-├── devtools.js / devtools-panel.html  # DevTools network capture panel
-├── popup-fit.js            # Popup window sizing
-├── pm-facade.js            # Built IIFE — pre-request script runtime (build:facade)
-├── script-worker.js        # Web Worker — runs pre-request scripts (imports pm-facade.js)
-└── sandbox.html            # Sandboxed iframe fallback for pre-request scripts (CSP)
-
-desktop/                    # Electron desktop app
-├── main.js                 # Main process — BrowserWindow with webSecurity: false
-├── preload.js              # Preload script — exposes window.electronAPI
-├── copy-html.js            # Pre-build: copies index.html into desktop/
-└── package.json            # Electron-builder config (appId: com.postino.app)
-
-build.js                    # Unified build script — orchestrates extension + desktop builds
-vite.config.ts              # Vite config — main app build
-vite.facade.config.ts       # Vite config — pm-facade IIFE build for extension
+```bash
+npm install                 # install dependencies
+npm run dev                 # development server
+npm run typecheck           # Vue/TypeScript checks
+npm run test                # Vitest unit tests
+npm run build:ext           # extension build
+npm run build:desktop       # desktop build for the current platform
+npm run build:all           # extension and desktop builds
+npm run build:facade        # rebuild extension pm facade
 ```
 
-### Shared Codebase Model
+For normal code changes, run `npm run typecheck` and `npm run test`. Also run the relevant target build when changing build configuration, extension code, Electron code, or cross-target behavior.
 
-Unlike the earlier version of this project, the UI is now a **single shared codebase** (`src/`). The extension and desktop app both import the same Vue app — there is no duplicated logic. View selection is by route:
+## GitHub Development Workflow
 
-- `/popup` → `PopupView` (compact)
-- `/side-panel` → `SidePanelView` (narrow sidebar)
-- `/` → full-page view (default for standalone / desktop)
+Protect `main` as the releasable branch. Make changes on short-lived branches and merge them through pull requests.
 
-### Data Layer (`src/db/`)
+1. Create an Issue for user-visible features, bugs, or work that needs discussion or acceptance criteria. Trivial maintenance, documentation, and small refactors may skip the Issue.
+2. Create one focused branch per change from the latest `main`, using names such as `feat/...`, `fix/...`, `refactor/...`, or `release/...`.
+3. Use clear commits, preferably Conventional Commit prefixes such as `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, and `chore:`.
+4. Open a pull request into `main`. Explain the behavior change, verification performed, and any migration or platform impact. Link the Issue with `Closes #<number>` when applicable.
+5. Keep each pull request focused and require CI (`typecheck`, unit tests, and extension build) to pass before merging.
+6. Merge only reviewed, releasable changes. Do not push feature work directly to remote `main` except for an explicitly approved emergency fix.
 
-All persistent data lives in **IndexedDB via Dexie** (database name: `PostinoDB`).
+An Issue records why and what to build; a pull request records and validates the implementation. An Issue is recommended, not mandatory for every commit.
 
-Key tables:
-- `apis` — API request configurations (id, name, method, folder, updatedAt)
-- `environments` — Postman-style environment sets
-- `history` — Request/response history
-- `settings` — Key-value app settings
-- `categories` / `modules` / `interfaces` — Collection tree structure
+## Releases
 
-> **Note**: Vue reactive proxies cannot be stored directly in IndexedDB (throws `DataCloneError`). The DB layer installs Dexie hooks to deep-clone objects before write.
+Use Semantic Versioning:
 
-Legacy localStorage keys (`postino_bin_data`, `postino_env_vars`, `postino_history`) are still supported for migration but the primary store is IndexedDB.
+- patch (`1.2.1`) for backward-compatible bug fixes;
+- minor (`1.3.0`) for backward-compatible features;
+- major (`2.0.0`) for breaking changes.
 
-### Electron Desktop App (`desktop/`)
+Before release, synchronize the version in `package.json`, `package-lock.json`, `desktop/package.json`, `desktop/package-lock.json`, and `extension/manifest.json`. Merge the release change into `main`, verify CI, then tag that exact commit and push the single tag:
 
-- `main.js` — Creates `BrowserWindow` with `webSecurity: false` to bypass CORS. Injects `Access-Control-Allow-Origin: *` via `onHeadersReceived`.
-- `preload.js` — Exposes `window.electronAPI` (isDesktop flag, platform metadata).
-- Build: `npm run build:desktop` → electron-builder packages the app.
-
-### Chrome/Edge Extension (`extension/`)
-
-Manifest V3 extension:
-
-- `background.js` — Service worker with `<all_urls>` host permissions. Handles `API_REQUEST` (CORS-bypassing fetch), `STREAMING_REQUEST` (SSE via ReadableStream), `CANCEL_STREAMING`, and `DOWNLOAD_REQUEST`.
-- `content.js` — Injected into all pages. Provides: text selection → send to side panel, drag-and-drop request insertion, JSON formatting overlay, page context capture.
-- `devtools.js` / `devtools-panel.html` — DevTools panel for capturing network requests from the Network tab.
-- **Pre-request scripts**: Run in a Web Worker (`script-worker.js`) that imports the `pm-facade.js` IIFE. CSP blocks `new Function()`, so a sandboxed iframe (`sandbox.html`) is used as a fallback.
-
-## Key Features Implementation
-
-### CORS Handling
-
-- **Electron**: `webSecurity: false` + `onHeadersReceived` header injection.
-- **Extension**: Background service worker with full host permissions performs the actual fetch — no proxy needed.
-
-### Pre-request Scripts
-
-Postman-compatible `pm.*` API (`src/scripting/pm-facade.ts`, built to `extension/pm-facade.js`):
-
-```javascript
-pm.environment.set(key, value)
-pm.environment.get(key)
-pm.environment.unset(key)
-pm.request.headers.add({ key, value })
-pm.request.url.addQueryParams([{ key, value }])
-pm.request.body.urlencoded.add({ key, value })
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-A `crypto-shim` provides SHA-256 for `pm` script compatibility. Scripts run in a Web Worker in the extension; the desktop uses in-page execution.
-
-### Environment Variables
-
-Template syntax `{{variableName}}` resolved in URLs, headers, and body (`resolveTemplateVars()` in `src/utils/`). Stored in the `environments` table.
-
-### Streaming (Extension Only)
-
-SSE/streaming via `STREAMING_REQUEST` → background service worker reads `ReadableStream` → `STREAM_CHUNK` messages pushed to the UI. `CANCEL_STREAMING` aborts the `AbortController`.
-
-### Request Import
-
-cURL, Postman collection (v2.1), and OpenAPI formats (`src/utils/`).
-
-## Important Notes
-
-- The UI is a **single shared Vue 3 codebase** — changes to `src/` propagate to both extension and desktop.
-- Storage uses **IndexedDB (Dexie)**; the database name is `PostinoDB`.
-- Unit tests live in `src/**/__tests__/*.test.ts` (vitest). Run with `npm run test`.
-- The app UI is localized in **Chinese (zh-CN)**.
-- `build.js` orchestrates the full build — use it instead of calling vite/electron-builder directly.
-- The `pm-facade.js` IIFE bundle must be rebuilt (`npm run build:facade`) after changes to `src/scripting/pm-facade.ts`.
+Tags matching `v*` trigger `.github/workflows/release.yml`, which builds the Windows app, macOS app, and browser extension and publishes a GitHub Release. Do not create or move a release tag until the version commit is on `main` and checks have passed.

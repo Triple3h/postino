@@ -65,6 +65,14 @@ const isReadonlyModule = computed(() => {
 const streamMergeActive = computed(() => (currentApi.value?.streamMerge?.mode ?? defaultStreamMergeConfig().mode) !== 'off')
 const showMergePanel = ref(false)
 
+function extractJsonVariable(path: string, keyName: string) {
+  if (!currentApi.value || isReadonlyModule.value) return
+  const variableName = /^\d+$/.test(keyName) ? 'value' : keyName
+  window.dispatchEvent(new CustomEvent('postino:extract-response-variable', {
+    detail: { path, variableName },
+  }))
+}
+
 /** 合并状态即时重算:配置在响应卡片里改动后对已有 chunks 回放(StreamMerger 引擎与发送管道一致) */
 const liveMergedState = computed<StreamMergeState | undefined>(() => {
   const chunks = store.response?.chunks
@@ -971,7 +979,9 @@ function retrySend() {
             :data="parsedJson"
             :search-query="searchQuery"
             root-name="response"
+            :extractable="!isReadonlyModule"
             class="lens-fill"
+            @extract-variable="extractJsonVariable"
           />
           <CodeMirrorEditor
             v-else-if="bodyMode === 'pretty'"

@@ -7,13 +7,15 @@ import BodyEditor from '@/components/editor/BodyEditor.vue'
 import AuthConfig from '@/components/editor/AuthConfig.vue'
 import CookieConfig from '@/components/editor/CookieConfig.vue'
 import CodeMirrorEditor from '@/components/common/CodeMirrorEditor.vue'
+import PostResponseActions from '@/components/editor/PostResponseActions.vue'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import { COMMON_HEADER_NAMES } from '@/utils/common-headers'
-import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem } from '@/types'
+import type { KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem, PostResponseExtractor } from '@/types'
 
 const store = useAppStore()
 const workspace = useWorkspaceStore()
 const activeTab = ref('params')
+const postEditorMode = ref<'actions' | 'script'>('actions')
 const tabPanelRef = ref<HTMLElement | null>(null)
 
 const currentApi = computed(() => store.getCurrentApi())
@@ -30,7 +32,7 @@ const tabs = [
   { key: 'headers', label: 'Headers' },
   { key: 'auth', label: 'Auth' },
   { key: 'pre-script', label: '前置脚本' },
-  { key: 'post-script', label: '后置脚本' },
+  { key: 'post-script', label: '后置操作' },
   { key: 'variables', label: '变量' },
 ]
 
@@ -84,6 +86,13 @@ function updatePostScript(value: string) {
   }
 }
 
+function updatePostResponseExtractors(postResponseExtractors: PostResponseExtractor[]) {
+  if (isReadonlyModule.value) return
+  if (currentApi.value) store.updateApi(currentApi.value.id, { postResponseExtractors })
+}
+
+const hasParentFolder = computed(() => workspace.getAncestorFolders(currentApi.value?.id ?? '').length > 0)
+
 function updateCookies(cookies: CookieItem[]) {
   if (isReadonlyModule.value) return
   if (currentApi.value) store.updateApi(currentApi.value.id, { cookies })
@@ -122,6 +131,34 @@ function activeTabLabel(): string {
 
 function selectTab(key: string) {
   activeTab.value = key
+}
+
+interface ExtractResponseVariableDetail {
+  path?: string
+  variableName?: string
+}
+
+function handleExtractResponseVariable(event: Event) {
+  if (!currentApi.value || isReadonlyModule.value) return
+  const detail = (event as CustomEvent<ExtractResponseVariableDetail>).detail
+  const jsonPath = detail?.path?.trim()
+  if (!jsonPath) return
+
+  const existing = currentApi.value.postResponseExtractors ?? []
+  if (!existing.some(rule => rule.jsonPath === jsonPath && rule.extractMode === 'jsonpath')) {
+    updatePostResponseExtractors([...existing, {
+      id: `extract:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      enabled: true,
+      variableName: detail.variableName?.trim() || 'value',
+      variableScope: 'collection',
+      source: 'response-json',
+      extractMode: 'jsonpath',
+      jsonPath,
+      unwrapArray: false,
+    }])
+  }
+  activeTab.value = 'post-script'
+  postEditorMode.value = 'actions'
 }
 
 function selectionSnippet(text: string, start: number, end: number): string {
@@ -235,8 +272,14 @@ function handleSelectionActivity() {
 
 watch([activeTab, currentApi], () => publishEditorActivity(false))
 
-onMounted(() => document.addEventListener('selectionchange', handleSelectionActivity))
-onUnmounted(() => document.removeEventListener('selectionchange', handleSelectionActivity))
+onMounted(() => {
+  document.addEventListener('selectionchange', handleSelectionActivity)
+  window.addEventListener('postino:extract-response-variable', handleExtractResponseVariable)
+})
+onUnmounted(() => {
+  document.removeEventListener('selectionchange', handleSelectionActivity)
+  window.removeEventListener('postino:extract-response-variable', handleExtractResponseVariable)
+})
 
 function appendPreSnippet(code: string) {
   if (isReadonlyModule.value || !currentApi.value) return
@@ -372,24 +415,39 @@ function formatLogTime(ts: number): string {
         </div>
       </div>
       <div v-if="activeTab === 'post-script'" class="tab-inner script-tab-inner">
-        <div class="script-toolbar">
-          <button class="btn btn-sm btn-primary" @click="runCurrentScriptFlow">运行脚本</button>
-          <button
-            v-for="snippet in scriptSnippets"
-            :key="`post-${snippet.label}`"
-            class="btn btn-sm"
-            :disabled="isReadonlyModule"
-            @click="appendPostSnippet(snippet.code)"
-          >{{ snippet.label }}</button>
+        <div class="post-mode-tabs">
+          <button :class="{ active: postEditorMode === 'actions' }" @click="postEditorMode = 'actions'">
+            提取变量 <small>{{ currentApi?.postResponseExtractors?.length || 0 }}</small>
+          </button>
+          <button :class="{ active: postEditorMode === 'script' }" @click="postEditorMode = 'script'">脚本</button>
         </div>
-        <CodeMirrorEditor
-          class="script-editor"
-          :model-value="currentApi?.postRequestScript || ''"
-          language="javascript"
-          placeholder="// 后置脚本:在收到响应后执行"
-          @update:model-value="updatePostScript"
+        <PostResponseActions
+          v-if="postEditorMode === 'actions'"
+          :model-value="currentApi?.postResponseExtractors || []"
           :readonly="isReadonlyModule"
+          :has-folder="hasParentFolder"
+          @update:model-value="updatePostResponseExtractors"
         />
+        <div v-else class="post-script-editor">
+          <div class="script-toolbar">
+            <button class="btn btn-sm btn-primary" @click="runCurrentScriptFlow">运行脚本</button>
+            <button
+              v-for="snippet in scriptSnippets"
+              :key="`post-${snippet.label}`"
+              class="btn btn-sm"
+              :disabled="isReadonlyModule"
+              @click="appendPostSnippet(snippet.code)"
+            >{{ snippet.label }}</button>
+          </div>
+          <CodeMirrorEditor
+            class="script-editor"
+            :model-value="currentApi?.postRequestScript || ''"
+            language="javascript"
+            placeholder="// 后置脚本:在收到响应后执行"
+            @update:model-value="updatePostScript"
+            :readonly="isReadonlyModule"
+          />
+        </div>
         <div class="script-log-panel">
           <strong>脚本日志</strong>
           <div v-if="recentScriptLogs.length === 0" class="script-log-empty">发送请求后显示 console / pm.test / pm.visualizer 日志。</div>
@@ -530,6 +588,40 @@ function formatLogTime(ts: number): string {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+.post-mode-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.post-mode-tabs button {
+  padding: 5px 9px;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  border-bottom: 2px solid transparent;
+}
+
+.post-mode-tabs button.active {
+  color: var(--accent-color);
+  border-bottom-color: var(--accent-color);
+}
+
+.post-mode-tabs small {
+  margin-left: 3px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--primary-dark-color);
+}
+
+.post-script-editor {
+  flex: 1;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .script-log-panel {

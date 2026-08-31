@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Check, Contrast, Monitor, Moon, Sun } from '@lucide/vue'
+import { ArchiveRestore, Check, Contrast, Download, History, Monitor, Moon, RotateCcw, Sun, Trash2, X } from '@lucide/vue'
 import { useAppStore } from '@/stores/app'
-import { useWorkspaceStore } from '@/stores/workspace'
 import { useSettings, ACCENT_COLORS, THEME_COLOR_MODES } from '@/composables/useSettings'
 import { useDialog } from '@/composables/useDialog'
 import { useFileImport } from '@/composables/useFileImport'
 import { SHORTCUT_ACTIONS, DEFAULT_SHORTCUTS, getEffectiveShortcuts, eventToShortcut } from '@/utils/shortcuts'
-import { generateCollectionBackup } from '@/utils/export'
+import {
+  clearWorkspaceData,
+  createFullBackup,
+  getFullBackupStats,
+  parseFullBackup,
+  resetAllData,
+  restoreFullBackup,
+  serializeFullBackup,
+  type FullBackupDocument,
+} from '@/utils/full-backup'
 import { toast } from 'vue-sonner'
 import { db } from '@/db'
 import type { AccentColor, AppShortcutAction, ThemeColorMode } from '@/types'
@@ -18,7 +26,6 @@ import type { AccentColor, AppShortcutAction, ThemeColorMode } from '@/types'
  * 全部写入 db.settings 经 useSettings 代理,即时生效。
  */
 const store = useAppStore()
-const workspace = useWorkspaceStore()
 const { settings } = useSettings()
 const dialog = useDialog()
 const { importFiles } = useFileImport()
@@ -120,16 +127,31 @@ const shortcutGroups = computed(() => {
 // ── 数据 ──
 const restoreInput = ref<HTMLInputElement | null>(null)
 const importInput = ref<HTMLInputElement | null>(null)
+const restorePreview = ref<{
+  fileName: string
+  fileSize: number
+  backup: FullBackupDocument
+} | null>(null)
+const exportingBackup = ref(false)
+const restoringBackup = ref(false)
 
-function exportBackup() {
-  const doc = generateCollectionBackup({
-    collections: [...workspace.collections],
-    nodes: [...workspace.interfaces],
-    environments: [...store.environments],
-    apis: { ...store.apis },
-  })
-  downloadFile(`postino-backup-${new Date().toISOString().slice(0, 10)}.json`, doc, 'application/json;charset=utf-8')
-  toast.success('备份已导出(secret 值已剥离)')
+const restoreStats = computed(() => restorePreview.value
+  ? getFullBackupStats(restorePreview.value.backup)
+  : null)
+
+async function exportBackup() {
+  exportingBackup.value = true
+  try {
+    const backup = await createFullBackup()
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    downloadFile(`postino-full-backup-${stamp}.json`, serializeFullBackup(backup), 'application/json;charset=utf-8')
+    toast.success('完整备份已导出')
+  } catch (err) {
+    console.error('Backup failed:', err)
+    toast.error('导出备份失败')
+  } finally {
+    exportingBackup.value = false
+  }
 }
 
 function downloadFile(fileName: string, content: string, mime: string) {
@@ -139,7 +161,7 @@ function downloadFile(fileName: string, content: string, mime: string) {
   a.href = url
   a.download = fileName
   a.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 async function handleRestoreFile(event: Event) {
@@ -149,18 +171,34 @@ async function handleRestoreFile(event: Event) {
   if (!file) return
   try {
     const content = await file.text()
-    const { parseCollectionBackup } = await import('@/utils/export')
-    const backup = parseCollectionBackup(content)
-    if (!backup) {
-      toast.error('无法识别的备份文件')
-      return
+    restorePreview.value = {
+      fileName: file.name,
+      fileSize: file.size,
+      backup: parseFullBackup(content),
     }
-    const stats = await store.restoreCollectionBackup(backup)
-    toast.success(`已恢复备份:集合 ${stats.collections} · 节点 ${stats.nodes} · 接口 ${stats.apis} · 环境 ${stats.environments}`)
+  } catch (err) {
+    console.error('Backup preview failed:', err)
+    toast.error(err instanceof Error ? err.message : '无法读取备份文件')
+  }
+}
+
+async function confirmRestore() {
+  if (!restorePreview.value || restoringBackup.value) return
+  restoringBackup.value = true
+  try {
+    await restoreFullBackup(restorePreview.value.backup)
+    location.reload()
   } catch (err) {
     console.error('Restore failed:', err)
-    toast.error('恢复备份失败')
+    toast.error('恢复备份失败，现有数据未被修改')
+    restoringBackup.value = false
   }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 async function handleImportFile(event: Event) {
@@ -169,19 +207,44 @@ async function handleImportFile(event: Event) {
   input.value = ''
 }
 
-async function clearAllData() {
+async function clearHistoryData() {
+  const count = store.history.length
   const ok = await dialog.confirm({
-    title: '清空全部数据',
-    message: '将删除全部集合、请求、环境与历史记录,并重置设置。此操作不可撤销,建议先导出备份。',
-    confirmText: '清空全部',
+    title: '清空历史记录',
+    message: `将永久删除 ${count} 条请求历史，不影响集合、请求、环境和设置。`,
+    confirmText: '清空历史',
     danger: true,
   })
   if (!ok) return
-  await Promise.all([
-    db.apis.clear(), db.groups.clear(), db.environments.clear(), db.history.clear(),
-    db.categories.clear(), db.modules.clear(), db.interfaces.clear(), db.collections.clear(), db.settings.clear(),
-  ])
+  await db.history.clear()
+  store.history = []
+  toast.success('历史记录已清空')
+}
+
+async function clearWorkspace() {
+  const ok = await dialog.confirm({
+    title: '清空工作区',
+    message: '将永久删除全部集合、文件夹、请求及模块日志。环境、请求历史和应用设置会保留。',
+    confirmText: '清空工作区',
+    danger: true,
+  })
+  if (!ok) return
+  await clearWorkspaceData()
+  location.reload()
+}
+
+async function clearAllData() {
+  const ok = await dialog.confirm({
+    title: '重置全部数据',
+    message: '将删除数据库中的全部集合、请求、环境、历史与设置，并清除本地界面偏好。重启后恢复为初始状态。建议先导出完整备份。',
+    confirmText: '重置全部',
+    danger: true,
+  })
+  if (!ok) return
+  await resetAllData()
   try { localStorage.clear() } catch { /* 忽略 */ }
+  const chromeApi = (globalThis as any).chrome
+  try { await chromeApi?.storage?.local?.clear?.() } catch { /* 忽略 */ }
   location.reload()
 }
 </script>
@@ -339,28 +402,92 @@ async function clearAllData() {
       <div class="section-body">
         <div class="control-row">
           <span class="control-label">备份 / 恢复</span>
-          <div class="data-actions">
-            <button class="btn btn-sm" @click="exportBackup">导出全部数据(备份)</button>
-            <button class="btn btn-sm" @click="restoreInput?.click()">从备份恢复…</button>
+          <div class="data-operation">
+            <div class="data-actions">
+              <button class="btn btn-sm btn-primary" :disabled="exportingBackup" @click="exportBackup">
+                <Download :size="14" />
+                {{ exportingBackup ? '正在导出…' : '导出完整备份' }}
+              </button>
+              <button class="btn btn-sm" @click="restoreInput?.click()">
+                <ArchiveRestore :size="14" />
+                从备份恢复…
+              </button>
+            </div>
+            <small class="control-hint">完整备份包含所有数据库表及敏感变量，请妥善保管。恢复前会显示内容预览。</small>
             <input ref="restoreInput" type="file" accept="application/json,.json" class="hidden" @change="handleRestoreFile" />
           </div>
         </div>
         <div class="control-row">
           <span class="control-label">导入</span>
-          <div class="data-actions">
-            <button class="btn btn-sm" @click="importInput?.click()">导入接口文件…</button>
+          <div class="data-operation">
+            <div class="data-actions">
+              <button class="btn btn-sm" @click="importInput?.click()">导入接口文件…</button>
+            </div>
             <input ref="importInput" type="file" multiple class="hidden" @change="handleImportFile" />
             <small class="control-hint">支持 cURL、Postman(v2.1 树/环境)、OpenAPI、HAR、自有备份;旧版 localStorage 数据会在启动时自动提示迁移。</small>
           </div>
         </div>
         <div class="control-row">
           <span class="control-label">危险操作</span>
-          <div class="data-actions">
-            <button class="btn btn-sm danger" @click="clearAllData">清空全部数据…</button>
+          <div class="data-operation">
+            <div class="data-actions">
+              <button class="btn btn-sm danger" @click="clearHistoryData">
+                <History :size="14" />
+                清空历史…
+              </button>
+              <button class="btn btn-sm danger" @click="clearWorkspace">
+                <Trash2 :size="14" />
+                清空工作区…
+              </button>
+              <button class="btn btn-sm danger" @click="clearAllData">
+                <RotateCcw :size="14" />
+                重置全部数据…
+              </button>
+            </div>
+            <small class="control-hint">每项操作的保留范围不同，执行前会再次确认。</small>
           </div>
         </div>
       </div>
     </section>
+
+    <div v-if="restorePreview && restoreStats" class="restore-overlay" @click.self="restorePreview = null">
+      <section class="restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-title">
+        <header class="restore-head">
+          <div>
+            <h2 id="restore-title">恢复备份</h2>
+            <p>{{ restorePreview.fileName }} · {{ formatFileSize(restorePreview.fileSize) }}</p>
+          </div>
+          <button class="icon-button" title="关闭" :disabled="restoringBackup" @click="restorePreview = null">
+            <X :size="17" />
+          </button>
+        </header>
+
+        <div class="restore-meta">
+          <span>备份格式 v{{ restorePreview.backup.version }}</span>
+          <span>数据库 v{{ restorePreview.backup.databaseVersion }}</span>
+          <span>{{ new Date(restorePreview.backup.exportedAt).toLocaleString('zh-CN') }}</span>
+        </div>
+
+        <div class="restore-stats">
+          <div><strong>{{ restoreStats.collections }}</strong><span>集合</span></div>
+          <div><strong>{{ restoreStats.apis }}</strong><span>请求</span></div>
+          <div><strong>{{ restoreStats.folders }}</strong><span>文件夹</span></div>
+          <div><strong>{{ restoreStats.environments }}</strong><span>环境</span></div>
+          <div><strong>{{ restoreStats.history }}</strong><span>历史</span></div>
+          <div><strong>{{ restoreStats.auditLogs }}</strong><span>日志</span></div>
+        </div>
+
+        <p class="restore-warning">恢复将用备份中的 {{ restoreStats.totalRows }} 条记录替换当前全部数据库内容。此操作不能撤销。</p>
+
+        <footer class="restore-actions">
+          <button class="btn" :disabled="restoringBackup" @click="restorePreview = null">取消</button>
+          <button class="btn btn-primary" :disabled="restoringBackup" @click="confirmRestore">
+            <ArchiveRestore :size="14" />
+            {{ restoringBackup ? '正在恢复…' : '确认恢复' }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -630,6 +757,22 @@ async function clearAllData() {
   flex-wrap: wrap;
 }
 
+.data-operation {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.data-actions .btn,
+.restore-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 .data-actions .danger {
   color: var(--status-critical-error-color);
   border-color: color-mix(in srgb, var(--status-critical-error-color) 40%, var(--divider-dark-color));
@@ -643,10 +786,132 @@ async function clearAllData() {
   display: none;
 }
 
+.restore-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1003;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(4px);
+}
+
+.restore-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  border: 1px solid var(--divider-dark-color);
+  border-radius: var(--radius-md);
+  background: var(--primary-color);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
+}
+
+.restore-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.restore-head h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.restore-head p {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+}
+
+.icon-button {
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--secondary-color);
+}
+
+.icon-button:hover {
+  background: var(--primary-light-color);
+  color: var(--secondary-dark-color);
+}
+
+.restore-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 12px 20px;
+  color: var(--secondary-light-color);
+  font-size: var(--font-size-tiny);
+}
+
+.restore-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 20px;
+  overflow: hidden;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-sm);
+  background: var(--divider-color);
+}
+
+.restore-stats div {
+  display: flex;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: var(--primary-light-color);
+}
+
+.restore-stats strong {
+  color: var(--secondary-dark-color);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.restore-stats span {
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+}
+
+.restore-warning {
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--status-critical-error-color) 32%, var(--divider-color));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--status-critical-error-color) 7%, transparent);
+  color: var(--secondary-color);
+  font-size: var(--font-size-tiny);
+  line-height: 1.6;
+}
+
+.restore-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px 18px;
+}
+
 @media (max-width: 860px) {
   .settings-section {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .restore-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

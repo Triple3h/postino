@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ChevronRight } from '@lucide/vue'
+import { Braces, ChevronRight } from '@lucide/vue'
+import { appendJsonPath } from '@/utils/post-response-extract'
 
 const props = defineProps<{
   data: unknown
@@ -12,11 +13,13 @@ const props = defineProps<{
   isIndex: boolean
   maxDepth: number
   expandedPaths: Set<string>
+  extractable: boolean
 }>()
 
 const emit = defineEmits<{
   toggle: [path: string]
   'context-menu': [event: MouseEvent, value: unknown, path: string]
+  'extract-variable': [path: string, keyName: string]
 }>()
 
 function getType(val: unknown): 'string' | 'number' | 'boolean' | 'null' | 'array' | 'object' | 'undefined' {
@@ -60,8 +63,7 @@ const entries = computed(() => {
 })
 
 function buildChildPath(key: string, isIndex: boolean): string {
-  if (isIndex) return `${props.path}[${key}]`
-  return `${props.path}.${key}`
+  return appendJsonPath(props.path, key, isIndex)
 }
 
 function matchesSearch(val: unknown, key: string, query: string): boolean {
@@ -107,6 +109,10 @@ function onToggle() {
 
 function onContextMenu(e: MouseEvent) {
   emit('context-menu', e, props.data, props.path)
+}
+
+function extractVariable() {
+  emit('extract-variable', props.path, props.keyName)
 }
 
 const typeBadgeMap: Record<string, string> = {
@@ -162,6 +168,12 @@ const typeBadgeMap: Record<string, string> = {
           {{ formatPrimitive() }}
         </span>
       </template>
+      <button
+        v-if="!isRoot && extractable"
+        class="extract-variable-btn"
+        title="提取为变量"
+        @click.stop="extractVariable"
+      ><Braces :size="13" /></button>
     </div>
 
     <template v-if="isContainer && expanded">
@@ -177,8 +189,10 @@ const typeBadgeMap: Record<string, string> = {
         :is-index="entry.isIndex"
         :max-depth="maxDepth"
         :expanded-paths="expandedPaths"
+        :extractable="extractable"
         @toggle="(p: string) => $emit('toggle', p)"
         @context-menu="(e: MouseEvent, v: unknown, p: string) => $emit('context-menu', e, v, p)"
+        @extract-variable="(p: string, k: string) => $emit('extract-variable', p, k)"
       />
       <div
         class="tree-row closing-row"
@@ -214,6 +228,36 @@ export default { name: 'JsonTreeNode' }
 
 .tree-row:hover {
   background: var(--bg-hover);
+}
+
+.extract-variable-btn {
+  position: sticky;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  margin-left: auto;
+  flex: 0 0 24px;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-color);
+  color: var(--accent-color);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.tree-row:hover .extract-variable-btn,
+.extract-variable-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.extract-variable-btn:hover {
+  background: color-mix(in srgb, var(--accent-color) 10%, var(--primary-color));
+  border-color: var(--accent-color);
 }
 
 .tree-row.has-match {

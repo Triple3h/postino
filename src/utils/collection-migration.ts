@@ -20,20 +20,21 @@ import { createDefaultAuthConfig } from '@/utils/auth'
 
 const ROOT_ORDER_MULTIPLIER = 10000
 
-/** Module.variables(remote/local 语义)→ Collection.variables(initialValue/currentValue 语义) */
+/** Module.variables(remote/local/environmentValues)→ Collection.variables 对应语义 */
 export function moduleVarsToCollectionVars(vars?: ModuleVariables): CollectionVariable[] {
   if (!vars) return []
   return Object.entries(vars).map(([key, value]) => ({
     key,
     initialValue: value.remote ?? '',
     currentValue: value.local || value.remote || '',
+    environmentValues: value.environmentValues ? { ...value.environmentValues } : undefined,
     secret: false,
     enabled: true,
     description: value.description,
   }))
 }
 
-/** 反向映射:currentValue 偏离 initialValue 时落到 local(用户覆盖),否则留空走 remote */
+/** 反向映射:currentValue 偏离 initialValue 时落到 local,并保留各环境值 */
 export function collectionVarsToModuleVars(vars: CollectionVariable[]): ModuleVariables {
   const result: ModuleVariables = {}
   for (const item of vars) {
@@ -41,6 +42,7 @@ export function collectionVarsToModuleVars(vars: CollectionVariable[]): ModuleVa
       remote: item.initialValue,
       local: item.currentValue && item.currentValue !== item.initialValue ? item.currentValue : '',
       description: item.description,
+      environmentValues: item.environmentValues ? { ...item.environmentValues } : undefined,
     }
   }
   return result
