@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
-import type { ApiConfig, Category, CollectionExportDocument, CollectionVariable, Environment, HistoryEntry, InterfaceNode, Module as ApiModule, ResponseData, AppSettings, Group } from '@/types'
+import type { ApiConfig, Category, CollectionExportDocument, CollectionVariable, Environment, HistoryEntry, InterfaceNode, KvPair, Module as ApiModule, ResponseData, AppSettings, Group } from '@/types'
 import type { ScriptLog, ScriptTestResult, ScriptVisualization } from '@/utils/pre-request'
 import type { ImportedPostmanTree } from '@/utils/import'
 import { db, plainPut } from '@/db'
@@ -10,6 +10,8 @@ import { DEFAULT_SHORTCUTS } from '@/utils/shortcuts'
 import { createDefaultAuthConfig, normalizeAuthConfig } from '@/utils/auth'
 import { collectionFromModule } from '@/utils/collection-migration'
 import { resolveVariableResolutions, type VariableResolution } from '@/utils/variables'
+import { collectionVariableValue } from '@/utils/variables'
+import { backfillParamsFromUrl, mergeUrlQueryIntoPairs } from '@/utils/url-params'
 
 const defaultSettings: AppSettings = {
   corsMode: 'cors',
@@ -239,6 +241,22 @@ function cloneApi(api: ApiConfig): ApiConfig {
   return JSON.parse(JSON.stringify(api)) as ApiConfig
 }
 
+/**
+ * 存量数据迁移:URL 里带 query 而参数表缺失对应行的请求,增量回填参数表并落库。
+ * 双向同步上线前录入的请求都走这里补齐;之后 updateApi 会保持两侧一致。
+ */
+function migrateUrlQueryIntoParams(apiList: ApiConfig[]): void {
+  for (const api of apiList) {
+    if (!api.url?.includes('?')) continue
+    const merged = backfillParamsFromUrl(api.url, api.params)
+    if (merged.length === (api.params ?? []).length) continue
+    api.params = merged
+    void db.apis.put(cloneApi(api)).catch(e => {
+      console.error('Failed to migrate url query into params:', e)
+    })
+  }
+}
+
 export const useAppStore = defineStore('app', () => {
   const apis = ref<Record<string, ApiConfig>>({})
   const groups = ref<Record<string, Group>>({})
@@ -313,6 +331,7 @@ export const useAppStore = defineStore('app', () => {
         apiMap[api.id] = api
       }
       apis.value = apiMap
+      migrateUrlQueryIntoParams(apiList)
 
       const groupMap: Record<string, Group> = {}
       for (const g of groupList) {
@@ -716,12 +735,22 @@ export const useAppStore = defineStore('app', () => {
     return !useWorkspaceStore().interfaces.some(item => item.apiId === apiId && (item.nodeType ?? 'request') === 'request')
   }
 
-  /** 编辑器改动:只写内存(标签圆点亮起),显式保存(saveApi / Cmd+S)才落库 */
+  /**
+   * 编辑器改动:只写内存(标签圆点亮起),显式保存(saveApi / Cmd+S)才落库。
+   * URL ↔ params 双向同步中,这里只负责「URL 变更 → 回填参数表」(内容不变时跳过,
+   * 避免替换数组身份导致 KvEditor 丢焦点);「参数表变更 → 重建 URL」由
+   * TabPanel.updateParams 等显式 UI 路径处理 —— 数据源同步/批量编辑等
+   * params-only 写入不能改动 url,否则重导入的 method+url 匹配会失配。
+   */
   function updateApi(id: string, updates: Partial<ApiConfig>) {
     const api = apis.value[id]
     if (api) {
       const merged = { ...updates, updatedAt: Date.now() }
       if (updates.auth) merged.auth = normalizeAuthConfig(updates.auth)
+      if (updates.url !== undefined && updates.params === undefined) {
+        const backfilled = mergeUrlQueryIntoPairs(updates.url, api.params)
+        if (JSON.stringify(backfilled) !== JSON.stringify(api.params ?? [])) merged.params = backfilled
+      }
       Object.assign(api, merged)
     }
   }
@@ -803,6 +832,8 @@ export const useAppStore = defineStore('app', () => {
 
   async function addApi(api: ApiConfig, moduleId?: string | null, parentId: string | null = null): Promise<void> {
     api.auth = normalizeAuthConfig(api.auth)
+    // 导入的请求可能 URL 带 query 而参数表为空:入库前增量回填,保持两侧一致
+    if (api.url?.includes('?')) api.params = backfillParamsFromUrl(api.url, api.params)
     apis.value[api.id] = api
     try {
       await plainPut(db.apis, api)

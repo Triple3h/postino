@@ -13,6 +13,7 @@ import { toast } from 'vue-sonner'
 import { createDefaultAuthConfig } from '@/utils/auth'
 import { COMMON_HEADER_NAMES } from '@/utils/common-headers'
 import { matchInheritedScript, resolveScriptChain } from '@/utils/inheritance'
+import { syncPairsToUrl } from '@/utils/url-params'
 import type { CollectionNode, KvPair, BodyConfig, AuthConfig as AuthConfigType, CookieItem, PostResponseExtractor } from '@/types'
 import type { ScriptSegment } from '@/utils/inheritance'
 
@@ -56,9 +57,15 @@ const commonHeaders = [
   { key: 'If-None-Match', label: 'ETag 缓存校验' },
 ]
 
+/** 参数表编辑 → 同步重建 URL query(URL ↔ params 双向同步的 params 侧) */
 function updateParams(params: KvPair[]) {
   if (isReadonlyModule.value) return
-  if (currentApi.value) store.updateApi(currentApi.value.id, { params })
+  if (!currentApi.value) return
+  const url = syncPairsToUrl(currentApi.value.url, params)
+  // url 与 params 一起传,store 不再二次推导;内容无变化时跳过,避免 KvEditor 行被重置丢焦点
+  const changed = url !== currentApi.value.url || JSON.stringify(params) !== JSON.stringify(currentApi.value.params ?? [])
+  if (!changed) return
+  store.updateApi(currentApi.value.id, { params, url })
 }
 
 function updateHeaders(headers: KvPair[]) {
